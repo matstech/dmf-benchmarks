@@ -1,0 +1,76 @@
+[nlp]
+spacy_model = "en_core_web_sm"
+model_name = "nomic-ai/nomic-embed-text-v1.5"
+vector_dim = 768
+
+[scoring_weights]
+alpha_density = 3.0
+beta_entities = 2.0
+gamma_sentiment = 0.2
+delta_technical = -2.5
+sigmoid_midpoint = 1.5
+entity_cap = 5
+social_threshold = 0.4
+min_social_score = 0.25
+lambda_operational = 0.75
+eta_constraint = 1.20
+eta_preference = 0.70
+eta_current_state = 0.60
+eta_correction = 0.90
+eta_replacement = 0.50
+eta_past_state = 0.0
+user_correction_boost = 0.15
+preference_update_boost = 0.10
+constraint_boost = 0.10
+corrected_by_user_penalty = 0.0
+
+[temporal_decay]
+lambda_base = 0.030
+inertia_strength = 0.55
+hard_kill_threshold = 0.04
+
+[memory_tiers]
+critical_max = 0.3
+unstable_max = 0.6
+healthy_min = 0.75
+
+[capacity]
+token_budget = 4096
+pruning_frequency_x = 3
+window_size = 10
+
+[pruning_priority]
+rho_constraint = 0.20
+rho_preference = 0.10
+rho_current_state = 0.10
+rho_correction = 0.15
+rho_replacement = 0.08
+superseded_past_penalty = 0.35
+
+[ltm]
+storage_type = "chroma"
+storage_path = "data/ltm_archive.jsonl"
+chroma_path = "data/ltm_chroma"
+collection_name = "dmf_memory"
+recall_limit = 8
+distance_threshold = 0.70
+enabled = true
+
+cards_enabled = true
+cards_path = "data/ltm_cards.jsonl"
+cards_collection_name = "dmf_cards"
+
+[retrieval]
+card_prefetch_k = 32
+raw_prefetch_k = 16
+symbolic_lookup_k = 20
+final_recall_limit = 8
+
+max_support_turns_per_card = 4
+include_superseded_when_historical = true
+include_neighbor_turns = true
+
+enable_raw_semantic = true
+enable_raw_lexical = true
+enable_card_semantic = true
+enable_card_symbolic = true

@@ -1,0 +1,19 @@
+search:
+  top_k: 8
+
+vector_store:
+  provider: "chroma"
+
+llm:
+  provider: "openai"
+  config:
+    model: "gpt-4o-mini"
+    temperature: 0
+
+embedder:
+  provider: "fastembed"
+  config:
+    model: "nomic-ai/nomic-embed-text-v1.5"
+    embedding_dims: 768
+
+version: "v1.1"
