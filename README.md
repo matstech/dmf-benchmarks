@@ -10,6 +10,13 @@ The pipelines in this repository default to a native approach. Unlike strict ben
 
 Specifically, during question answering, the framework-native context is retrieved and formatted into a minimal context injection prompt for the answerer model (fllowing the official guidelines and examples of each benchmark framework). This provides a realistic assessment of each framework's retrieval quality.
 
+## Dependencies
+
+This benchmark requires the following key memory frameworks:
+
+- **dmf**: The benchmark targets the official version of the [dmf-memory](pypi-placeholder).
+- **mem0**: The benchmark utilizes a custom fork of [Mem0](https://github.com/matstech/mem0). This fork is necessary to introduce internal telemetry instrumentation. The instrumentation enables the precise tracking of prompt and completion tokens, API call counts, and execution metrics from the underlying LLM and embedding operations within Mem0, which is required for rigorous resource-comparative reporting.
+
 ## Implemented Pipeline
 
 The evaluation pipeline runs through four major stages:
