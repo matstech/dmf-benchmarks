@@ -14,8 +14,43 @@ Specifically, during question answering, the framework-native context is retriev
 
 This benchmark requires the following key memory frameworks:
 
-- **dmf**: The benchmark targets the official version of the [dmf-memory](pypi-placeholder).
+- **dmf**: The benchmark targets the official version of the [dmf-memory](https://pypi.org/project/dmf-memory/).
 - **mem0**: The benchmark utilizes a custom fork of [Mem0](https://github.com/matstech/mem0). This fork is necessary to introduce internal telemetry instrumentation. The instrumentation enables the precise tracking of prompt and completion tokens, API call counts, and execution metrics from the underlying LLM and embedding operations within Mem0, which is required for rigorous resource-comparative reporting.
+
+## Environment
+
+The evaluation pipelines rely on LLM providers for generating answers and executing LLM-as-a-judge scoring. By default, the benchmark is configured to use **OpenAI** (defaulting to `gpt-4.1-mini` for the answerer and `gpt-5-mini` for the judge).
+
+However, you can alternatively use **OpenRouter** or a local **Ollama** instance by overriding the provider variables (see [Configuration Variables](#configuration-variables)).
+
+To configure your environment, create a `.env` file in the root of the project (which will be loaded automatically) or export the variables in your shell:
+
+### 1. OpenAI (Default)
+
+To use the default OpenAI models:
+
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+# Optional:
+# OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+### 2. OpenRouter (Alternative)
+
+To route calls through OpenRouter:
+
+```env
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+```
+
+### 3. Ollama (Alternative)
+
+For local, offline open-source models:
+
+```env
+OLLAMA_BASE_URL=http://localhost:11434
+```
 
 ## Implemented Pipeline
 
