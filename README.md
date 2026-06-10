@@ -1,5 +1,7 @@
 # DMF Benchmarks
 
+[![arXiv](https://img.shields.io/badge/arXiv-2606.03463-b31b1b.svg)](https://arxiv.org/abs/2606.03463)
+
 This repository contains the benchmark evaluation suite for the [dmf](https://github.com/matstech/dmf), a specialized memory system for conversational AI, comparing its performance and resource footprint against [Mem0](https://github.com/mem0ai/mem0).
 
 It implements isolated end-to-end evaluation pipelines for two standard long-term memory benchmarks: [LoCoMo (Long-Context Memory Benchmark)](https://github.com/snap-research/locomo) and [LongMemEval](https://github.com/xiaowu0162/LongMemEval/tree/main).
