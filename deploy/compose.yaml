@@ -70,6 +70,63 @@ services:
       retries: 3
     stop_grace_period: 30s
 
+  prometheus:
+    image: prom/prometheus:v2.55.1@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3
+    init: true
+    depends_on:
+      artifact-api:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - type: bind
+        source: ./prometheus/prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+        read_only: true
+      - type: bind
+        source: ./prometheus/rules
+        target: /etc/prometheus/rules
+        read_only: true
+      - type: volume
+        source: prometheus-data
+        target: /prometheus
+    stop_grace_period: 30s
+
+  grafana:
+    image: grafana/grafana:11.3.1@sha256:fa801ab6e1ae035135309580891e09f7eb94d1abdbd2106bdc288030b028158c
+    init: true
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_DEFAULT_THEME: light
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - type: bind
+        source: ./grafana/provisioning
+        target: /etc/grafana/provisioning
+        read_only: true
+      - type: bind
+        source: ./grafana/dashboards
+        target: /etc/grafana/dashboards
+        read_only: true
+      - type: volume
+        source: grafana-data
+        target: /var/lib/grafana
+    stop_grace_period: 30s
+
   benchmark:
     <<: *benchmark_image
     profiles:
@@ -83,7 +140,10 @@ services:
     command: ["--help"]
     environment:
       DMF_BENCH_RUNS_DIR: /bench/runs
+      DMF_BENCH_METRICS_PORT: "9464"
       QDRANT_URL: http://qdrant:6333
+    expose:
+      - "9464"
     volumes: *run_volumes
     read_only: true
     tmpfs:
@@ -94,3 +154,5 @@ volumes:
   qdrant-storage:
   benchmark-runs:
   benchmark-cache:
+  prometheus-data:
+  grafana-data:

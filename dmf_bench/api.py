@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.artifacts.local import resolve_committed_artifact_path
 from dmf_bench.atomic_io import write_json_atomic
+from dmf_bench.metrics import BenchmarkMetrics
 from dmf_bench.state import StateError
 
 
@@ -28,13 +30,21 @@ class PublishJsonArtifactsRequest(BaseModel):
     artifacts: list[JsonArtifactWrite] = Field(min_length=1)
 
 
-def create_app(runs_dir: str | Path) -> FastAPI:
+def create_app(runs_dir: str | Path, metrics: BenchmarkMetrics | None = None) -> FastAPI:
     store = LocalArtifactStore(runs_dir)
+    metrics_registry = metrics or BenchmarkMetrics()
     app = FastAPI(title="DMF Benchmark Artifact API")
 
     @app.get("/health")
     def health() -> dict[str, Any]:
         return {"status": "ok", "writable": True, "write_contract": "json-artifact-batch"}
+
+    @app.get("/metrics")
+    def metrics_endpoint() -> Response:
+        return Response(
+            content=metrics_registry.render(),
+            media_type=metrics_registry.content_type(),
+        )
 
     @app.get("/runs/{run_id}")
     def inspect_run(run_id: str) -> dict[str, Any]:
@@ -75,11 +85,28 @@ def create_app(runs_dir: str | Path) -> FastAPI:
         run_id: str,
         request: PublishJsonArtifactsRequest,
     ) -> dict[str, Any]:
+        started_at = time.perf_counter()
         try:
-            return publish_json_batch(store, run_id, request.artifacts)
+            result = publish_json_batch(store, run_id, request.artifacts)
+            metrics_registry.record_artifact_publish(
+                backend="local-only",
+                outcome="completed",
+                seconds=time.perf_counter() - started_at,
+            )
+            return result
         except StateError as exc:
+            metrics_registry.record_artifact_publish(
+                backend="local-only",
+                outcome="failed",
+                seconds=time.perf_counter() - started_at,
+            )
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
+            metrics_registry.record_artifact_publish(
+                backend="local-only",
+                outcome="failed",
+                seconds=time.perf_counter() - started_at,
+            )
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return app

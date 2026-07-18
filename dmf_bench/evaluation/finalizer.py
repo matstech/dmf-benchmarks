@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json, write_json_atomic
 from dmf_bench.contracts import RunManifest, RunStatus, sha256_file
 from dmf_bench.evaluation.registry import EvaluationRequirement, evaluation_plan_for
+from dmf_bench.metrics import BenchmarkMetrics
 from dmf_bench.state import StateError, load_manifest, plan_resume
 
 from . import locomo as locomo_evaluation
@@ -47,9 +49,11 @@ class OfflineLifecycleFinalizer:
         *,
         artifact_store: LocalArtifactStore,
         judge: JudgeAdapter,
+        metrics: BenchmarkMetrics | None = None,
     ) -> None:
         self.artifact_store = artifact_store
         self.judge = judge
+        self.metrics = metrics
 
     def finalize(
         self,
@@ -100,6 +104,8 @@ class OfflineLifecycleFinalizer:
                 committed=len(evaluations),
             )
             self._write_reports(run_dir, manifest, metadata, evaluations, reports)
+            if self.metrics is not None:
+                self.metrics.write_snapshot(run_dir)
             if interrupt_at == "after-report":
                 raise InjectedTerminalInterrupt("Interrupted after report phase.")
 
@@ -110,6 +116,7 @@ class OfflineLifecycleFinalizer:
                 phase="PUBLISHING",
                 committed=len(evaluations),
             )
+            publish_started_at = time.perf_counter()
             staged = self.artifact_store.stage(run_id, run_dir)
             if interrupt_at == "after-publish-stage":
                 raise InjectedTerminalInterrupt("Interrupted after publish stage.")
@@ -123,11 +130,23 @@ class OfflineLifecycleFinalizer:
             )
             receipt = self.artifact_store.verify(staged)
             marker = self.artifact_store.commit(staged, receipt)
+            if self.metrics is not None:
+                self.metrics.record_artifact_publish(
+                    backend="local-only",
+                    outcome="completed",
+                    seconds=time.perf_counter() - publish_started_at,
+                )
         except InjectedTerminalInterrupt:
             raise
         except StateError:
             raise
         except Exception as exc:
+            if self.metrics is not None:
+                self.metrics.record_artifact_publish(
+                    backend="local-only",
+                    outcome="failed",
+                    seconds=0.0,
+                )
             self._write_status(run_dir, manifest, state="FAILED_EVALUATION", phase="EVALUATING", committed=0)
             raise StateError(f"Finalization failed: {exc}") from exc
 
@@ -355,6 +374,16 @@ class OfflineLifecycleFinalizer:
             committed=committed,
         )
         write_json_atomic(run_dir / "run-status.json", status.to_dict())
+        if self.metrics is not None:
+            inputs = manifest.fingerprint_inputs
+            self.metrics.record_run_status(
+                benchmark=str(inputs.get("benchmark", "")),
+                framework=str(inputs.get("framework", "")),
+                protocol=str(inputs.get("protocol", "")),
+                phase=phase,
+                expected=len(manifest.expected_item_ids),
+                committed=committed,
+            )
 
 
 class OfflineFullLifecycleRunner:
@@ -366,11 +395,13 @@ class OfflineFullLifecycleRunner:
         prediction_runner: Any,
         artifact_store: LocalArtifactStore,
         judge: JudgeAdapter,
+        metrics: BenchmarkMetrics | None = None,
     ) -> None:
         self.prediction_runner = prediction_runner
         self.finalizer = OfflineLifecycleFinalizer(
             artifact_store=artifact_store,
             judge=judge,
+            metrics=metrics,
         )
 
     def run(

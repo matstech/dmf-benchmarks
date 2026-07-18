@@ -26,6 +26,7 @@ from dmf_bench.contracts import (
     scientific_fingerprint,
     sha256_file,
 )
+from dmf_bench.metrics import BenchmarkMetrics
 from dmf_bench.state import RunLock, StateError, UnitState, load_manifest, plan_resume
 
 
@@ -115,11 +116,13 @@ class LongMemEvalPredictOnlyRunner:
         artifact_store: LocalArtifactStore,
         framework: LongMemEvalQuestionFramework,
         answerer: AnswererAdapter,
+        metrics: BenchmarkMetrics | None = None,
     ) -> None:
         self.benchmark = benchmark or LongMemEvalAdapter()
         self.artifact_store = artifact_store
         self.framework = framework
         self.answerer = answerer
+        self.metrics = metrics
 
     def run(
         self,
@@ -162,6 +165,13 @@ class LongMemEvalPredictOnlyRunner:
                 self.artifact_store.create_run(manifest)
                 restart_ids = set(expected_unit_ids)
 
+            committed = self._committed_units(run_path, expected_unit_ids)
+            self._write_status(
+                run_path,
+                manifest,
+                expected=len(expected_unit_ids),
+                committed=len(committed),
+            )
             restarted: list[str] = []
             for unit in units:
                 if unit.unit_id not in restart_ids:
@@ -181,11 +191,20 @@ class LongMemEvalPredictOnlyRunner:
                     protocol,
                 )
                 self._write_committed_checkpoint(run_path, manifest, unit, prediction_path)
+                committed = self._committed_units(run_path, expected_unit_ids)
+                self._write_status(
+                    run_path,
+                    manifest,
+                    expected=len(expected_unit_ids),
+                    committed=len(committed),
+                )
                 if interrupt_at == "after-prediction-commit":
                     raise InjectedInterrupt("Interrupted after prediction commit.")
 
             committed = self._committed_units(run_path, expected_unit_ids)
             self._write_status(run_path, manifest, expected=len(expected_unit_ids), committed=len(committed))
+            if self.metrics is not None:
+                self.metrics.write_snapshot(run_path)
             return PredictOnlyResult(
                 run_id=manifest.run_id,
                 state="PARTIAL",
@@ -352,6 +371,15 @@ class LongMemEvalPredictOnlyRunner:
             committed=committed,
         )
         write_json_atomic(run_path / "run-status.json", status.to_dict())
+        if self.metrics is not None:
+            self.metrics.record_run_status(
+                benchmark=str(manifest.fingerprint_inputs.get("benchmark", "")),
+                framework=str(manifest.fingerprint_inputs.get("framework", "")),
+                protocol=str(manifest.fingerprint_inputs.get("protocol", "")),
+                phase="RUNNING",
+                expected=expected,
+                committed=committed,
+            )
 
 
 def _fingerprint_dataset(config: dict[str, Any]) -> dict[str, Any]:
@@ -386,11 +414,13 @@ class LoCoMoPredictOnlyRunner:
         artifact_store: LocalArtifactStore,
         framework: LoCoMoConversationFramework,
         answerer: AnswererAdapter,
+        metrics: BenchmarkMetrics | None = None,
     ) -> None:
         self.benchmark = benchmark or LoCoMoAdapter()
         self.artifact_store = artifact_store
         self.framework = framework
         self.answerer = answerer
+        self.metrics = metrics
 
     def run(
         self,
@@ -432,6 +462,13 @@ class LoCoMoPredictOnlyRunner:
                 self.artifact_store.create_run(manifest)
                 restart_ids = set(expected_unit_ids)
 
+            committed = self._committed_units(run_path, expected_unit_ids)
+            self._write_status(
+                run_path,
+                manifest,
+                expected=len(expected_unit_ids),
+                committed=len(committed),
+            )
             restarted: list[str] = []
             for unit in units:
                 if unit.unit_id not in restart_ids:
@@ -467,9 +504,18 @@ class LoCoMoPredictOnlyRunner:
                     unit,
                     (*prediction_paths, aggregate_path),
                 )
+                committed = self._committed_units(run_path, expected_unit_ids)
+                self._write_status(
+                    run_path,
+                    manifest,
+                    expected=len(expected_unit_ids),
+                    committed=len(committed),
+                )
 
             committed = self._committed_units(run_path, expected_unit_ids)
             self._write_status(run_path, manifest, expected=len(expected_unit_ids), committed=len(committed))
+            if self.metrics is not None:
+                self.metrics.write_snapshot(run_path)
             return PredictOnlyResult(
                 run_id=manifest.run_id,
                 state="PARTIAL",
@@ -665,6 +711,15 @@ class LoCoMoPredictOnlyRunner:
             committed=committed,
         )
         write_json_atomic(run_path / "run-status.json", status.to_dict())
+        if self.metrics is not None:
+            self.metrics.record_run_status(
+                benchmark=str(manifest.fingerprint_inputs.get("benchmark", "")),
+                framework=str(manifest.fingerprint_inputs.get("framework", "")),
+                protocol=str(manifest.fingerprint_inputs.get("protocol", "")),
+                phase="RUNNING",
+                expected=expected,
+                committed=committed,
+            )
 
 
 def load_json_dict(path: Path) -> dict[str, Any]:

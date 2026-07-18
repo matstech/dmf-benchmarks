@@ -1,0 +1,29 @@
+groups:
+  - name: dmf-benchmarks
+    rules:
+      - alert: DmfBenchmarkTargetDown
+        expr: up{job=~"artifact-api|qdrant"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DMF benchmark target is down"
+          description: "Prometheus cannot scrape {{ $labels.job }}."
+
+      - alert: DmfBenchmarkNoProgress
+        expr: time() - dmf_bench_last_progress_timestamp_seconds > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DMF benchmark progress appears stalled"
+          description: "No progress metric update has been observed for more than 15 minutes."
+
+      - alert: DmfBenchmarkFailedEvaluation
+        expr: dmf_bench_run_phase_active{phase=~"FAILED|FAILED_EVALUATION"} == 1
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DMF benchmark entered a failed terminal phase"
+          description: "The benchmark process reports phase {{ $labels.phase }}."
