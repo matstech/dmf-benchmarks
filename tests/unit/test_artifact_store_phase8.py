@@ -183,6 +183,14 @@ def test_artifact_api_rejects_write_after_completed(tmp_path: Path) -> None:
     assert response.status_code == 409
 
 
+def test_cli_does_not_expose_artifact_api_command(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["api", "--help"])
+
+    assert exc_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+
 def test_cli_inspect_and_verify_committed_artifacts_are_read_only(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

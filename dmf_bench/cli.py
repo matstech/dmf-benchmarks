@@ -8,7 +8,6 @@ import os
 import sys
 from typing import TextIO
 
-from .api import serve_artifact_api
 from .adapters.locomo import LoCoMoAdapter
 from .adapters.longmemeval import LongMemEvalAdapter
 from .artifacts import LocalArtifactStore
@@ -52,18 +51,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the prediction plan without mutating state.",
     )
-
-    api_parser = subparsers.add_parser(
-        "api",
-        help="Serve local JSON artifacts over a FastAPI HTTP API.",
-    )
-    api_parser.add_argument(
-        "--runs-dir",
-        default=os.getenv("DMF_BENCH_RUNS_DIR", "/bench/runs"),
-        help="Shared volume directory containing run directories.",
-    )
-    api_parser.add_argument("--host", default="127.0.0.1", help="Bind host.")
-    api_parser.add_argument("--port", type=int, default=8000, help="Bind port.")
 
     verify_parser = subparsers.add_parser(
         "verify",
@@ -143,10 +130,6 @@ def main(argv: list[str] | None = None) -> int:
         except (StateError, ValueError) as exc:
             parser.exit(3, f"dmf-bench verify: error: {exc}\n")
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
-        return 0
-
-    if args.command == "api":
-        serve_artifact_api(runs_dir=args.runs_dir, host=args.host, port=args.port)
         return 0
 
     if args.command == "run":
