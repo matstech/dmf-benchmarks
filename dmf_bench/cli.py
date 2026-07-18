@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import TextIO
 
+from .artifacts import LocalArtifactStore
 from .config import resolve_config
 from .registry import BENCHMARKS, FRAMEWORKS, PROTOCOLS, supported_combinations
+from .state import StateError, plan_resume
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,18 +33,31 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--protocol", choices=PROTOCOLS, help="Override protocol.")
 
     future_commands = {
-        "materialize-dataset": "Materialize a pinned dataset (not implemented in Phase 2).",
-        "run": "Run a complete benchmark lifecycle (not implemented in Phase 2).",
-        "resume": "Resume an existing run (not implemented in Phase 2).",
-        "status": "Inspect run status (not implemented in Phase 2).",
-        "health": "Check runner health (not implemented in Phase 2).",
-        "inspect": "Inspect manifest and artifacts (not implemented in Phase 2).",
-        "evaluate": "Run evaluation maintenance flow (not implemented in Phase 2).",
-        "report": "Run report maintenance flow (not implemented in Phase 2).",
-        "publish": "Run publish maintenance flow (not implemented in Phase 2).",
+        "materialize-dataset": "Materialize a pinned dataset (not implemented yet).",
+        "run": "Run a complete benchmark lifecycle (not implemented yet).",
+        "resume": "Plan resume for an existing run; Phase 3 supports --plan-only.",
+        "status": "Inspect run status (not implemented yet).",
+        "health": "Check runner health (not implemented yet).",
+        "inspect": "Inspect manifest and local artifact state.",
+        "evaluate": "Run evaluation maintenance flow (not implemented yet).",
+        "report": "Run report maintenance flow (not implemented yet).",
+        "publish": "Run publish maintenance flow (not implemented yet).",
     }
     for name, help_text in future_commands.items():
-        subparsers.add_parser(name, help=help_text)
+        command_parser = subparsers.add_parser(name, help=help_text)
+        if name in {"inspect", "resume"}:
+            command_parser.add_argument("--run-id", required=True, help="Run id to inspect.")
+            command_parser.add_argument(
+                "--runs-dir",
+                default=os.getenv("DMF_BENCH_RUNS_DIR", "/bench/runs"),
+                help="Directory containing run directories.",
+            )
+        if name == "resume":
+            command_parser.add_argument(
+                "--plan-only",
+                action="store_true",
+                help="Print the resume plan without mutating state.",
+            )
 
     return parser
 
@@ -70,9 +86,31 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    if args.command == "inspect":
+        try:
+            result = LocalArtifactStore(args.runs_dir).inspect(args.run_id)
+        except (StateError, ValueError) as exc:
+            parser.exit(3, f"dmf-bench inspect: error: {exc}\n")
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
+        return 0
+
+    if args.command == "resume":
+        if not args.plan_only:
+            parser.exit(
+                2,
+                "dmf-bench resume: error: Phase 3 only supports --plan-only\n",
+            )
+        try:
+            run_dir = LocalArtifactStore(args.runs_dir).run_dir(args.run_id)
+            result = plan_resume(run_dir).to_dict()
+        except (StateError, ValueError) as exc:
+            parser.exit(3, f"dmf-bench resume: error: {exc}\n")
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
+        return 0
+
     parser.exit(
         2,
-        f"dmf-bench: error: command {args.command!r} is not implemented in Phase 2\n",
+        f"dmf-bench: error: command {args.command!r} is not implemented yet\n",
     )
     return 2
 
