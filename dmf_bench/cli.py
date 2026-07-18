@@ -8,6 +8,7 @@ import os
 import sys
 from typing import TextIO
 
+from .api import serve_artifact_api
 from .adapters.locomo import LoCoMoAdapter
 from .adapters.longmemeval import LongMemEvalAdapter
 from .artifacts import LocalArtifactStore
@@ -36,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser(
         "run",
-        help="Run a benchmark lifecycle; Phase 5 exposes LongMemEval predict-only planning.",
+        help="Run a benchmark lifecycle; currently exposes predict-only planning.",
     )
     run_parser.add_argument("--config", required=True, help="Path to experiment JSON config.")
     run_parser.add_argument("--run-id", help="Override run id.")
@@ -44,17 +45,40 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--predict-only",
         action="store_true",
-        help="Run only prediction; Phase 5 treats this as a PARTIAL run.",
+        help="Run only prediction; this is a PARTIAL run.",
     )
     run_parser.add_argument(
         "--plan-only",
         action="store_true",
-        help="Print the Phase 5 prediction plan without mutating state.",
+        help="Print the prediction plan without mutating state.",
+    )
+
+    api_parser = subparsers.add_parser(
+        "api",
+        help="Serve local JSON artifacts over a FastAPI HTTP API.",
+    )
+    api_parser.add_argument(
+        "--runs-dir",
+        default=os.getenv("DMF_BENCH_RUNS_DIR", "/bench/runs"),
+        help="Shared volume directory containing run directories.",
+    )
+    api_parser.add_argument("--host", default="127.0.0.1", help="Bind host.")
+    api_parser.add_argument("--port", type=int, default=8000, help="Bind port.")
+
+    verify_parser = subparsers.add_parser(
+        "verify",
+        help="Verify a committed local artifact run without mutating it.",
+    )
+    verify_parser.add_argument("--run-id", required=True, help="Run id to verify.")
+    verify_parser.add_argument(
+        "--runs-dir",
+        default=os.getenv("DMF_BENCH_RUNS_DIR", "/bench/runs"),
+        help="Shared volume directory containing run directories.",
     )
 
     future_commands = {
         "materialize-dataset": "Materialize a pinned dataset (not implemented yet).",
-        "resume": "Plan resume for an existing run; Phase 3 supports --plan-only.",
+        "resume": "Plan resume for an existing run; currently supports --plan-only.",
         "status": "Inspect run status (not implemented yet).",
         "health": "Check runner health (not implemented yet).",
         "inspect": "Inspect manifest and local artifact state.",
@@ -107,10 +131,22 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "inspect":
         try:
-            result = LocalArtifactStore(args.runs_dir).inspect(args.run_id)
+            result = LocalArtifactStore(args.runs_dir).inspect_committed(args.run_id)
         except (StateError, ValueError) as exc:
             parser.exit(3, f"dmf-bench inspect: error: {exc}\n")
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
+        return 0
+
+    if args.command == "verify":
+        try:
+            result = LocalArtifactStore(args.runs_dir).verify_committed(args.run_id)
+        except (StateError, ValueError) as exc:
+            parser.exit(3, f"dmf-bench verify: error: {exc}\n")
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
+        return 0
+
+    if args.command == "api":
+        serve_artifact_api(runs_dir=args.runs_dir, host=args.host, port=args.port)
         return 0
 
     if args.command == "run":
@@ -155,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.plan_only:
             parser.exit(
                 2,
-                "dmf-bench resume: error: Phase 3 only supports --plan-only\n",
+                "dmf-bench resume: error: resume currently supports only --plan-only\n",
             )
         try:
             run_dir = LocalArtifactStore(args.runs_dir).run_dir(args.run_id)

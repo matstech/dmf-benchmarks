@@ -47,7 +47,7 @@ class LocalArtifactStore:
         self.runs_dir = Path(runs_dir)
 
     def run_dir(self, run_id: str) -> Path:
-        return self.runs_dir / run_id
+        return self.runs_dir / safe_run_id(run_id)
 
     def create_run(self, manifest: RunManifest) -> Path:
         run_dir = self.run_dir(manifest.run_id)
@@ -63,13 +63,114 @@ class LocalArtifactStore:
         run_dir = self.run_dir(run_id)
         manifest = load_manifest(run_dir)
         completion_path = run_dir / "final" / "COMPLETED.json"
+        final_manifest_path = run_dir / "final" / "manifest.json"
         return {
             "run_id": run_id,
             "run_dir": str(run_dir),
             "manifest": manifest.to_dict(),
             "completed": completion_path.exists(),
             "completion_path": str(completion_path) if completion_path.exists() else None,
+            "final_manifest_path": str(final_manifest_path) if final_manifest_path.exists() else None,
         }
+
+    def inspect_committed(self, run_id: str) -> dict[str, Any]:
+        run_dir = self.run_dir(run_id)
+        base = self.inspect(run_id)
+        final_dir = run_dir / "final"
+        completion_path = final_dir / "COMPLETED.json"
+        final_manifest_path = final_dir / "manifest.json"
+        completion = read_json(completion_path) if completion_path.exists() else None
+        final_manifest = read_json(final_manifest_path) if final_manifest_path.exists() else None
+        artifacts = []
+        if isinstance(final_manifest, dict):
+            artifacts = list(final_manifest.get("artifacts") or [])
+        return {
+            **base,
+            "backend": "local-only",
+            "shared_volume_root": str(self.runs_dir),
+            "api_mode": "read-write-json-artifacts",
+            "writable_api": True,
+            "retry_policy": local_only_retry_policy(),
+            "completion": completion,
+            "artifact_count": len(artifacts),
+            "artifacts": artifacts,
+        }
+
+    def verify_committed(self, run_id: str) -> dict[str, Any]:
+        run_dir = self.run_dir(run_id)
+        manifest = load_manifest(run_dir)
+        final_dir = run_dir / "final"
+        completion_path = final_dir / "COMPLETED.json"
+        final_manifest_path = final_dir / "manifest.json"
+
+        if not completion_path.is_file():
+            raise StateError(f"Missing completion marker: {completion_path}")
+        if not final_manifest_path.is_file():
+            raise StateError(f"Missing final manifest: {final_manifest_path}")
+
+        completion = read_json(completion_path)
+        if not isinstance(completion, dict):
+            raise StateError("Completion marker must be a JSON object.")
+        final_manifest = read_json(final_manifest_path)
+        if not isinstance(final_manifest, dict):
+            raise StateError("Final manifest must be a JSON object.")
+
+        if completion.get("run_id") != manifest.run_id:
+            raise StateError("Completion marker run_id mismatch.")
+        if completion.get("scientific_fingerprint") != manifest.scientific_fingerprint:
+            raise StateError("Completion marker scientific_fingerprint mismatch.")
+        if completion.get("final_manifest_sha256") != sha256_file(final_manifest_path):
+            raise StateError("Completion marker final_manifest_sha256 mismatch.")
+        if final_manifest.get("run_id") != manifest.run_id:
+            raise StateError("Final manifest run_id mismatch.")
+
+        artifacts = final_manifest.get("artifacts")
+        if not isinstance(artifacts, list) or not artifacts:
+            raise StateError("Final manifest must list at least one artifact.")
+
+        verified: list[dict[str, Any]] = []
+        for raw_artifact in artifacts:
+            artifact = ArtifactRef.from_dict(raw_artifact)
+            path = resolve_committed_artifact_path(final_dir, artifact.path)
+            if not path.is_file():
+                raise StateError(f"Missing committed artifact: {artifact.path}")
+            observed_bytes = path.stat().st_size
+            observed_sha256 = sha256_file(path)
+            if observed_bytes != artifact.bytes:
+                raise StateError(f"Committed artifact size mismatch: {artifact.path}")
+            if observed_sha256 != artifact.sha256:
+                raise StateError(f"Committed artifact checksum mismatch: {artifact.path}")
+            verified.append(artifact.to_dict())
+
+        expected_count = int(
+            ((completion.get("verification") or {}).get("verified_artifact_count") or 0)
+        )
+        if expected_count != len(verified):
+            raise StateError("Completion marker verified_artifact_count mismatch.")
+
+        return {
+            "run_id": manifest.run_id,
+            "backend": "local-only",
+            "shared_volume_root": str(self.runs_dir),
+            "retry_policy": local_only_retry_policy(),
+            "status": "verified",
+            "completion_path": str(completion_path),
+            "final_manifest_path": str(final_manifest_path),
+            "final_manifest_sha256": completion["final_manifest_sha256"],
+            "verified_artifact_count": len(verified),
+            "artifacts": verified,
+        }
+
+    def committed_artifact_path(self, run_id: str, artifact_path: str) -> Path:
+        self.verify_committed(run_id)
+        final_dir = self.run_dir(run_id) / "final"
+        manifest = read_json(final_dir / "manifest.json")
+        if not isinstance(manifest, dict):
+            raise StateError("Final manifest must be a JSON object.")
+        allowed = {str(item.get("path")) for item in manifest.get("artifacts", []) if isinstance(item, dict)}
+        if artifact_path not in allowed:
+            raise StateError(f"Artifact is not listed in final manifest: {artifact_path}")
+        return resolve_committed_artifact_path(final_dir, artifact_path)
 
     def stage(self, run_id: str, source_dir: str | Path) -> StagedPublication:
         run_dir = self.run_dir(run_id)
@@ -173,3 +274,31 @@ def copy_tree_contents(source: Path, destination: Path) -> None:
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, target)
+
+
+def safe_run_id(run_id: str) -> str:
+    normalized = str(run_id).strip()
+    path = Path(normalized)
+    if (
+        not normalized
+        or path.is_absolute()
+        or ".." in path.parts
+        or "/" in normalized
+        or "\\" in normalized
+    ):
+        raise StateError(f"Unsafe run_id: {run_id!r}")
+    return normalized
+
+
+def resolve_committed_artifact_path(final_dir: Path, artifact_path: str) -> Path:
+    relative = Path(artifact_path)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise StateError(f"Unsafe artifact path: {artifact_path!r}")
+    return final_dir / relative
+
+
+def local_only_retry_policy() -> dict[str, str]:
+    return {
+        "status": "NOT_APPLICABLE",
+        "reason": "local-only filesystem publication uses atomic rename and explicit verify; no remote retry loop or SDK is involved.",
+    }
