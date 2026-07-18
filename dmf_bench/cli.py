@@ -8,6 +8,7 @@ import os
 import sys
 from typing import TextIO
 
+from .adapters.longmemeval import LongMemEvalAdapter
 from .artifacts import LocalArtifactStore
 from .config import resolve_config
 from .registry import BENCHMARKS, FRAMEWORKS, PROTOCOLS, supported_combinations
@@ -32,9 +33,26 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--framework", choices=sorted(FRAMEWORKS), help="Override framework.")
     validate_parser.add_argument("--protocol", choices=PROTOCOLS, help="Override protocol.")
 
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Run a benchmark lifecycle; Phase 5 exposes LongMemEval predict-only planning.",
+    )
+    run_parser.add_argument("--config", required=True, help="Path to experiment JSON config.")
+    run_parser.add_argument("--run-id", help="Override run id.")
+    run_parser.add_argument("--resume", action="store_true", help="Resume an existing run.")
+    run_parser.add_argument(
+        "--predict-only",
+        action="store_true",
+        help="Run only prediction; Phase 5 treats this as a PARTIAL run.",
+    )
+    run_parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="Print the Phase 5 prediction plan without mutating state.",
+    )
+
     future_commands = {
         "materialize-dataset": "Materialize a pinned dataset (not implemented yet).",
-        "run": "Run a complete benchmark lifecycle (not implemented yet).",
         "resume": "Plan resume for an existing run; Phase 3 supports --plan-only.",
         "status": "Inspect run status (not implemented yet).",
         "health": "Check runner health (not implemented yet).",
@@ -93,6 +111,35 @@ def main(argv: list[str] | None = None) -> int:
             parser.exit(3, f"dmf-bench inspect: error: {exc}\n")
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
         return 0
+
+    if args.command == "run":
+        if not args.predict_only:
+            parser.exit(2, "dmf-bench run: error: Phase 5 requires --predict-only\n")
+        try:
+            resolved = resolve_config(args.config)
+            if resolved.data["benchmark"] != "longmemeval":
+                raise ValueError("Phase 5 run only supports benchmark='longmemeval'.")
+            units = LongMemEvalAdapter().enumerate_units(resolved.data)
+        except (FileNotFoundError, ValueError) as exc:
+            parser.exit(2, f"dmf-bench run: error: {exc}\n")
+        if args.plan_only:
+            result = {
+                "run_id": args.run_id or resolved.data.get("experiment_id"),
+                "state": "PLANNED",
+                "benchmark": resolved.data["benchmark"],
+                "framework": resolved.data["framework"],
+                "protocol": resolved.data["protocol"],
+                "predict_only_state": "PARTIAL",
+                "resume": bool(args.resume),
+                "expected_unit_ids": [unit.unit_id for unit in units],
+            }
+            print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
+            return 0
+        parser.exit(
+            2,
+            "dmf-bench run: error: Phase 5 CLI execution requires injected "
+            "framework and answerer adapters; use --plan-only here\n",
+        )
 
     if args.command == "resume":
         if not args.plan_only:
