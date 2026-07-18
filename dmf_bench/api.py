@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,10 @@ def create_app(runs_dir: str | Path) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return app
+
+
+def create_default_app() -> FastAPI:
+    return create_app(os.getenv("DMF_BENCH_RUNS_DIR", "/bench/runs"))
 
 
 def publish_json_batch(

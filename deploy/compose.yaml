@@ -1,0 +1,96 @@
+name: dmf-benchmarks
+
+x-benchmark-image: &benchmark_image
+  image: dmf-benchmarks:local
+  build:
+    context: ..
+    dockerfile: Dockerfile
+
+x-run-volumes: &run_volumes
+  - type: bind
+    source: ../config
+    target: /bench/config
+    read_only: true
+  - type: bind
+    source: ../datasets
+    target: /bench/datasets
+    read_only: true
+  - type: volume
+    source: benchmark-runs
+    target: /bench/runs
+  - type: volume
+    source: benchmark-cache
+    target: /bench/cache
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.18.2@sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c
+    init: true
+    ports:
+      - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
+    expose:
+      - "6334"
+    volumes:
+      - type: volume
+        source: qdrant-storage
+        target: /qdrant/storage
+    stop_grace_period: 30s
+
+  artifact-api:
+    <<: *benchmark_image
+    init: true
+    depends_on:
+      qdrant:
+        condition: service_started
+    entrypoint: ["python", "-m", "uvicorn"]
+    command:
+      - "dmf_bench.api:create_default_app"
+      - "--factory"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+    environment:
+      DMF_BENCH_RUNS_DIR: /bench/runs
+    ports:
+      - "127.0.0.1:${DMF_ARTIFACT_API_PORT:-8000}:8000"
+    volumes: *run_volumes
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    stop_grace_period: 30s
+
+  benchmark:
+    <<: *benchmark_image
+    profiles:
+      - job
+    init: true
+    depends_on:
+      qdrant:
+        condition: service_started
+      artifact-api:
+        condition: service_healthy
+    command: ["--help"]
+    environment:
+      DMF_BENCH_RUNS_DIR: /bench/runs
+      QDRANT_URL: http://qdrant:6333
+    volumes: *run_volumes
+    read_only: true
+    tmpfs:
+      - /tmp
+    stop_grace_period: 30s
+
+volumes:
+  qdrant-storage:
+  benchmark-runs:
+  benchmark-cache:
