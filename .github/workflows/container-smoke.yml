@@ -1,0 +1,45 @@
+name: Container smoke
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - deploy/**
+      - dmf_bench/**
+      - pyproject.toml
+      - poetry.lock
+      - .github/workflows/container-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  container-smoke:
+    name: build image and validate local runtime config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact ref without external actions
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - name: Validate Compose config
+        run: docker compose -f deploy/compose.yaml config
+
+      - name: Validate Prometheus config
+        run: |
+          docker run --rm --entrypoint /bin/promtool \
+            --mount type=bind,source="$PWD/deploy/prometheus",target=/etc/prometheus,readonly \
+            prom/prometheus:v2.55.1@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3 \
+            check config /etc/prometheus/prometheus.yml
+
+      - name: Build benchmark image
+        run: docker build --tag dmf-benchmarks:ci .
+
+      - name: Root filesystem smoke
+        run: docker run --rm --read-only --tmpfs /tmp dmf-benchmarks:ci list

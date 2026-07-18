@@ -1,0 +1,30 @@
+name: Scientific canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_costs:
+        description: Type APPROVED to acknowledge provider/runtime cost before enabling a future canary run.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: manual cost gate
+    runs-on: ubuntu-24.04
+    environment: scientific-canary
+    timeout-minutes: 5
+    steps:
+      - name: Require explicit cost approval
+        run: |
+          if [ "${{ inputs.confirm_costs }}" != "APPROVED" ]; then
+            echo "Scientific canary is gated. Re-run with confirm_costs=APPROVED."
+            exit 1
+          fi
+
+      - name: Document current canary status
+        run: |
+          echo "No provider-backed scientific canary is executed in this phase."
+          echo "Future canary runs must use protected environment secrets and explicit approval."
