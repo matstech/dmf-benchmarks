@@ -8,6 +8,7 @@ import os
 import sys
 from typing import TextIO
 
+from .adapters.locomo import LoCoMoAdapter
 from .adapters.longmemeval import LongMemEvalAdapter
 from .artifacts import LocalArtifactStore
 from .config import resolve_config
@@ -114,12 +115,20 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "run":
         if not args.predict_only:
-            parser.exit(2, "dmf-bench run: error: Phase 5 requires --predict-only\n")
+            parser.exit(2, "dmf-bench run: error: this phase requires --predict-only\n")
         try:
             resolved = resolve_config(args.config)
-            if resolved.data["benchmark"] != "longmemeval":
-                raise ValueError("Phase 5 run only supports benchmark='longmemeval'.")
-            units = LongMemEvalAdapter().enumerate_units(resolved.data)
+            if resolved.data["benchmark"] == "longmemeval":
+                units = LongMemEvalAdapter().enumerate_units(resolved.data)
+                expected_question_ids = [unit.unit_id for unit in units]
+            elif resolved.data["benchmark"] == "locomo":
+                adapter = LoCoMoAdapter()
+                units = adapter.enumerate_units(resolved.data)
+                expected_question_ids = list(adapter.expected_question_ids(resolved.data))
+            else:
+                raise ValueError(
+                    "run --predict-only currently supports benchmark='longmemeval' or 'locomo'."
+                )
         except (FileNotFoundError, ValueError) as exc:
             parser.exit(2, f"dmf-bench run: error: {exc}\n")
         if args.plan_only:
@@ -132,12 +141,13 @@ def main(argv: list[str] | None = None) -> int:
                 "predict_only_state": "PARTIAL",
                 "resume": bool(args.resume),
                 "expected_unit_ids": [unit.unit_id for unit in units],
+                "expected_question_ids": expected_question_ids,
             }
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
             return 0
         parser.exit(
             2,
-            "dmf-bench run: error: Phase 5 CLI execution requires injected "
+            "dmf-bench run: error: CLI execution requires injected "
             "framework and answerer adapters; use --plan-only here\n",
         )
 

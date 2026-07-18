@@ -10,6 +10,7 @@ from .base import (
     LocalFileResource,
     ResumeCapability,
 )
+from .locomo import LoCoMoAdapter
 from .longmemeval import LongMemEvalAdapter
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "FrameworkCapability",
     "JudgeAdapter",
     "LocalFileResource",
+    "LoCoMoAdapter",
     "LongMemEvalAdapter",
     "ResumeCapability",
 ]
