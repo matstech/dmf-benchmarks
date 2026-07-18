@@ -1,0 +1,53 @@
+[
+  {
+    "conversation": {
+      "speaker_a": "Alice",
+      "speaker_b": "Bob",
+      "session_1_date_time": "9:00 am on 01 January, 2024",
+      "session_1": [
+        {
+          "dia_id": "D1:1",
+          "speaker": "Alice",
+          "text": "I adopted a grey cat named Pixel.",
+          "query": "",
+          "blip_caption": ""
+        },
+        {
+          "dia_id": "D1:2",
+          "speaker": "Bob",
+          "text": "Pixel likes salmon treats.",
+          "query": "",
+          "blip_caption": ""
+        }
+      ],
+      "session_2_date_time": "10:00 am on 05 January, 2024",
+      "session_2": [
+        {
+          "dia_id": "D2:1",
+          "speaker": "Alice",
+          "text": "I moved Pixel's bed near the kitchen window.",
+          "query": "cat bed",
+          "blip_caption": "a blue pet bed"
+        }
+      ]
+    },
+    "qa": [
+      {
+        "question": "What is Alice's cat called?",
+        "answer": "Pixel",
+        "category": 1,
+        "evidence": [
+          "D1:1"
+        ]
+      },
+      {
+        "question": "Where did Alice move the bed?",
+        "answer": "near the kitchen window",
+        "category": 2,
+        "evidence": [
+          "D2:1"
+        ]
+      }
+    ]
+  }
+]
