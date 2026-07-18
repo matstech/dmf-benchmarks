@@ -7,10 +7,32 @@ import pytest
 
 from dmf_bench.cli import main
 from dmf_bench.config import resolve_config
+from dmf_bench.contracts import sha256_file
 from dmf_bench.registry import supported_combinations
 
 
 FIXTURE_DIR = Path(__file__).parents[1] / "fixtures"
+
+
+def write_valid_config(tmp_path: Path, *, dataset_path: Path | None = None) -> Path:
+    selected_dataset_path = dataset_path or (FIXTURE_DIR / "locomo-mini.json")
+    config = json.loads((FIXTURE_DIR / "experiment-valid.json").read_text(encoding="utf-8"))
+    config["runtime"] = {
+        "root": str(tmp_path),
+        "runs_dir": str(tmp_path / "runs"),
+        "cache_dir": str(tmp_path / "cache"),
+    }
+    config["dataset"] = {
+        "name": "locomo",
+        "source": "fixture",
+        "revision": "fixture-revision",
+        "sha256": sha256_file(selected_dataset_path),
+        "path": str(selected_dataset_path.resolve()),
+    }
+    config["artifact_store"] = {"type": "local", "uri": str(tmp_path / "runs")}
+    target = tmp_path / "experiment-valid.json"
+    target.write_text(json.dumps(config), encoding="utf-8")
+    return target
 
 
 def test_supported_combinations_are_explicit_and_deterministic() -> None:
@@ -26,8 +48,8 @@ def test_supported_combinations_are_explicit_and_deterministic() -> None:
     ]
 
 
-def test_validate_resolves_absolute_paths_and_redacts_secrets() -> None:
-    resolved = resolve_config(FIXTURE_DIR / "experiment-valid.json")
+def test_validate_resolves_absolute_paths_and_redacts_secrets(tmp_path: Path) -> None:
+    resolved = resolve_config(write_valid_config(tmp_path))
 
     redacted = resolved.redacted()
 
@@ -41,6 +63,18 @@ def test_validate_rejects_invalid_config_before_runtime_io() -> None:
         resolve_config(FIXTURE_DIR / "experiment-invalid.json")
 
 
+def test_validate_rejects_mutated_materialized_dataset(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "locomo-mini.json"
+    dataset_path.write_text((FIXTURE_DIR / "locomo-mini.json").read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    config_path = write_valid_config(tmp_path, dataset_path=dataset_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["dataset"]["sha256"] = sha256_file(FIXTURE_DIR / "locomo-mini.json")
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="dataset SHA-256 mismatch"):
+        resolve_config(config_path)
+
+
 def test_cli_list_prints_supported_surface(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["list"]) == 0
 
@@ -51,8 +85,11 @@ def test_cli_list_prints_supported_surface(capsys: pytest.CaptureFixture[str]) -
     assert "longmemeval/mem0/native" in output
 
 
-def test_cli_validate_prints_redacted_json(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["validate", "--config", str(FIXTURE_DIR / "experiment-valid.json")]) == 0
+def test_cli_validate_prints_redacted_json(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["validate", "--config", str(write_valid_config(tmp_path))]) == 0
 
     output = capsys.readouterr().out
 

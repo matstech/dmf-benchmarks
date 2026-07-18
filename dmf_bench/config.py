@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .contracts import sha256_file
 from .registry import validate_combination
 
 
@@ -118,6 +119,7 @@ def validate_config(data: dict[str, Any], *, source_path: Path) -> None:
         raise ValueError("dataset.name must match benchmark.")
     validate_absolute_path(dataset, "path", source_path=source_path)
     require_sha256(dataset, "sha256")
+    verify_dataset_file(dataset)
 
     selection = required_mapping(data, "selection")
     ordered_item_ids = selection.get("ordered_item_ids")
@@ -184,6 +186,19 @@ def require_sha256(data: dict[str, Any], key: str) -> None:
         raise ValueError(f"{key} must be a 64-character lowercase SHA-256 hex digest.")
     if any(char not in "0123456789abcdef" for char in value):
         raise ValueError(f"{key} must be a lowercase SHA-256 hex digest.")
+
+
+def verify_dataset_file(dataset: dict[str, Any]) -> None:
+    dataset_path = Path(str(dataset["path"]))
+    if not dataset_path.is_file():
+        raise ValueError(f"dataset.path must point to a materialized file: {dataset_path}")
+    expected_sha256 = str(dataset["sha256"])
+    observed_sha256 = sha256_file(dataset_path)
+    if observed_sha256 != expected_sha256:
+        raise ValueError(
+            "dataset SHA-256 mismatch: "
+            f"expected {expected_sha256}, got {observed_sha256}"
+        )
 
 
 def redact_secrets(value: Any) -> Any:

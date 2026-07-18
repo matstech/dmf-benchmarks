@@ -27,6 +27,7 @@ from dmf_bench.contracts import (
     sha256_file,
 )
 from dmf_bench.metrics import BenchmarkMetrics
+from dmf_bench.provenance import build_run_provenance
 from dmf_bench.state import RunLock, StateError, UnitState, load_manifest, plan_resume
 
 
@@ -243,6 +244,7 @@ class LongMemEvalPredictOnlyRunner:
             expected_item_ids=expected_unit_ids,
             atomic_unit=self.benchmark.atomic_unit,
             resume_policy="restart-unit",
+            provenance=build_run_provenance(config, fingerprint_inputs=fingerprint_inputs),
         )
 
     def _validate_resume_manifest(self, run_path: Path, expected: RunManifest) -> None:
@@ -555,6 +557,7 @@ class LoCoMoPredictOnlyRunner:
             expected_item_ids=expected_unit_ids,
             atomic_unit=self.benchmark.atomic_unit,
             resume_policy="restart-unit",
+            provenance=build_run_provenance(config, fingerprint_inputs=fingerprint_inputs),
         )
 
     def _validate_resume_manifest(self, run_path: Path, expected: RunManifest) -> None:

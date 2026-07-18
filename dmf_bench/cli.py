@@ -12,6 +12,7 @@ from .adapters.locomo import LoCoMoAdapter
 from .adapters.longmemeval import LongMemEvalAdapter
 from .artifacts import LocalArtifactStore
 from .config import resolve_config
+from .datasets import dataset_config_for_id, load_dataset_registry, materialize_dataset, registry_as_dict
 from .registry import BENCHMARKS, FRAMEWORKS, PROTOCOLS, supported_combinations
 from .state import StateError, plan_resume
 
@@ -63,8 +64,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Shared volume directory containing run directories.",
     )
 
+    dataset_parser = subparsers.add_parser(
+        "materialize-dataset",
+        help="Explicitly materialize a pinned dataset from the versioned registry.",
+    )
+    dataset_parser.add_argument("--dataset-id", required=True, help="Dataset registry id.")
+    dataset_parser.add_argument("--output-dir", required=True, help="Directory where the dataset file is published.")
+    dataset_parser.add_argument(
+        "--registry",
+        help="Optional dataset registry JSON. Defaults to the built-in registry.",
+    )
+
+    subparsers.add_parser("list-datasets", help="List dataset registry entries.")
+
     future_commands = {
-        "materialize-dataset": "Materialize a pinned dataset (not implemented yet).",
         "resume": "Plan resume for an existing run; currently supports --plan-only.",
         "status": "Inspect run status (not implemented yet).",
         "health": "Check runner health (not implemented yet).",
@@ -129,6 +142,31 @@ def main(argv: list[str] | None = None) -> int:
             result = LocalArtifactStore(args.runs_dir).verify_committed(args.run_id)
         except (StateError, ValueError) as exc:
             parser.exit(3, f"dmf-bench verify: error: {exc}\n")
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
+        return 0
+
+    if args.command == "list-datasets":
+        result = registry_as_dict(load_dataset_registry())
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
+        return 0
+
+    if args.command == "materialize-dataset":
+        try:
+            dataset_path = materialize_dataset(
+                dataset_id=args.dataset_id,
+                output_dir=args.output_dir,
+                registry_path=args.registry,
+            )
+            result = {
+                "schema_version": 1,
+                "dataset": dataset_config_for_id(
+                    dataset_id=args.dataset_id,
+                    path=dataset_path,
+                    registry_path=args.registry,
+                ),
+            }
+        except (OSError, ValueError) as exc:
+            parser.exit(3, f"dmf-bench materialize-dataset: error: {exc}\n")
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
         return 0
 

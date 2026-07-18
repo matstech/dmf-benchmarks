@@ -79,6 +79,7 @@ class RunManifest:
     expected_item_ids: tuple[str, ...]
     atomic_unit: str
     resume_policy: str = "restart-unit"
+    provenance: dict[str, Any] = field(default_factory=dict)
     schema_version: int = 1
 
     def __post_init__(self) -> None:
@@ -101,6 +102,7 @@ class RunManifest:
             "expected_item_ids": list(self.expected_item_ids),
             "atomic_unit": self.atomic_unit,
             "resume_policy": self.resume_policy,
+            "provenance": self.provenance,
         }
 
     @classmethod
@@ -113,6 +115,7 @@ class RunManifest:
             expected_item_ids=tuple(str(item) for item in data["expected_item_ids"]),
             atomic_unit=str(data["atomic_unit"]),
             resume_policy=str(data.get("resume_policy", "restart-unit")),
+            provenance=dict(data.get("provenance", {})),
         )
 
 
