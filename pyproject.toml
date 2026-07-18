@@ -9,10 +9,23 @@ dependencies = [
     "mem0ai @ git+https://github.com/matstech/mem0.git@8db3430d20f8b76cb7f80fb30df048321863392f",
     "requests>=2.32,<3.0",
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+    "rich (>=15,<16)",
+    "python-dotenv (>=1,<2)",
+    "pyyaml (>=6,<7)",
+    "psutil (>=7,<8)",
 ]
 
+[project.scripts]
+dmf-bench = "dmf_bench.cli:main"
+
 [tool.poetry]
-package-mode = false
+package-mode = true
+packages = [
+    { include = "dmf_bench" },
+    { include = "common" },
+    { include = "locomo" },
+    { include = "longmemeval" },
+]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

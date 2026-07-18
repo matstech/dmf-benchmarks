@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "experiment_id": "fixture-locomo-dmf-strict",
+  "benchmark": "locomo",
+  "framework": "dmf",
+  "protocol": "strict",
+  "runtime": {
+    "root": "/bench",
+    "runs_dir": "/bench/runs",
+    "cache_dir": "/bench/cache"
+  },
+  "dataset": {
+    "name": "locomo",
+    "source": "fixture",
+    "revision": "fixture-revision",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "path": "/bench/datasets/locomo/fixture/locomo.json"
+  },
+  "selection": {
+    "ordered_item_ids": [
+      "conversation-0001"
+    ],
+    "filters": {
+      "categories": [
+        1
+      ]
+    },
+    "seed": null
+  },
+  "models": {
+    "answerer": {
+      "provider": "openai",
+      "requested_model": "gpt-4.1-mini",
+      "parameters": {
+        "temperature": 0
+      },
+      "api_key": "must-not-leak"
+    },
+    "judge": {
+      "provider": "openai",
+      "requested_model": "gpt-5-mini",
+      "parameters": {
+        "temperature": 0
+      }
+    }
+  },
+  "evaluation": {
+    "required": [
+      "primary_judge_score",
+      "rigorous_report"
+    ],
+    "optional": [
+      "ablation_report"
+    ],
+    "ablation_required": false
+  },
+  "artifact_store": {
+    "type": "local",
+    "uri": "/bench/runs"
+  }
+}
