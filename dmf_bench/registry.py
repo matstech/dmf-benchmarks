@@ -39,31 +39,50 @@ FRAMEWORKS: dict[str, FrameworkInfo] = {
 PROTOCOLS: tuple[str, ...] = ("strict", "native")
 
 
-def supported_combinations() -> list[tuple[str, str, str]]:
+def supported_combinations(
+    *,
+    benchmarks: dict[str, BenchmarkInfo] | None = None,
+    frameworks: dict[str, FrameworkInfo] | None = None,
+    protocols: tuple[str, ...] | None = None,
+) -> list[tuple[str, str, str]]:
     """Return supported benchmark/framework/protocol triples in deterministic order."""
+    selected_benchmarks = benchmarks or BENCHMARKS
+    selected_frameworks = frameworks or FRAMEWORKS
+    selected_protocols = protocols or PROTOCOLS
     return [
         (benchmark, framework, protocol)
-        for benchmark in sorted(BENCHMARKS)
-        for framework in sorted(FRAMEWORKS)
-        for protocol in PROTOCOLS
-        if protocol in BENCHMARKS[benchmark].protocols
+        for benchmark in sorted(selected_benchmarks)
+        for framework in sorted(selected_frameworks)
+        for protocol in selected_protocols
+        if protocol in selected_benchmarks[benchmark].protocols
     ]
 
 
-def validate_combination(benchmark: str, framework: str, protocol: str) -> None:
-    if benchmark not in BENCHMARKS:
+def validate_combination(
+    benchmark: str,
+    framework: str,
+    protocol: str,
+    *,
+    benchmarks: dict[str, BenchmarkInfo] | None = None,
+    frameworks: dict[str, FrameworkInfo] | None = None,
+    protocols: tuple[str, ...] | None = None,
+) -> None:
+    selected_benchmarks = benchmarks or BENCHMARKS
+    selected_frameworks = frameworks or FRAMEWORKS
+    selected_protocols = protocols or PROTOCOLS
+    if benchmark not in selected_benchmarks:
         raise ValueError(
-            f"Unsupported benchmark {benchmark!r}. Supported: {', '.join(sorted(BENCHMARKS))}."
+            f"Unsupported benchmark {benchmark!r}. Supported: {', '.join(sorted(selected_benchmarks))}."
         )
-    if framework not in FRAMEWORKS:
+    if framework not in selected_frameworks:
         raise ValueError(
-            f"Unsupported framework {framework!r}. Supported: {', '.join(sorted(FRAMEWORKS))}."
+            f"Unsupported framework {framework!r}. Supported: {', '.join(sorted(selected_frameworks))}."
         )
-    if protocol not in PROTOCOLS:
+    if protocol not in selected_protocols:
         raise ValueError(
-            f"Unsupported protocol {protocol!r}. Supported: {', '.join(PROTOCOLS)}."
+            f"Unsupported protocol {protocol!r}. Supported: {', '.join(selected_protocols)}."
         )
-    if protocol not in BENCHMARKS[benchmark].protocols:
+    if protocol not in selected_benchmarks[benchmark].protocols:
         raise ValueError(
             f"Protocol {protocol!r} is not supported for benchmark {benchmark!r}."
         )

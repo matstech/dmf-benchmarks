@@ -21,8 +21,15 @@ def evaluation_plan_for(
     benchmark: str,
     protocol: str,
     framework: str,
+    plans: dict[tuple[str, str, str], tuple[EvaluationRequirement, ...]] | None = None,
 ) -> tuple[EvaluationRequirement, ...]:
     """Return an explicit evaluator table for one benchmark/protocol/framework."""
+    if plans is not None:
+        key = (benchmark, protocol, framework)
+        if key not in plans:
+            raise ValueError(f"Unsupported evaluation plan: {benchmark!r}/{protocol!r}/{framework!r}.")
+        return plans[key]
+
     if benchmark not in {"locomo", "longmemeval"}:
         raise ValueError(f"Unsupported benchmark for evaluation: {benchmark!r}.")
     if protocol not in {"strict", "native"}:

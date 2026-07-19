@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from dmf_bench.adapters.base import JudgeAdapter
 from dmf_bench.artifacts import LocalArtifactStore
@@ -17,6 +17,10 @@ from dmf_bench.state import StateError, load_manifest, plan_resume
 
 from . import locomo as locomo_evaluation
 from . import longmemeval as longmemeval_evaluation
+
+
+PredictionLoader = Callable[[Path, RunManifest], list[dict[str, Any]]]
+Evaluator = Callable[[list[dict[str, Any]], dict[str, Any]], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -50,10 +54,16 @@ class OfflineLifecycleFinalizer:
         artifact_store: LocalArtifactStore,
         judge: JudgeAdapter,
         metrics: BenchmarkMetrics | None = None,
+        evaluation_plans: dict[tuple[str, str, str], tuple[EvaluationRequirement, ...]] | None = None,
+        prediction_loaders: dict[str, PredictionLoader] | None = None,
+        evaluators: dict[str, Evaluator] | None = None,
     ) -> None:
         self.artifact_store = artifact_store
         self.judge = judge
         self.metrics = metrics
+        self.evaluation_plans = evaluation_plans
+        self.prediction_loaders = dict(prediction_loaders or {})
+        self.evaluators = dict(evaluators or {})
 
     def finalize(
         self,
@@ -184,6 +194,8 @@ class OfflineLifecycleFinalizer:
 
     def _load_predictions(self, run_dir: Path, manifest: RunManifest) -> list[dict[str, Any]]:
         benchmark = str(manifest.fingerprint_inputs.get("benchmark", ""))
+        if benchmark in self.prediction_loaders:
+            return self.prediction_loaders[benchmark](run_dir, manifest)
         predictions: list[dict[str, Any]] = []
         if benchmark == "longmemeval":
             for unit_id in manifest.expected_item_ids:
@@ -253,6 +265,7 @@ class OfflineLifecycleFinalizer:
             benchmark=benchmark,
             protocol=protocol,
             framework=framework,
+            plans=self.evaluation_plans,
         )
         reports: dict[str, Any] = {
             "schema_version": 1,
@@ -300,6 +313,8 @@ class OfflineLifecycleFinalizer:
                 "status": "NOT_APPLICABLE",
                 "reason": requirement.not_applicable_reason,
             }
+        if requirement.name in self.evaluators:
+            return self.evaluators[requirement.name](evaluations, metadata)
         if requirement.name == "primary_judge_score":
             return primary_judge_report(evaluations, metadata)
         if requirement.name == "rigorous_report":
