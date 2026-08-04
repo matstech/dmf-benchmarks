@@ -32,7 +32,7 @@ def evaluation_plan_for(
 
     if benchmark not in {"locomo", "longmemeval"}:
         raise ValueError(f"Unsupported benchmark for evaluation: {benchmark!r}.")
-    if protocol not in {"strict", "native"}:
+    if protocol != "native":
         raise ValueError(f"Unsupported protocol for evaluation: {protocol!r}.")
     if framework not in {"dmf", "mem0"}:
         raise ValueError(f"Unsupported framework for evaluation: {framework!r}.")

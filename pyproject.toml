@@ -17,6 +17,7 @@ dependencies = [
     "fastapi (>=0.136,<1.0)",
     "uvicorn (>=0.46,<1.0)",
     "prometheus-client (>=0.23,<1.0)",
+    "openai (>=2.30,<3.0)",
 ]
 
 [project.scripts]
@@ -24,6 +25,9 @@ dmf-bench = "dmf_bench.cli:main"
 
 [tool.poetry]
 package-mode = true
+include = [
+    { path = "dmf_bench/static/index.html", format = ["sdist", "wheel"] },
+]
 packages = [
     { include = "dmf_bench" },
     { include = "common" },

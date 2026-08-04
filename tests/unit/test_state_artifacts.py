@@ -9,7 +9,14 @@ import dmf_bench.atomic_io as atomic_io
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import AtomicWriteError, canonical_json_bytes, read_json, write_json_atomic
 from dmf_bench.cli import main
-from dmf_bench.contracts import RunManifest, UnitCheckpoint, hash_canonical_json, scientific_fingerprint
+from dmf_bench.contracts import (
+    ArtifactRef,
+    RunManifest,
+    UnitCheckpoint,
+    hash_canonical_json,
+    scientific_fingerprint,
+    sha256_file,
+)
 from dmf_bench.state import (
     RunLock,
     RunState,
@@ -44,11 +51,21 @@ def write_checkpoint(
     status: str = "COMMITTED",
     fingerprint: str = FINGERPRINT_A,
 ) -> None:
+    artifact_path = run_dir / "items" / unit_id / "result.json"
+    write_json_atomic(artifact_path, {"unit_id": unit_id})
+    artifacts = (
+        ArtifactRef(
+            path=artifact_path.relative_to(run_dir).as_posix(),
+            sha256=sha256_file(artifact_path),
+            bytes=artifact_path.stat().st_size,
+        ),
+    ) if status == "COMMITTED" else ()
     checkpoint = UnitCheckpoint(
         run_id=run_id,
         unit_id=unit_id,
         status=status,
         scientific_fingerprint=fingerprint,
+        artifacts=artifacts,
     )
     write_json_atomic(
         run_dir / "checkpoints" / unit_id / "checkpoint.json",
@@ -165,6 +182,26 @@ def test_local_artifact_store_writes_completion_marker_last(tmp_path: Path) -> N
     assert (run_dir / "final" / "manifest.json").exists()
     assert (run_dir / "final" / "results.json").exists()
     assert (run_dir / "final" / "COMPLETED.json").exists()
+
+
+def test_local_artifact_stage_verify_and_commit_are_idempotent(tmp_path: Path) -> None:
+    store = LocalArtifactStore(tmp_path / "runs")
+    store.create_run(make_manifest())
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    write_json_atomic(source_dir / "results.json", {"ok": True})
+
+    first_stage = store.stage("run-001", source_dir, publication_id="report-digest")
+    second_stage = store.stage("run-001", source_dir, publication_id="report-digest")
+    first_receipt = store.verify(first_stage)
+    second_receipt = store.verify(second_stage)
+    first_marker = store.commit(first_stage, first_receipt)
+    second_marker = store.commit(second_stage, second_receipt)
+
+    assert first_stage == second_stage
+    assert first_receipt == second_receipt
+    assert first_marker == second_marker
+    assert store.verify_committed("run-001")["status"] == "verified"
 
 
 def test_local_artifact_store_refuses_committed_overwrite(tmp_path: Path) -> None:

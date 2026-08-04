@@ -7,7 +7,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
+from .atomic_io import write_json_atomic
 from .contracts import sha256_file
 from .registry import validate_combination
 
@@ -51,11 +53,17 @@ class ResolvedConfig:
                     for name in ENV_SECRET_NAMES
                 }
                 env["endpoints"] = {
-                    name: os.getenv(name)
+                    name: sanitize_endpoint(os.environ[name])
                     for name in ENV_ENDPOINT_NAMES
                     if os.getenv(name)
                 }
         return redacted_data
+
+    def persist_redacted(self, run_dir: str | Path) -> Path:
+        """Persist the resolved non-secret config for a future run preflight."""
+        target = Path(run_dir) / "resolved-config.json"
+        write_json_atomic(target, self.redacted())
+        return target
 
 
 def load_experiment_config(path: str | Path) -> dict[str, Any]:
@@ -104,6 +112,7 @@ def resolve_config(
 def validate_config(data: dict[str, Any], *, source_path: Path) -> None:
     if data.get("schema_version") != 1:
         raise ValueError("Experiment config must declare schema_version=1.")
+    reject_inline_secrets(data)
 
     benchmark = required_string(data, "benchmark")
     framework = required_string(data, "framework")
@@ -113,11 +122,53 @@ def validate_config(data: dict[str, Any], *, source_path: Path) -> None:
     runtime = required_mapping(data, "runtime")
     for key in ("root", "runs_dir", "cache_dir"):
         validate_absolute_path(runtime, key, source_path=source_path)
+    runtime_root = Path(str(runtime["root"])).resolve()
+    for key in ("runs_dir", "cache_dir"):
+        validate_path_within_root(
+            Path(str(runtime[key])),
+            root=runtime_root,
+            field_name=f"runtime.{key}",
+        )
+    validate_port(runtime, "metrics_port")
+    log_level = required_string(runtime, "log_level").upper()
+    if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
+        raise ValueError("runtime.log_level must be DEBUG, INFO, WARNING, or ERROR.")
+
+    framework_config = required_mapping(data, "framework_config")
+    validate_absolute_path(framework_config, "path", source_path=source_path)
+    validate_path_within_root(
+        Path(str(framework_config["path"])),
+        root=runtime_root,
+        field_name="framework_config.path",
+    )
+    require_sha256(framework_config, "sha256")
+    framework_format = required_string(framework_config, "format").lower()
+    expected_format = "toml" if framework == "dmf" else "yaml"
+    if framework_format != expected_format:
+        raise ValueError(
+            f"framework_config.format must be {expected_format!r} for framework {framework!r}."
+        )
+    verify_pinned_file(
+        framework_config,
+        field_name="framework_config",
+    )
+
+    qdrant = required_mapping(data, "qdrant")
+    if required_string(qdrant, "endpoint_env") != "QDRANT_URL":
+        raise ValueError("qdrant.endpoint_env must be 'QDRANT_URL'.")
+    if required_string(qdrant, "retention") not in {"keep", "delete-on-success"}:
+        raise ValueError("qdrant.retention must be keep or delete-on-success.")
+    validate_positive_number(qdrant, "request_timeout_seconds")
 
     dataset = required_mapping(data, "dataset")
     if dataset.get("name") != benchmark:
         raise ValueError("dataset.name must match benchmark.")
     validate_absolute_path(dataset, "path", source_path=source_path)
+    validate_path_within_root(
+        Path(str(dataset["path"])),
+        root=runtime_root,
+        field_name="dataset.path",
+    )
     require_sha256(dataset, "sha256")
     verify_dataset_file(dataset)
 
@@ -133,9 +184,28 @@ def validate_config(data: dict[str, Any], *, source_path: Path) -> None:
         model = required_mapping(models, role)
         required_string(model, "provider")
         required_string(model, "requested_model")
-        parameters = model.get("parameters")
-        if parameters is not None and not isinstance(parameters, dict):
-            raise ValueError(f"models.{role}.parameters must be an object.")
+        parameters = required_mapping(model, "parameters")
+        unsupported_parameters = sorted(
+            set(parameters) - {"temperature", "max_tokens", "reasoning_effort"}
+        )
+        if unsupported_parameters:
+            raise ValueError(
+                f"models.{role}.parameters contains unsupported fields: "
+                f"{unsupported_parameters}."
+            )
+        validate_non_negative_number(parameters, "temperature")
+        validate_positive_integer(parameters, "max_tokens")
+        reasoning_effort = parameters.get("reasoning_effort")
+        if reasoning_effort is not None and (
+            not isinstance(reasoning_effort, str) or not reasoning_effort.strip()
+        ):
+            raise ValueError(
+                f"models.{role}.parameters.reasoning_effort must be a non-empty string or null."
+            )
+        model_runtime = required_mapping(model, "runtime")
+        validate_positive_number(model_runtime, "timeout_seconds")
+        validate_positive_integer(model_runtime, "rpm")
+        validate_non_negative_integer(model_runtime, "max_retries")
 
     evaluation = required_mapping(data, "evaluation")
     for key in ("required", "optional"):
@@ -149,6 +219,17 @@ def validate_config(data: dict[str, Any], *, source_path: Path) -> None:
     store_type = artifact_store.get("type")
     if store_type not in {"local", "s3-compatible"}:
         raise ValueError("artifact_store.type must be local or s3-compatible.")
+    if store_type == "local":
+        store_uri = Path(required_string(artifact_store, "uri"))
+        if not store_uri.is_absolute():
+            raise ValueError("artifact_store.uri must be absolute for a local store.")
+        validate_path_within_root(
+            store_uri,
+            root=runtime_root,
+            field_name="artifact_store.uri",
+        )
+        if store_uri.resolve() != Path(str(runtime["runs_dir"])).resolve():
+            raise ValueError("artifact_store.uri must match runtime.runs_dir.")
 
 
 def required_mapping(data: dict[str, Any], key: str) -> dict[str, Any]:
@@ -180,12 +261,55 @@ def validate_absolute_path(
         )
 
 
+def validate_path_within_root(
+    path: Path,
+    *,
+    root: Path,
+    field_name: str,
+) -> None:
+    resolved = path.resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError(
+            f"{field_name} must be contained by runtime.root {root}; got {resolved}."
+        )
+
+
 def require_sha256(data: dict[str, Any], key: str) -> None:
     value = data.get(key)
     if not isinstance(value, str) or len(value) != 64:
         raise ValueError(f"{key} must be a 64-character lowercase SHA-256 hex digest.")
     if any(char not in "0123456789abcdef" for char in value):
         raise ValueError(f"{key} must be a lowercase SHA-256 hex digest.")
+
+
+def validate_port(data: dict[str, Any], key: str) -> None:
+    value = data.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 65535:
+        raise ValueError(f"{key} must be an integer between 1 and 65535.")
+
+
+def validate_positive_number(data: dict[str, Any], key: str) -> None:
+    value = data.get(key)
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"{key} must be a positive number.")
+
+
+def validate_non_negative_number(data: dict[str, Any], key: str) -> None:
+    value = data.get(key)
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{key} must be a non-negative number.")
+
+
+def validate_positive_integer(data: dict[str, Any], key: str) -> None:
+    value = data.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"{key} must be a positive integer.")
+
+
+def validate_non_negative_integer(data: dict[str, Any], key: str) -> None:
+    value = data.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{key} must be a non-negative integer.")
 
 
 def verify_dataset_file(dataset: dict[str, Any]) -> None:
@@ -201,14 +325,38 @@ def verify_dataset_file(dataset: dict[str, Any]) -> None:
         )
 
 
+def verify_pinned_file(data: dict[str, Any], *, field_name: str) -> None:
+    path = Path(str(data["path"]))
+    if not path.is_file():
+        raise ValueError(f"{field_name}.path must point to a materialized file: {path}")
+    expected_sha256 = str(data["sha256"])
+    observed_sha256 = sha256_file(path)
+    if observed_sha256 != expected_sha256:
+        raise ValueError(
+            f"{field_name} SHA-256 mismatch: expected {expected_sha256}, got {observed_sha256}"
+        )
+
+
+def reject_inline_secrets(value: Any, *, path: str = "config") -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_path = f"{path}.{key}"
+            if is_secret_field_name(str(key)):
+                raise ValueError(
+                    f"Inline secret field {key_path} is forbidden; use environment variables."
+                )
+            reject_inline_secrets(item, path=key_path)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            reject_inline_secrets(item, path=f"{path}[{index}]")
+
+
 def redact_secrets(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: dict[str, Any] = {}
         for key, item in value.items():
             normalized_key = str(key).lower().replace("-", "_")
-            if normalized_key in SECRET_FIELD_NAMES or any(
-                part in normalized_key for part in ("api_key", "password", "secret", "token")
-            ):
+            if is_secret_field_name(normalized_key):
                 redacted[key] = "<redacted>"
             else:
                 redacted[key] = redact_secrets(item)
@@ -216,3 +364,27 @@ def redact_secrets(value: Any) -> Any:
     if isinstance(value, list):
         return [redact_secrets(item) for item in value]
     return value
+
+
+def sanitize_endpoint(value: str) -> str:
+    """Keep only a credential-free endpoint origin for persisted metadata."""
+    try:
+        parsed = urlsplit(value.strip())
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return "<redacted-endpoint>"
+    if not parsed.scheme or not hostname:
+        return "<redacted-endpoint>"
+    rendered_host = f"[{hostname}]" if ":" in hostname else hostname
+    netloc = f"{rendered_host}:{port}" if port is not None else rendered_host
+    return urlunsplit((parsed.scheme, netloc, "", "", ""))
+
+
+def is_secret_field_name(key: str) -> bool:
+    normalized = key.lower().replace("-", "_")
+    return (
+        normalized in SECRET_FIELD_NAMES
+        or "api_key" in normalized
+        or normalized.endswith(("_password", "_secret", "_token"))
+    )

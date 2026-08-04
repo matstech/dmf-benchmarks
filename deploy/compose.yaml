@@ -52,6 +52,9 @@ services:
       - "8000"
     environment:
       DMF_BENCH_RUNS_DIR: /bench/runs
+      GRAFANA_PORT: ${GRAFANA_PORT:-3000}
+      PROMETHEUS_PORT: ${PROMETHEUS_PORT:-9090}
+      QDRANT_HTTP_PORT: ${QDRANT_HTTP_PORT:-6333}
     ports:
       - "127.0.0.1:${DMF_ARTIFACT_API_PORT:-8000}:8000"
     volumes: *run_volumes
@@ -137,11 +140,31 @@ services:
         condition: service_started
       artifact-api:
         condition: service_healthy
-    command: ["--help"]
+    command:
+      - "run"
+      - "--config"
+      - "${DMF_BENCH_CONFIG:-/bench/config/experiment-locomo-dmf-native.json}"
     environment:
+      DMF_BENCH_HARNESS_COMMIT: ${DMF_BENCH_HARNESS_COMMIT:-unknown}
+      DMF_BENCH_IMAGE_DIGEST: ${DMF_BENCH_IMAGE_DIGEST:-unknown}
       DMF_BENCH_RUNS_DIR: /bench/runs
       DMF_BENCH_METRICS_PORT: "9464"
+      FASTEMBED_CACHE_PATH: /bench/cache/models/embeddings
+      HF_HOME: /bench/cache/huggingface
+      HF_HUB_CACHE: /bench/cache/huggingface/hub
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-1}
+      HF_XET_CACHE: /bench/cache/huggingface/xet
+      MEM0_DIR: /bench/cache/mem0
+      MEM0_TELEMETRY: "false"
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
       QDRANT_URL: http://qdrant:6333
+      QDRANT_IMAGE_DIGEST: sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c
+      QDRANT_VERSION: 1.18.2
+      XDG_CACHE_HOME: /bench/cache/xdg
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
     expose:
       - "9464"
     volumes: *run_volumes

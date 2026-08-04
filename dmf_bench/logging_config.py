@@ -13,9 +13,13 @@ from typing import Any, TextIO
 LOG_SCHEMA_VERSION = 1
 SECRET_KEY_PARTS = ("api_key", "apikey", "authorization", "password", "secret", "token")
 ALLOWED_EVENTS = {
+    "run.preflight.started",
+    "run.preflight.completed",
     "run.started",
     "run.completed",
     "run.failed",
+    "run.interrupt.requested",
+    "run.interrupted",
     "unit.prediction.started",
     "unit.prediction.committed",
     "judge.started",
@@ -83,22 +87,23 @@ class JsonEventLogger:
         file_path: str | Path | None = None,
         level: str = "INFO",
     ) -> None:
+        self._history: list[str] = []
+        self._file_path: Path | None = None
         self.logger = logging.getLogger(f"dmf_bench.events.{id(self)}")
         self.logger.setLevel(level)
         self.logger.propagate = False
         self.logger.handlers.clear()
 
         formatter = JsonEventFormatter()
+        history_handler = _HistoryHandler(self._history)
+        history_handler.setFormatter(formatter)
+        self.logger.addHandler(history_handler)
         stream_handler = logging.StreamHandler(stream or sys.stdout)
         stream_handler.setFormatter(formatter)
         self.logger.addHandler(stream_handler)
 
         if file_path is not None:
-            path = Path(file_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.FileHandler(path, mode="a", encoding="utf-8")
-            file_handler.setFormatter(formatter)
-            self.logger.addHandler(file_handler)
+            self.bind_file(file_path)
 
     def event(
         self,
@@ -109,6 +114,41 @@ class JsonEventLogger:
         **fields: Any,
     ) -> None:
         log_event(self.logger, event, message, level=level, **fields)
+
+    def bind_file(self, file_path: str | Path) -> Path:
+        path = Path(file_path)
+        if self._file_path == path:
+            return path
+        if self._file_path is not None:
+            raise RuntimeError(f"JSON event logger is already bound to {self._file_path}.")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing_size = path.stat().st_size if path.exists() else 0
+        if self._history:
+            with path.open("a", encoding="utf-8") as file:
+                if existing_size and not path.read_bytes().endswith(b"\n"):
+                    file.write("\n")
+                file.write("\n".join(self._history))
+                file.write("\n")
+        file_handler = logging.FileHandler(path, mode="a", encoding="utf-8")
+        file_handler.setFormatter(JsonEventFormatter())
+        self.logger.addHandler(file_handler)
+        self._file_path = path
+        return path
+
+    def close(self) -> None:
+        for handler in list(self.logger.handlers):
+            handler.flush()
+            handler.close()
+            self.logger.removeHandler(handler)
+
+
+class _HistoryHandler(logging.Handler):
+    def __init__(self, history: list[str]) -> None:
+        super().__init__()
+        self.history = history
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.history.append(self.format(record))
 
 
 def configure_json_logging(

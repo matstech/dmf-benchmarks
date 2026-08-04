@@ -7,14 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from longmemeval import native_prompts
-from longmemeval.prompts import build_answerer_user_prompt, format_strict_sessions_as_history_chats
 from longmemeval.utils import (
-    build_longmemeval_strict_session_substrate,
-    dedupe_longmemeval_strict_sessions_by_session_id,
     filter_questions_by_ids,
     load_dataset,
     sample_questions_stratified,
-    sort_longmemeval_strict_sessions_chronologically,
 )
 
 from dmf_bench.contracts import sha256_file
@@ -38,7 +34,7 @@ class LongMemEvalAnswererInput:
 
 class LongMemEvalAdapter:
     name = "longmemeval"
-    supported_protocols = ("strict", "native")
+    supported_protocols = ("native",)
     atomic_unit = "longmemeval-question"
 
     def materialize_reference(self, config: dict[str, Any]) -> LongMemEvalReference:
@@ -161,25 +157,6 @@ class LongMemEvalAdapter:
     ) -> LongMemEvalAnswererInput:
         question_text = str(question["question"])
         question_date = str(question.get("question_date", ""))
-        if protocol == "strict":
-            selected_session_ids, strict_context = build_strict_reader_context(
-                question,
-                list(retrieval.get("search_results", [])),
-            )
-            user_prompt = build_answerer_user_prompt(
-                strict_context,
-                question_text,
-                question_date,
-            )
-            metadata = {
-                "protocol": protocol,
-                "framework": framework_name,
-                "question_id": str(question["question_id"]),
-                "strict_session_ids": selected_session_ids,
-                "strict_context": strict_context,
-            }
-            return LongMemEvalAnswererInput("", user_prompt, metadata)
-
         if protocol == "native":
             native_context = retrieval.get("native_context", "")
             user_prompt = native_prompts.build_answerer_user_prompt(
@@ -236,74 +213,39 @@ class LongMemEvalAdapter:
             "answer_session_ids": [str(item) for item in question.get("answer_session_ids", [])],
             "generated_answer": generated_answer,
             "answerer_provider": provider,
+            "answerer_requested_model": str(answerer_output.get("answerer_requested_model", "")),
             "answerer_model": model,
+            "answerer_finish_reason": answerer_output.get("answerer_finish_reason"),
             "answerer_usage": usage,
             "cutoff_label": str(retrieval.get("cutoff_label", "top_unknown")),
+            "memory_internal_usage": dict(
+                retrieval.get("memory_internal_usage", {})
+            ),
+            "pipeline_timing": dict(retrieval.get("timing", {})),
             "prompt": {
                 "system": answerer_input.system_prompt,
                 "user": answerer_input.user_prompt,
             },
         }
 
-        if protocol == "strict":
-            strict_context = str(answerer_input.metadata.get("strict_context", ""))
-            search_results = list(retrieval.get("search_results", []))
-            result["retrieval"] = {
-                "search_query": str(question["question"]),
-                "search_results": search_results,
-                "total_results": len(search_results),
-                "memories_evaluated": int(retrieval.get("memories_evaluated", len(search_results))),
-                "strict_session_ids": list(answerer_input.metadata.get("strict_session_ids", [])),
-                "strict_context": strict_context,
-                "context": strict_context,
-            }
-        else:
-            result["native"] = {
-                "native_context": retrieval.get("native_context", ""),
-                "native_surface_diagnostics": retrieval.get("native_surface_diagnostics", {}),
-            }
+        search_results = list(retrieval.get("search_results", []))
+        result["retrieval"] = {
+            "search_query": str(question["question"]),
+            "search_results": search_results,
+            "total_results": len(search_results),
+            "memories_evaluated": int(
+                retrieval.get("memories_evaluated", len(search_results))
+            ),
+            "recall_diagnostics": dict(
+                retrieval.get("recall_diagnostics", {})
+            ),
+        }
+        result["native"] = {
+            "native_context": retrieval.get("native_context", ""),
+            "native_surface_diagnostics": retrieval.get("native_surface_diagnostics", {}),
+        }
 
         return result
-
-
-def build_strict_reader_context(
-    question: dict[str, Any],
-    search_results: list[dict[str, Any]],
-) -> tuple[list[str], str]:
-    strict_substrate = build_longmemeval_strict_session_substrate(question)
-    selected_sessions = [
-        strict_substrate[session_id]
-        for session_id in _selected_session_ids_from_search_results(search_results)
-        if session_id in strict_substrate
-    ]
-    deduped_sessions = dedupe_longmemeval_strict_sessions_by_session_id(selected_sessions)
-    ordered_sessions = sort_longmemeval_strict_sessions_chronologically(deduped_sessions)
-    mapped_session_ids = [str(session["session_id"]) for session in deduped_sessions]
-    return mapped_session_ids, format_strict_sessions_as_history_chats(ordered_sessions)
-
-
-def _selected_session_ids_from_search_results(search_results: list[dict[str, Any]]) -> list[str]:
-    session_ids: list[str] = []
-    for item in search_results:
-        metadata = item.get("metadata") if isinstance(item, dict) else None
-        if not isinstance(metadata, dict):
-            continue
-        raw_ids = metadata.get("source_unit_ids")
-        if isinstance(raw_ids, list):
-            session_ids.extend(str(session_id) for session_id in raw_ids if str(session_id).strip())
-            continue
-        session_id = metadata.get("source_unit_id") or metadata.get("session_id")
-        if session_id is not None and str(session_id).strip():
-            session_ids.append(str(session_id))
-
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for session_id in session_ids:
-        if session_id in seen:
-            continue
-        seen.add(session_id)
-        deduped.append(session_id)
-    return deduped
 
 
 def _validate_question(question: Any) -> None:

@@ -40,7 +40,7 @@ class Mem0NativeContextSurface:
 
 
 def extract_mem0_search_surface(raw_search_output: Any) -> list[Any]:
-    """Extract Mem0's search result surface without reranking or strict rebuilding."""
+    """Extract Mem0's search result surface without benchmark-side rebuilding."""
     if isinstance(raw_search_output, dict):
         surface = raw_search_output.get("results", [])
     else:
@@ -62,7 +62,7 @@ def build_mem0_native_context_surface_from_search_output(
 
     The native benchmark path keeps the `search()` results as the answerer
     memory surface. It does not sort by score, map provenance to dataset
-    records, or render strict benchmark-side context.
+    records, or render a synthetic benchmark-side context.
     """
     native_context = extract_mem0_search_surface(raw_search_output)
     return Mem0NativeContextSurface(

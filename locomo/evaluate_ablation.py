@@ -258,7 +258,12 @@ def evaluate_ablation(
         final_canonical = diagnostics.get("final_candidates_canonical") or []
         raw_candidates = diagnostics.get("raw_candidates") or []
 
-        if not ranked_canonical and not raw_candidates:
+        diagnostics_available = diagnostics.get("diagnostics_available") is True
+        if (
+            not diagnostics_available
+            and not ranked_canonical
+            and not raw_candidates
+        ):
             # Mem0 or missing diagnostics: replicate final for all stages
             stats["questions_without_diagnostics"] += 1
             for metric, value in final_metrics.items():

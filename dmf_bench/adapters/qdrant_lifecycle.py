@@ -169,6 +169,22 @@ class QdrantLifecycleManager:
                     f"Qdrant collection {collection.name!r} has {observed} points; expected at least {minimum}."
                 )
 
+    def collection_counts(
+        self,
+        manifest: CleanupManifest,
+    ) -> dict[CollectionRole, int]:
+        """Read an exact count barrier for every owned collection."""
+        counts: dict[CollectionRole, int] = {}
+        for collection in manifest.collections:
+            if not self.client.collection_exists(collection.name):
+                raise QdrantLifecycleError(
+                    f"Qdrant collection {collection.name!r} is missing at the count barrier."
+                )
+            counts[collection.role] = collection_count(
+                self.client.count(collection.name, exact=True)
+            )
+        return counts
+
     def delete_and_wait(
         self,
         manifest: CleanupManifest,

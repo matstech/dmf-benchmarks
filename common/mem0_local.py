@@ -31,17 +31,67 @@ from hashlib import sha1
 from datetime import datetime, timezone
 from inspect import Parameter, signature
 from pathlib import Path
+from threading import RLock
 from typing import Any
 
 from .mem0_config import Mem0Config, build_mem0_runtime_config
 
 logger = logging.getLogger(__name__)
+_MEM0_PROMPT_PATCH_LOCK = RLock()
 
 
 def _timestamp_to_created_at(timestamp: int | None) -> str | None:
     if timestamp is None:
         return None
     return datetime.fromtimestamp(int(timestamp), tz=timezone.utc).isoformat()
+
+
+def add_mem0_with_observation_timestamp(
+    memory: Any,
+    messages: list[dict[str, str]],
+    *,
+    timestamp: int | None,
+    **kwargs: Any,
+) -> Any:
+    """Call the pinned Mem0 fork with the dataset observation timestamp.
+
+    The pinned public ``Memory.add`` surface does not expose the timestamp
+    accepted by its additive prompt builder. Scope a synchronous patch around
+    the call so the extraction prompt uses the dataset timestamp instead of
+    the host's current date. The benchmark runtime is intentionally
+    sequential; the lock also prevents overlapping benchmark calls in one
+    process.
+    """
+    if timestamp is None:
+        return memory.add(messages, **kwargs)
+
+    from mem0.memory import main as mem0_memory_main
+
+    observation_date = _timestamp_to_created_at(timestamp)
+    if observation_date is None:  # pragma: no cover - guarded above
+        return memory.add(messages, **kwargs)
+
+    with _MEM0_PROMPT_PATCH_LOCK:
+        original = getattr(
+            mem0_memory_main,
+            "generate_additive_extraction_prompt",
+            None,
+        )
+        if original is None or "timestamp" not in signature(original).parameters:
+            raise RuntimeError(
+                "Pinned Mem0 additive prompt does not expose timestamp; "
+                "temporal ingestion would use the host date."
+            )
+
+        def timestamped_prompt(*args: Any, **prompt_kwargs: Any) -> str:
+            prompt_kwargs["timestamp"] = observation_date
+            return original(*args, **prompt_kwargs)
+
+        mem0_memory_main.generate_additive_extraction_prompt = timestamped_prompt
+        try:
+            return memory.add(messages, **kwargs)
+        finally:
+            mem0_memory_main.generate_additive_extraction_prompt = original
 
 
 def empty_memory_internal_usage(
@@ -259,7 +309,7 @@ class LocalMem0BenchmarkItemBackend:
                     "that does not support embedder.provider='fastembed'. "
                     "This benchmark expects the repo Poetry environment with the "
                     "pinned Mem0 fork. Re-run with `poetry run python -m "
-                    "longmemeval.pipeline ...`. "
+                    "longmemeval.native_pipeline ...`. "
                     f"Interpreter: {sys.executable}. "
                     f"Imported mem0 module: {getattr(mem0, '__file__', '<unknown>')}."
                 ) from exc
@@ -282,7 +332,12 @@ class LocalMem0BenchmarkItemBackend:
             "user_id": user_id,
             "metadata": effective_metadata or None,
         }
-        return self.memory.add(messages, **kwargs)
+        return add_mem0_with_observation_timestamp(
+            self.memory,
+            messages,
+            timestamp=timestamp,
+            **kwargs,
+        )
 
     def search(
         self,
@@ -291,44 +346,13 @@ class LocalMem0BenchmarkItemBackend:
         user_id: str,
         top_k: int,
     ) -> list[dict[str, Any]]:
-        """Return canonical retrieval provenance for benchmark-side strict reconstruction.
-
-        The `memory` field preserves Mem0's native surface for audit/debug only.
-        Benchmark strict readers should rebuild their final context from
-        `metadata.source_unit_id` / `metadata.source_unit_ids`, not from the raw
-        text returned here.
-        """
+        """Return Mem0's canonical retrieval surface and provenance metadata."""
         response = self.memory.search(
             query,
             **_mem0_search_limit_kwargs(self.memory, top_k),
             filters={"user_id": user_id},
         )
-        results = response.get("results", response) if isinstance(response, dict) else response
-        if not isinstance(results, list):
-            return []
-
-        normalized: list[dict[str, Any]] = []
-        for item in results:
-            if not isinstance(item, dict):
-                continue
-            entry: dict[str, Any] = {
-                "memory": str(item.get("memory", "") or ""),
-                "score": float(item.get("score", 0.0) or 0.0),
-                "id": str(item.get("id", "") or ""),
-            }
-            created_at = item.get("created_at")
-            if created_at:
-                entry["created_at"] = created_at
-            updated_at = item.get("updated_at")
-            if updated_at:
-                entry["updated_at"] = updated_at
-            metadata = _minimal_search_metadata(item.get("metadata"))
-            if metadata:
-                entry["metadata"] = metadata
-            normalized.append(entry)
-
-        normalized.sort(key=lambda result: float(result.get("score", 0.0) or 0.0), reverse=True)
-        return normalized
+        return normalize_mem0_search_response(response)
 
     def search_raw(
         self,
@@ -352,6 +376,39 @@ class LocalMem0BenchmarkItemBackend:
                 **self.memory.get_llm_usage(),
             }
         )
+
+
+def normalize_mem0_search_response(response: Any) -> list[dict[str, Any]]:
+    """Normalize one raw Mem0 search response without changing its ranking."""
+    results = response.get("results", response) if isinstance(response, dict) else response
+    if not isinstance(results, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        entry: dict[str, Any] = {
+            "memory": str(item.get("memory", "") or ""),
+            "score": float(item.get("score", 0.0) or 0.0),
+            "id": str(item.get("id", "") or ""),
+        }
+        created_at = item.get("created_at")
+        if created_at:
+            entry["created_at"] = created_at
+        updated_at = item.get("updated_at")
+        if updated_at:
+            entry["updated_at"] = updated_at
+        metadata = _minimal_search_metadata(item.get("metadata"))
+        if metadata:
+            entry["metadata"] = metadata
+        normalized.append(entry)
+
+    normalized.sort(
+        key=lambda result: float(result.get("score", 0.0) or 0.0),
+        reverse=True,
+    )
+    return normalized
 
 
 class LocalMem0ConversationBackend(LocalMem0BenchmarkItemBackend):

@@ -108,3 +108,44 @@ def build_mem0_runtime_config(
     merged["history_db_path"] = history_db_path
 
     return merged
+
+
+def build_mem0_qdrant_server_runtime_config(
+    config: Mem0Config,
+    *,
+    collection_name: str,
+    history_db_path: str,
+    qdrant_client: Any,
+) -> dict[str, Any]:
+    """Build a server-only Mem0 config around an injected Qdrant client.
+
+    The pinned Mem0 Qdrant config validator still requires a host/port or path
+    even when a client is injected. The non-routable host/port values satisfy
+    that schema only; the vector-store constructor gives ``client`` precedence
+    and therefore cannot select an embedded fallback.
+    """
+    merged = copy.deepcopy(config.memory_config)
+    vector_store = merged.setdefault("vector_store", {})
+    vector_store["provider"] = "qdrant"
+    vector_config = vector_store.setdefault("config", {})
+    for field_name in (
+        "url",
+        "api_key",
+        "path",
+        "host",
+        "port",
+        "client",
+        "collection_name",
+    ):
+        vector_config.pop(field_name, None)
+    vector_config.update(
+        {
+            "collection_name": collection_name,
+            "client": qdrant_client,
+            "host": "injected-client.invalid",
+            "port": 1,
+            "path": None,
+        }
+    )
+    merged["history_db_path"] = history_db_path
+    return merged

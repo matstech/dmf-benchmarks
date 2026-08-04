@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dmf_bench.contracts import hash_canonical_json
+from dmf_bench.contracts import hash_canonical_json, sha256_file
 from dmf_bench.datasets import dataset_config_for_id
 
 
@@ -43,60 +43,81 @@ class PresetRecord:
         return hash_canonical_json(self.to_dict())
 
 
+def _model(
+    provider: str,
+    requested_model: str,
+    *,
+    reasoning_effort: str | None = None,
+) -> dict[str, Any]:
+    parameters: dict[str, Any] = {"temperature": 0, "max_tokens": 4096}
+    if reasoning_effort is not None:
+        parameters["reasoning_effort"] = reasoning_effort
+    return {
+        "provider": provider,
+        "requested_model": requested_model,
+        "parameters": parameters,
+        "runtime": {
+            "timeout_seconds": 120,
+            "rpm": 200,
+            "max_retries": 5,
+        },
+    }
+
+
 BUILTIN_PRESETS: dict[str, PresetRecord] = {
-    "paper/locomo-dmf-strict-v1": PresetRecord(
-        preset_id="paper/locomo-dmf-strict-v1",
+    "paper/locomo-dmf-native-v1": PresetRecord(
+        preset_id="paper/locomo-dmf-native-v1",
         profile="paper",
         benchmark="locomo",
         framework="dmf",
-        protocol="strict",
+        protocol="native",
         dataset_id="locomo-official-unpinned",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
-            "answerer": {"provider": "openai", "requested_model": "gpt-4.1-mini", "parameters": {"temperature": 0}},
-            "judge": {"provider": "openai", "requested_model": "gpt-5-mini", "parameters": {"temperature": 0}},
+            "answerer": _model("openai", "gpt-4.1-mini"),
+            "judge": _model("openai", "gpt-5-mini", reasoning_effort="low"),
         },
         evaluation={"required": ["primary_judge_score", "rigorous_report"], "optional": ["ablation_report"]},
     ),
-    "default/locomo-dmf-strict": PresetRecord(
-        preset_id="default/locomo-dmf-strict",
+    "default/locomo-dmf-native": PresetRecord(
+        preset_id="default/locomo-dmf-native",
         profile="default",
         benchmark="locomo",
         framework="dmf",
-        protocol="strict",
+        protocol="native",
         dataset_id="locomo-official-unpinned",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
-            "answerer": {"provider": "openai", "requested_model": "gpt-4.1-mini", "parameters": {"temperature": 0}},
-            "judge": {"provider": "openai", "requested_model": "gpt-5-mini", "parameters": {"temperature": 0}},
+            "answerer": _model("openai", "gpt-4.1-mini"),
+            "judge": _model("openai", "gpt-5-mini", reasoning_effort="low"),
         },
         evaluation={"required": ["primary_judge_score", "rigorous_report"], "optional": ["ablation_report"]},
     ),
-    "paper/longmemeval-dmf-strict-v1": PresetRecord(
-        preset_id="paper/longmemeval-dmf-strict-v1",
+    "paper/longmemeval-dmf-native-v1": PresetRecord(
+        preset_id="paper/longmemeval-dmf-native-v1",
         profile="paper",
         benchmark="longmemeval",
         framework="dmf",
-        protocol="strict",
+        protocol="native",
         dataset_id="longmemeval-s-official-unpinned",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
-            "answerer": {"provider": "openai", "requested_model": "gpt-4.1-mini", "parameters": {"temperature": 0}},
-            "judge": {"provider": "openai", "requested_model": "gpt-5-mini", "parameters": {"temperature": 0}},
+            "answerer": _model("openai", "gpt-4.1-mini"),
+            "judge": _model("openai", "gpt-5-mini", reasoning_effort="low"),
         },
         evaluation={"required": ["primary_judge_score", "rigorous_report"], "optional": ["ablation_report"]},
     ),
-    "default/longmemeval-dmf-strict": PresetRecord(
-        preset_id="default/longmemeval-dmf-strict",
+    "default/longmemeval-dmf-native": PresetRecord(
+        preset_id="default/longmemeval-dmf-native",
         profile="default",
         benchmark="longmemeval",
         framework="dmf",
-        protocol="strict",
+        protocol="native",
         dataset_id="longmemeval-s-official-unpinned",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
-            "answerer": {"provider": "openai", "requested_model": "gpt-4.1-mini", "parameters": {"temperature": 0}},
-            "judge": {"provider": "openai", "requested_model": "gpt-5-mini", "parameters": {"temperature": 0}},
+            "answerer": _model("openai", "gpt-4.1-mini"),
+            "judge": _model("openai", "gpt-5-mini", reasoning_effort="low"),
         },
         evaluation={"required": ["primary_judge_score", "rigorous_report"], "optional": ["ablation_report"]},
     ),
@@ -107,6 +128,7 @@ def resolve_preset(
     preset_id: str,
     *,
     dataset_path: str | Path,
+    framework_config_path: str | Path,
     runtime_root: str | Path,
     registry_path: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -116,6 +138,9 @@ def resolve_preset(
         raise ValueError(f"Unknown preset_id: {preset_id}") from exc
 
     root = Path(runtime_root).resolve()
+    framework_path = Path(framework_config_path).resolve()
+    if not framework_path.is_file():
+        raise ValueError(f"Framework config file not found: {framework_path}")
     return {
         "schema_version": 1,
         "experiment_id": preset_id.replace("/", "-"),
@@ -126,6 +151,19 @@ def resolve_preset(
             "root": str(root),
             "runs_dir": str(root / "runs"),
             "cache_dir": str(root / "cache"),
+            "metrics_port": 9464,
+            "log_level": "INFO",
+        },
+        "framework_config": {
+            "path": str(framework_path),
+            "sha256": sha256_file(framework_path),
+            "format": "toml" if preset.framework == "dmf" else "yaml",
+            "profile": "paper" if preset.profile == "paper" else "default",
+        },
+        "qdrant": {
+            "endpoint_env": "QDRANT_URL",
+            "retention": "keep",
+            "request_timeout_seconds": 10,
         },
         "dataset": dataset_config_for_id(
             dataset_id=preset.dataset_id,

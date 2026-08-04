@@ -89,7 +89,12 @@ def test_mem0_adapter_declares_collections_and_sqlite_cleanup(tmp_path: Path) ->
         CollectionRole.PRIMARY,
         CollectionRole.ENTITIES,
     ]
-    assert manifest.local_paths == (str(tmp_path / "question_1.sqlite"),)
+    history_path = str(tmp_path / "question_1.sqlite")
+    assert manifest.local_paths == (
+        history_path,
+        f"{history_path}-wal",
+        f"{history_path}-shm",
+    )
 
 
 def test_qdrant_lifecycle_create_verify_and_cleanup() -> None:

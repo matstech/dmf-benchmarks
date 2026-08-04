@@ -22,9 +22,8 @@
 
 """Native LongMemEval end-to-end pipeline surface.
 
-This module is intentionally separate from ``longmemeval.pipeline``. The strict
-runner rebuilds benchmark-side session context; this native runner feeds the
-framework-native memory surface directly to the minimal native prompt.
+This runner feeds the framework-native memory surface directly to the minimal
+native prompt.
 """
 
 from __future__ import annotations
@@ -646,15 +645,15 @@ def run_native_benchmark(
     )
 
     from longmemeval import judge
-    from longmemeval.pipeline import (
-        _count_question_ingest_units,
-        _load_active_config,
+    from longmemeval.native_ingestion import (
+        count_question_ingest_units,
         ingest_question,
+        load_active_config,
     )
 
     active_console = console or _build_console()
     load_dotenv()
-    config = _load_active_config(args)
+    config = load_active_config(args)
     dataset_path, questions = _select_questions(args)
     if not questions:
         raise ValueError("No LongMemEval native questions selected.")
@@ -758,7 +757,7 @@ def run_native_benchmark(
                 progress.update(
                     phase_task,
                     description=f"Ingestion {qid} ({qtype})",
-                    total=max(1, _count_question_ingest_units(question, config.framework)),
+                    total=max(1, count_question_ingest_units(question, config.framework)),
                     completed=0,
                     visible=True,
                 )

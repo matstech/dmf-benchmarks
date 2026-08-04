@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from dmf_bench.adapters.base import BenchmarkUnit
+from dmf_bench.adapters.base import AnswererRequest, BenchmarkUnit, FrameworkRunContext, RetrievalResult
 from dmf_bench.adapters.longmemeval import LongMemEvalAdapter
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json
@@ -34,7 +34,10 @@ class FakeLongMemEvalFramework:
         unit: BenchmarkUnit,
         _question: dict[str, Any],
         _config: dict[str, Any],
+        *,
+        run_context: FrameworkRunContext,
     ) -> None:
+        del run_context
         self.cleanup_calls.append(unit.unit_id)
 
     def prepare_unit(
@@ -42,9 +45,22 @@ class FakeLongMemEvalFramework:
         unit: BenchmarkUnit,
         _question: dict[str, Any],
         _config: dict[str, Any],
+        *,
+        run_context: FrameworkRunContext,
     ) -> dict[str, Any]:
+        del run_context
         self.prepare_calls.append(unit.unit_id)
-        return {"qdrant_commit_barrier": True}
+        return {
+            "qdrant_commit_barrier": True,
+            "cleanup_manifest": {
+                "framework": self.name,
+                "unit_hash": unit.unit_id,
+                "collections": [
+                    {"name": f"owned-{unit.unit_id}", "role": "primary"}
+                ],
+                "local_paths": [],
+            },
+        }
 
     def retrieve(
         self,
@@ -52,26 +68,19 @@ class FakeLongMemEvalFramework:
         question: dict[str, Any],
         config: dict[str, Any],
         _prepared: dict[str, Any],
-    ) -> dict[str, Any]:
+        *,
+        run_context: FrameworkRunContext,
+    ) -> RetrievalResult:
+        del run_context
         self.retrieve_calls.append(unit.unit_id)
-        if config["protocol"] == "native":
-            return {
-                "native_context": {
-                    "question_id": unit.unit_id,
-                    "answer_session_ids": question["answer_session_ids"],
-                },
-                "native_surface_diagnostics": {"result_count": 1},
-                "cutoff_label": "native",
-            }
-        return {
-            "search_results": [
-                {
-                    "memory": "hit",
-                    "metadata": {"source_unit_ids": list(question["answer_session_ids"])},
-                }
-            ],
-            "cutoff_label": "top_1",
-        }
+        return RetrievalResult(
+            native_context={
+                "question_id": unit.unit_id,
+                "answer_session_ids": question["answer_session_ids"],
+            },
+            native_surface_diagnostics={"result_count": 1},
+            cutoff_label="native",
+        )
 
 
 class FakeAnswerer:
@@ -81,8 +90,14 @@ class FakeAnswerer:
         self.answer = answer
         self.calls: list[dict[str, Any]] = []
 
-    def generate(self, prompt: str, metadata: dict[str, Any]) -> dict[str, Any]:
-        self.calls.append({"prompt": prompt, "metadata": metadata})
+    def generate(self, request: AnswererRequest) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "system_prompt": request.system_prompt,
+                "prompt": request.user_prompt,
+                "metadata": request.metadata,
+            }
+        )
         return {
             "generated_answer": self.answer,
             "answerer_provider": "fake",
@@ -91,9 +106,11 @@ class FakeAnswerer:
         }
 
 
-def make_longmemeval_config(tmp_path: Path, *, protocol: str = "strict") -> dict[str, Any]:
+def make_longmemeval_config(tmp_path: Path, *, protocol: str = "native") -> dict[str, Any]:
     dataset_path = tmp_path / "longmemeval-mini.json"
     shutil.copy2(FIXTURE_DIR / "longmemeval-mini.json", dataset_path)
+    framework_config_path = tmp_path / "framework.toml"
+    framework_config_path.write_text("[ltm]\nstorage_type = \"qdrant\"\n", encoding="utf-8")
     return {
         "schema_version": 1,
         "experiment_id": f"fixture-longmemeval-dmf-{protocol}",
@@ -104,6 +121,19 @@ def make_longmemeval_config(tmp_path: Path, *, protocol: str = "strict") -> dict
             "root": str(tmp_path),
             "runs_dir": str(tmp_path / "runs"),
             "cache_dir": str(tmp_path / "cache"),
+            "metrics_port": 9464,
+            "log_level": "INFO",
+        },
+        "framework_config": {
+            "path": str(framework_config_path),
+            "sha256": sha256_file(framework_config_path),
+            "format": "toml",
+            "profile": "fixture",
+        },
+        "qdrant": {
+            "endpoint_env": "QDRANT_URL",
+            "retention": "keep",
+            "request_timeout_seconds": 10,
         },
         "dataset": {
             "name": "longmemeval",
@@ -121,12 +151,14 @@ def make_longmemeval_config(tmp_path: Path, *, protocol: str = "strict") -> dict
             "answerer": {
                 "provider": "fake",
                 "requested_model": "fixture-model",
-                "parameters": {"temperature": 0},
+                "parameters": {"temperature": 0, "max_tokens": 256},
+                "runtime": {"timeout_seconds": 30, "rpm": 100, "max_retries": 0},
             },
             "judge": {
                 "provider": "fake",
                 "requested_model": "fixture-judge",
-                "parameters": {"temperature": 0},
+                "parameters": {"temperature": 0, "max_tokens": 256},
+                "runtime": {"timeout_seconds": 30, "rpm": 100, "max_retries": 0},
             },
         },
         "evaluation": {"required": ["primary_judge_score"], "optional": []},
@@ -164,18 +196,11 @@ def test_longmemeval_adapter_filters_and_samples_when_selection_uses_wildcard(
     assert [unit.unit_id for unit in units] == ["lme-001"]
 
 
-def test_strict_and_native_prompt_surfaces_are_protocol_labeled(tmp_path: Path) -> None:
-    strict_config = make_longmemeval_config(tmp_path, protocol="strict")
-    native_config = make_longmemeval_config(tmp_path, protocol="native")
+def test_native_prompt_surface_is_protocol_labeled(tmp_path: Path) -> None:
+    native_config = make_longmemeval_config(tmp_path)
     adapter = LongMemEvalAdapter()
-    question = adapter.selected_questions_by_id(strict_config)["lme-001"]
+    question = adapter.selected_questions_by_id(native_config)["lme-001"]
 
-    strict_input = adapter.build_answerer_input(
-        question=question,
-        protocol="strict",
-        framework_name="dmf",
-        retrieval={"search_results": [{"metadata": {"source_unit_id": "session-a"}}]},
-    )
     native_input = adapter.build_answerer_input(
         question=question,
         protocol="native",
@@ -183,32 +208,29 @@ def test_strict_and_native_prompt_surfaces_are_protocol_labeled(tmp_path: Path) 
         retrieval={"native_context": {"memory": "I prefer almonds."}},
     )
 
-    assert "Session Date: 2024/02/01 (Thu) 08:00" in strict_input.user_prompt
-    assert '"role": "user"' in strict_input.user_prompt
     assert "Native context:" in native_input.user_prompt
     assert '"memory": "I prefer almonds."' in native_input.user_prompt
-
-    strict_prediction = adapter.build_prediction(
-        question=question,
-        protocol="strict",
-        framework_name="dmf",
-        retrieval={"search_results": [{"metadata": {"source_unit_id": "session-a"}}]},
-        answerer_input=strict_input,
-        answerer_output={"generated_answer": "almonds", "answerer_model": "fixture"},
-    )
-    assert strict_prediction["protocol_label"] == "strict/longmemeval"
-    assert strict_prediction["ground_truth_answer"] == "almonds"
 
     native_prediction = adapter.build_prediction(
         question=question,
         protocol="native",
         framework_name="dmf",
-        retrieval={"native_context": {"memory": "I prefer almonds."}},
+        retrieval={
+            "native_context": {"memory": "I prefer almonds."},
+            "search_results": [
+                {"metadata": {"source_unit_id": "session-a"}}
+            ],
+            "memories_evaluated": 1,
+        },
         answerer_input=native_input,
         answerer_output={"generated_answer": "almonds", "answerer_model": "fixture"},
     )
     assert native_prediction["protocol_label"] == "native/longmemeval"
+    assert native_prediction["ground_truth_answer"] == "almonds"
     assert native_prediction["native"]["native_context"] == {"memory": "I prefer almonds."}
+    assert native_prediction["retrieval"]["search_results"][0]["metadata"][
+        "source_unit_id"
+    ] == "session-a"
 
 
 def test_predict_only_runner_commits_question_predictions_and_stops_partial(
@@ -224,7 +246,7 @@ def test_predict_only_runner_commits_question_predictions_and_stops_partial(
     )
 
     result = runner.run(config)
-    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf-strict"
+    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf-native"
 
     assert result.state == "PARTIAL"
     assert result.committed_unit_ids == ("lme-001", "lme-002")
@@ -232,9 +254,20 @@ def test_predict_only_runner_commits_question_predictions_and_stops_partial(
     assert len(answerer.calls) == 2
     assert read_json(run_dir / "run-status.json")["state"] == "PARTIAL"
     prediction = read_json(run_dir / "items" / "lme-001" / "prediction.json")
-    assert prediction["protocol"] == "strict"
-    assert prediction["retrieval"]["strict_session_ids"] == ["session-a"]
-    assert read_json(run_dir / "checkpoints" / "lme-001" / "checkpoint.json")["status"] == "COMMITTED"
+    assert prediction["protocol"] == "native"
+    assert prediction["native"]["native_context"]["question_id"] == "lme-001"
+    checkpoint = read_json(
+        run_dir / "checkpoints" / "lme-001" / "checkpoint.json"
+    )
+    assert checkpoint["status"] == "COMMITTED"
+    assert [artifact["path"] for artifact in checkpoint["artifacts"]] == [
+        "items/lme-001/prediction.json",
+        "items/lme-001/timing.json",
+        "items/lme-001/cleanup-manifest.json",
+    ]
+    assert read_json(run_dir / "items" / "lme-001" / "cleanup-manifest.json")[
+        "unit_hash"
+    ] == "lme-001"
 
 
 def test_resume_skips_committed_questions(tmp_path: Path) -> None:
@@ -274,7 +307,7 @@ def test_interrupt_before_prediction_commit_restarts_unit(tmp_path: Path) -> Non
             answerer=FakeAnswerer(),
         ).run(config, interrupt_at="before-prediction-commit")
 
-    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf-strict"
+    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf-native"
     assert not (run_dir / "items" / "lme-001" / "prediction.json").exists()
     assert plan_resume(run_dir).restart_unit_ids == ("lme-001", "lme-002")
 
@@ -302,7 +335,7 @@ def test_interrupt_after_prediction_commit_does_not_regenerate_committed_unit(
             answerer=FakeAnswerer(),
         ).run(config, interrupt_at="after-prediction-commit")
 
-    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf-strict"
+    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf-native"
     assert plan_resume(run_dir).committed_unit_ids == ("lme-001",)
     assert plan_resume(run_dir).restart_unit_ids == ("lme-002",)
 

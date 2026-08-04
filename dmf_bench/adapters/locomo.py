@@ -8,17 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from locomo import native_prompts
-from locomo.prompts import (
-    ANSWERER_SYSTEM_PROMPT,
-    build_answerer_user_prompt,
-    format_strict_dialogs_as_context,
-    official_ground_truth_answer,
-)
+from locomo.prompts import official_ground_truth_answer
 from locomo.qa import category_name, normalize_generated_answer_for_category
-from locomo.utils import (
-    build_locomo_dialog_substrate,
-    map_locomo_dia_ids_to_strict_dialogs,
-)
 
 from dmf_bench.contracts import sha256_file
 
@@ -50,7 +41,7 @@ class LoCoMoAnswererInput:
 
 class LoCoMoAdapter:
     name = "locomo"
-    supported_protocols = ("strict", "native")
+    supported_protocols = ("native",)
     atomic_unit = "locomo-conversation"
 
     def materialize_reference(self, config: dict[str, Any]) -> LoCoMoReference:
@@ -203,32 +194,6 @@ class LoCoMoAdapter:
         qa_item = question.qa_item
         question_text = str(qa_item.get("question", ""))
         category = int(qa_item.get("category", 0) or 0)
-        if protocol == "strict":
-            selected_dia_ids, strict_context = build_strict_dialog_context(
-                conversation=conversation,
-                search_results=list(retrieval.get("search_results", [])),
-            )
-            user_prompt = build_answerer_user_prompt(
-                strict_context,
-                question_text,
-                category=category,
-                ground_truth_answer=str(qa_item.get("answer", "")),
-            )
-            return LoCoMoAnswererInput(
-                ANSWERER_SYSTEM_PROMPT,
-                user_prompt,
-                {
-                    "protocol": protocol,
-                    "framework": framework_name,
-                    "conversation_id": question.conversation_id,
-                    "conversation_idx": question.conversation_idx,
-                    "question_id": question.question_id,
-                    "question_idx": question.question_idx,
-                    "strict_dia_ids": selected_dia_ids,
-                    "strict_context": strict_context,
-                },
-            )
-
         if protocol == "native":
             native_context = retrieval.get("native_context", "")
             user_prompt = native_prompts.build_answerer_user_prompt(
@@ -299,31 +264,37 @@ class LoCoMoAdapter:
             "evidence": [str(item) for item in qa_item.get("evidence", [])],
             "generated_answer": generated_answer,
             "answerer_provider": str(answerer_output.get("answerer_provider", answerer_output.get("provider", ""))),
+            "answerer_requested_model": str(answerer_output.get("answerer_requested_model", "")),
             "answerer_model": str(answerer_output.get("answerer_model", answerer_output.get("model", ""))),
+            "answerer_finish_reason": answerer_output.get("answerer_finish_reason"),
             "answerer_usage": usage,
             "cutoff_label": str(retrieval.get("cutoff_label", "top_unknown")),
+            "memory_internal_usage": dict(
+                retrieval.get("memory_internal_usage", {})
+            ),
+            "pipeline_timing": dict(retrieval.get("timing", {})),
             "prompt": {
                 "system": answerer_input.system_prompt,
                 "user": answerer_input.user_prompt,
             },
         }
 
-        if protocol == "strict":
-            strict_context = str(answerer_input.metadata.get("strict_context", ""))
-            search_results = list(retrieval.get("search_results", []))
-            result["retrieval"] = {
-                "search_query": str(qa_item.get("question", "")),
-                "context": strict_context,
-                "strict_dia_ids": list(answerer_input.metadata.get("strict_dia_ids", [])),
-                "search_results": search_results,
-                "total_results": len(search_results),
-                "memories_evaluated": int(retrieval.get("memories_evaluated", len(search_results))),
-            }
-        else:
-            result["native"] = {
-                "native_context": retrieval.get("native_context", ""),
-                "native_surface_diagnostics": retrieval.get("native_surface_diagnostics", {}),
-            }
+        search_results = list(retrieval.get("search_results", []))
+        result["retrieval"] = {
+            "search_query": str(qa_item.get("question", "")),
+            "search_results": search_results,
+            "total_results": len(search_results),
+            "memories_evaluated": int(
+                retrieval.get("memories_evaluated", len(search_results))
+            ),
+            "recall_diagnostics": dict(
+                retrieval.get("recall_diagnostics", {})
+            ),
+        }
+        result["native"] = {
+            "native_context": retrieval.get("native_context", ""),
+            "native_surface_diagnostics": retrieval.get("native_surface_diagnostics", {}),
+        }
 
         return result
 
@@ -334,57 +305,6 @@ def conversation_unit_id(conversation_idx: int) -> str:
 
 def question_id(conversation_idx: int, question_idx: int) -> str:
     return f"conv{conversation_idx}_q{question_idx}"
-
-
-def build_strict_dialog_context(
-    *,
-    conversation: dict[str, Any],
-    search_results: list[dict[str, Any]],
-) -> tuple[list[str], str]:
-    conversation_data = conversation.get("conversation")
-    if not isinstance(conversation_data, dict):
-        return [], "(No relevant context found)"
-
-    dialog_substrate = build_locomo_dialog_substrate(conversation_data)
-    dialog_by_dia_id = map_locomo_dia_ids_to_strict_dialogs(conversation_data)
-    selected_dia_ids = _selected_dia_ids_from_search_results(search_results)
-    selected_dialog_ids: set[str] = set()
-    mapped_dia_ids: list[str] = []
-    for dia_id in selected_dia_ids:
-        dialog = dialog_by_dia_id.get(dia_id)
-        if dialog is None:
-            continue
-        selected_dialog_ids.add(dialog["dialog_id"])
-        mapped_dia_ids.append(dia_id)
-
-    serialized_dialogs = [
-        dialog["serialized_dialog"]
-        for dialog_id, dialog in dialog_substrate.items()
-        if dialog_id in selected_dialog_ids
-    ]
-    return mapped_dia_ids, format_strict_dialogs_as_context(serialized_dialogs)
-
-
-def _selected_dia_ids_from_search_results(search_results: list[dict[str, Any]]) -> list[str]:
-    selected: list[str] = []
-    seen: set[str] = set()
-    for item in search_results:
-        metadata = item.get("metadata") if isinstance(item, dict) else None
-        if not isinstance(metadata, dict):
-            continue
-        raw_ids = metadata.get("source_unit_ids")
-        if isinstance(raw_ids, list):
-            candidates = [str(dia_id) for dia_id in raw_ids]
-        else:
-            raw_id = metadata.get("source_unit_id") or metadata.get("dia_id")
-            candidates = [str(raw_id)] if raw_id is not None else []
-        for dia_id in candidates:
-            normalized = dia_id.strip()
-            if not normalized or normalized in seen:
-                continue
-            seen.add(normalized)
-            selected.append(normalized)
-    return selected
 
 
 def _validate_conversation(conversation: Any) -> None:

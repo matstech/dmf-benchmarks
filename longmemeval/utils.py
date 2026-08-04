@@ -87,25 +87,6 @@ class LongMemEvalNormalizedSession(TypedDict):
     pairs: list[LongMemEvalNormalizedPair]
 
 
-class LongMemEvalStrictTurn(TypedDict):
-    """Strict reader turn payload reconstructed from the original dataset session."""
-
-    role: str
-    content: str
-
-
-class LongMemEvalStrictSession(TypedDict):
-    """Canonical dataset-side strict session substrate entry."""
-
-    source_unit_type: str
-    source_unit_id: str
-    session_id: str
-    session_date_raw: str
-    session_timestamp: int | None
-    turns: list[LongMemEvalStrictTurn]
-    serialized_session: str
-
-
 def get_default_dataset_path() -> Path:
     return Path(DEFAULT_DATASET_DIR) / DEFAULT_DATASET_FILE
 
@@ -285,85 +266,6 @@ def normalize_longmemeval_haystack(
         )
         for session_id, date_str, session in sort_sessions_chronologically(question)
     ]
-
-
-def _longmemeval_strict_turns_from_session(
-    session: LongMemEvalNormalizedSession,
-) -> list[LongMemEvalStrictTurn]:
-    return [
-        {
-            "role": turn["role"],
-            "content": turn["content"],
-        }
-        for pair in session["pairs"]
-        for turn in pair["turns"]
-        if turn["content"]
-    ]
-
-
-def serialize_longmemeval_session_for_strict_json(
-    session: LongMemEvalNormalizedSession,
-) -> str:
-    """Return the strict reader JSON payload for one original haystack session."""
-    return json.dumps(
-        _longmemeval_strict_turns_from_session(session),
-        ensure_ascii=False,
-        indent=2,
-    )
-
-
-def build_longmemeval_strict_session_substrate(
-    question: dict,
-) -> dict[str, LongMemEvalStrictSession]:
-    """Return the canonical strict substrate keyed by session_id."""
-    substrate: dict[str, LongMemEvalStrictSession] = {}
-    for session in normalize_longmemeval_haystack(question):
-        if session["session_id"] in substrate:
-            continue
-        strict_session: LongMemEvalStrictSession = {
-            "source_unit_type": session["source_unit_type"],
-            "source_unit_id": session["source_unit_id"],
-            "session_id": session["session_id"],
-            "session_date_raw": session["session_date_raw"],
-            "session_timestamp": session["session_timestamp"],
-            "turns": _longmemeval_strict_turns_from_session(session),
-            "serialized_session": serialize_longmemeval_session_for_strict_json(session),
-        }
-        substrate[strict_session["session_id"]] = strict_session
-    return substrate
-
-
-def dedupe_longmemeval_strict_sessions_by_session_id(
-    sessions: list[LongMemEvalStrictSession],
-) -> list[LongMemEvalStrictSession]:
-    """Deduplicate selected strict sessions preserving their original selection order."""
-    deduped: list[LongMemEvalStrictSession] = []
-    seen_session_ids: set[str] = set()
-    for session in sessions:
-        session_id = session["session_id"]
-        if session_id in seen_session_ids:
-            continue
-        seen_session_ids.add(session_id)
-        deduped.append(session)
-    return deduped
-
-
-def sort_longmemeval_strict_sessions_chronologically(
-    sessions: list[LongMemEvalStrictSession],
-) -> list[LongMemEvalStrictSession]:
-    """Sort selected strict sessions by session timestamp, falling back to raw date and id."""
-
-    def sort_key(session: LongMemEvalStrictSession) -> tuple[int, int, str, str]:
-        if session["session_timestamp"] is not None:
-            return (
-                0,
-                session["session_timestamp"],
-                session["session_date_raw"],
-                session["session_id"],
-            )
-        return (1, 0, session["session_date_raw"], session["session_id"])
-
-    return sorted(sessions, key=sort_key)
 
 
 def serialize_longmemeval_pair_for_dmf(pair: LongMemEvalNormalizedPair) -> str:

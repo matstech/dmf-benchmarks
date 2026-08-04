@@ -1,13 +1,26 @@
 {
   "schema_version": 1,
-  "experiment_id": "fixture-locomo-dmf-strict",
+  "experiment_id": "fixture-locomo-dmf-native",
   "benchmark": "locomo",
   "framework": "dmf",
-  "protocol": "strict",
+  "protocol": "native",
   "runtime": {
     "root": "/bench",
     "runs_dir": "/bench/runs",
-    "cache_dir": "/bench/cache"
+    "cache_dir": "/bench/cache",
+    "metrics_port": 9464,
+    "log_level": "INFO"
+  },
+  "framework_config": {
+    "path": "/bench/config/locomo_dmf_qdrant_settings.toml",
+    "sha256": "54c99182ca2e5506b12a0480559a026f5cb445587832a4eb1a0653c3fbc5a890",
+    "format": "toml",
+    "profile": "legacy-parity"
+  },
+  "qdrant": {
+    "endpoint_env": "QDRANT_URL",
+    "retention": "keep",
+    "request_timeout_seconds": 10
   },
   "dataset": {
     "name": "locomo",
@@ -32,15 +45,27 @@
       "provider": "openai",
       "requested_model": "gpt-4.1-mini",
       "parameters": {
-        "temperature": 0
+        "temperature": 0,
+        "max_tokens": 4096,
+        "reasoning_effort": "low"
       },
-      "api_key": "must-not-leak"
+      "runtime": {
+        "timeout_seconds": 120,
+        "rpm": 200,
+        "max_retries": 5
+      }
     },
     "judge": {
       "provider": "openai",
       "requested_model": "gpt-5-mini",
       "parameters": {
-        "temperature": 0
+        "temperature": 0,
+        "max_tokens": 4096
+      },
+      "runtime": {
+        "timeout_seconds": 120,
+        "rpm": 200,
+        "max_retries": 5
       }
     }
   },

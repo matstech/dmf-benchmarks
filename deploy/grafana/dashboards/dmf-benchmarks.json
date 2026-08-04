@@ -30,7 +30,11 @@
       "targets": [
         {
           "expr": "dmf_bench_run_progress_ratio",
-          "legendFormat": "{{benchmark}}/{{framework}}/{{protocol}}"
+          "legendFormat": "{{benchmark}}/{{framework}}/{{protocol}} units"
+        },
+        {
+          "expr": "dmf_bench_run_item_progress_ratio",
+          "legendFormat": "{{benchmark}}/{{framework}}/{{protocol}} items"
         }
       ],
       "title": "Run progress",
@@ -52,6 +56,10 @@
         {
           "expr": "dmf_bench_run_phase_active == 1",
           "legendFormat": "{{phase}}"
+        },
+        {
+          "expr": "dmf_bench_run_state_active == 1",
+          "legendFormat": "state={{state}}"
         }
       ],
       "title": "Active phase",

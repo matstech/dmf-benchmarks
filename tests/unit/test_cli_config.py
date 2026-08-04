@@ -7,6 +7,7 @@ import pytest
 
 from dmf_bench.cli import main
 from dmf_bench.config import resolve_config
+from dmf_bench.atomic_io import read_json
 from dmf_bench.contracts import sha256_file
 from dmf_bench.registry import supported_combinations
 
@@ -15,12 +16,24 @@ FIXTURE_DIR = Path(__file__).parents[1] / "fixtures"
 
 
 def write_valid_config(tmp_path: Path, *, dataset_path: Path | None = None) -> Path:
-    selected_dataset_path = dataset_path or (FIXTURE_DIR / "locomo-mini.json")
+    selected_dataset_path = dataset_path or (tmp_path / "locomo-mini.json")
+    if dataset_path is None:
+        selected_dataset_path.write_bytes((FIXTURE_DIR / "locomo-mini.json").read_bytes())
     config = json.loads((FIXTURE_DIR / "experiment-valid.json").read_text(encoding="utf-8"))
     config["runtime"] = {
         "root": str(tmp_path),
         "runs_dir": str(tmp_path / "runs"),
         "cache_dir": str(tmp_path / "cache"),
+        "metrics_port": 9464,
+        "log_level": "INFO",
+    }
+    framework_config_path = tmp_path / "framework.toml"
+    framework_config_path.write_text("[ltm]\nstorage_type = \"qdrant\"\n", encoding="utf-8")
+    config["framework_config"] = {
+        "path": str(framework_config_path.resolve()),
+        "sha256": sha256_file(framework_config_path),
+        "format": "toml",
+        "profile": "fixture",
     }
     config["dataset"] = {
         "name": "locomo",
@@ -37,30 +50,102 @@ def write_valid_config(tmp_path: Path, *, dataset_path: Path | None = None) -> P
 
 def test_supported_combinations_are_explicit_and_deterministic() -> None:
     assert supported_combinations() == [
-        ("locomo", "dmf", "strict"),
         ("locomo", "dmf", "native"),
-        ("locomo", "mem0", "strict"),
         ("locomo", "mem0", "native"),
-        ("longmemeval", "dmf", "strict"),
         ("longmemeval", "dmf", "native"),
-        ("longmemeval", "mem0", "strict"),
         ("longmemeval", "mem0", "native"),
     ]
 
 
-def test_validate_resolves_absolute_paths_and_redacts_secrets(tmp_path: Path) -> None:
+def test_validate_resolves_absolute_paths_and_redacts_secrets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-leak")
+    monkeypatch.setenv(
+        "OPENAI_BASE_URL",
+        "https://user:must-not-leak@example.test/v1?api_key=must-not-leak#secret",
+    )
     resolved = resolve_config(write_valid_config(tmp_path))
 
     redacted = resolved.redacted()
 
     assert resolved.source_path.is_absolute()
-    assert redacted["models"]["answerer"]["api_key"] == "<redacted>"
+    assert redacted["runtime"]["environment"]["secrets_present"]["OPENAI_API_KEY"] is True
+    assert redacted["runtime"]["environment"]["endpoints"]["OPENAI_BASE_URL"] == (
+        "https://example.test"
+    )
+    assert redacted["models"]["answerer"]["parameters"]["max_tokens"] == 4096
     assert "must-not-leak" not in json.dumps(redacted)
+
+
+def test_validate_rejects_inline_secrets(tmp_path: Path) -> None:
+    config_path = write_valid_config(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["models"]["answerer"]["api_key"] = "must-not-leak"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Inline secret field"):
+        resolve_config(config_path)
+
+
+def test_validate_rejects_mutated_framework_config(tmp_path: Path) -> None:
+    config_path = write_valid_config(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    Path(config["framework_config"]["path"]).write_text("mutated = true\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="framework_config SHA-256 mismatch"):
+        resolve_config(config_path)
+
+
+def test_validate_rejects_paths_outside_runtime_root(tmp_path: Path) -> None:
+    config_path = write_valid_config(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["dataset"]["path"] = str(FIXTURE_DIR / "locomo-mini.json")
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="dataset.path must be contained"):
+        resolve_config(config_path)
+
+
+def test_resolved_config_persists_redacted_canonical_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-leak")
+    monkeypatch.setenv(
+        "QDRANT_URL",
+        "http://user:must-not-leak@qdrant:6333/ignored?token=must-not-leak",
+    )
+    resolved = resolve_config(write_valid_config(tmp_path))
+
+    target = resolved.persist_redacted(tmp_path / "run")
+    persisted = read_json(target)
+
+    assert target.name == "resolved-config.json"
+    assert persisted["runtime"]["environment"]["secrets_present"]["OPENAI_API_KEY"] is True
+    assert persisted["runtime"]["environment"]["endpoints"]["QDRANT_URL"] == (
+        "http://qdrant:6333"
+    )
+    assert "must-not-leak" not in target.read_text(encoding="utf-8")
 
 
 def test_validate_rejects_invalid_config_before_runtime_io() -> None:
     with pytest.raises(ValueError, match="Unsupported protocol"):
         resolve_config(FIXTURE_DIR / "experiment-invalid.json")
+
+
+def test_validate_rejects_removed_strict_protocol(tmp_path: Path) -> None:
+    config_path = write_valid_config(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["protocol"] = "strict"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported protocol 'strict'. Supported: native",
+    ):
+        resolve_config(config_path)
 
 
 def test_validate_rejects_mutated_materialized_dataset(tmp_path: Path) -> None:
@@ -81,7 +166,8 @@ def test_cli_list_prints_supported_surface(capsys: pytest.CaptureFixture[str]) -
     output = capsys.readouterr().out
 
     assert "benchmarks:" in output
-    assert "locomo/dmf/strict" in output
+    assert "  native" in output
+    assert "/strict" not in output
     assert "longmemeval/mem0/native" in output
 
 
@@ -94,8 +180,8 @@ def test_cli_validate_prints_redacted_json(
     output = capsys.readouterr().out
 
     assert '"source_path"' in output
-    assert '"api_key": "<redacted>"' in output
-    assert "must-not-leak" not in output
+    assert '"max_tokens": 4096' in output
+    assert '"api_key"' not in output
 
 
 def test_module_entrypoint_matches_cli() -> None:

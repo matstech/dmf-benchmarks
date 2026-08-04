@@ -20,10 +20,10 @@ groups:
           description: "No progress metric update has been observed for more than 15 minutes."
 
       - alert: DmfBenchmarkFailedEvaluation
-        expr: dmf_bench_run_phase_active{phase=~"FAILED|FAILED_EVALUATION"} == 1
+        expr: dmf_bench_run_state_active{state=~"FAILED_.*"} == 1
         for: 0m
         labels:
           severity: critical
         annotations:
           summary: "DMF benchmark entered a failed terminal phase"
-          description: "The benchmark process reports phase {{ $labels.phase }}."
+          description: "The benchmark process reports state {{ $labels.state }}."

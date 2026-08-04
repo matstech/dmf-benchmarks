@@ -22,9 +22,8 @@
 
 """Native LoCoMo end-to-end pipeline surface.
 
-The strict LoCoMo QA path rebuilds dataset-side dialog context. This module is
-the separate native path: it passes the framework-native memory surface to the
-minimal native LoCoMo prompt.
+It passes the framework-native memory surface to the minimal native LoCoMo
+prompt.
 """
 
 from __future__ import annotations
@@ -648,15 +647,16 @@ def run_native_benchmark(
         TimeElapsedColumn,
     )
 
-    from locomo import judge, qa
-    from locomo.pipeline import Pipeline
+    from locomo import judge
+    from locomo.native_ingestion import NativeIngestionPipeline
+    from locomo.qa import resolve_qa_settings as _resolve_qa_settings
 
     active_console = console or _build_console()
     load_dotenv()
     conversation_indices = parse_conversation_ids(args.conversation_ids)
     categories = parse_categories(args.categories)
     machine_characteristics = detect_machine_characteristics()
-    phase = Pipeline(
+    phase = NativeIngestionPipeline(
         project_name=args.project_name,
         framework=args.framework,
         config_path=args.config,
@@ -676,7 +676,7 @@ def run_native_benchmark(
 
     qa_settings = None
     if not args.judge_only and not args.evaluate_only:
-        qa_settings = qa.resolve_qa_settings(
+        qa_settings = _resolve_qa_settings(
             provider_override=args.answerer_provider,
             model_override=args.answerer_model,
         )

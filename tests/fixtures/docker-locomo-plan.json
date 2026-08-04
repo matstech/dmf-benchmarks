@@ -3,11 +3,24 @@
   "experiment_id": "docker-locomo-plan",
   "benchmark": "locomo",
   "framework": "dmf",
-  "protocol": "strict",
+  "protocol": "native",
   "runtime": {
     "root": "/bench",
     "runs_dir": "/bench/runs",
-    "cache_dir": "/bench/cache"
+    "cache_dir": "/bench/cache",
+    "metrics_port": 9464,
+    "log_level": "INFO"
+  },
+  "framework_config": {
+    "path": "/bench/config/locomo_dmf_qdrant_settings.toml",
+    "sha256": "54c99182ca2e5506b12a0480559a026f5cb445587832a4eb1a0653c3fbc5a890",
+    "format": "toml",
+    "profile": "fixture"
+  },
+  "qdrant": {
+    "endpoint_env": "QDRANT_URL",
+    "retention": "keep",
+    "request_timeout_seconds": 10
   },
   "dataset": {
     "name": "locomo",
@@ -33,14 +46,26 @@
       "provider": "fixture",
       "requested_model": "fixture-answerer",
       "parameters": {
-        "temperature": 0
+        "temperature": 0,
+        "max_tokens": 4096
+      },
+      "runtime": {
+        "timeout_seconds": 30,
+        "rpm": 200,
+        "max_retries": 0
       }
     },
     "judge": {
       "provider": "fixture",
       "requested_model": "fixture-judge",
       "parameters": {
-        "temperature": 0
+        "temperature": 0,
+        "max_tokens": 4096
+      },
+      "runtime": {
+        "timeout_seconds": 30,
+        "rpm": 200,
+        "max_retries": 0
       }
     }
   },

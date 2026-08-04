@@ -26,6 +26,27 @@ PHASES = (
     "FAILED",
     "FAILED_EVALUATION",
 )
+RUN_STATES = (
+    "CREATED",
+    "PREFLIGHT",
+    "RUNNING",
+    "JUDGING",
+    "EVALUATING",
+    "REPORTING",
+    "PUBLISHING",
+    "VERIFYING",
+    "COMPLETED",
+    "PARTIAL",
+    "INTERRUPTING",
+    "INTERRUPTED",
+    "FAILED_PREFLIGHT",
+    "FAILED_RUNNING",
+    "FAILED_JUDGING",
+    "FAILED_EVALUATION",
+    "FAILED_REPORTING",
+    "FAILED_PUBLISHING",
+    "FAILED_VERIFYING",
+)
 RUN_LABELS = ("benchmark", "framework", "protocol")
 
 
@@ -59,10 +80,34 @@ class BenchmarkMetrics:
             RUN_LABELS,
             registry=self.registry,
         )
+        self.expected_items = Gauge(
+            "dmf_bench_run_expected_items",
+            "Expected benchmark questions/items for the current run.",
+            RUN_LABELS,
+            registry=self.registry,
+        )
+        self.committed_items = Gauge(
+            "dmf_bench_run_committed_items",
+            "Committed benchmark questions/items for the current run.",
+            RUN_LABELS,
+            registry=self.registry,
+        )
+        self.item_progress_ratio = Gauge(
+            "dmf_bench_run_item_progress_ratio",
+            "Committed questions/items divided by expected questions/items.",
+            RUN_LABELS,
+            registry=self.registry,
+        )
         self.phase_active = Gauge(
             "dmf_bench_run_phase_active",
             "One when the process is in the labelled phase, zero otherwise.",
             (*RUN_LABELS, "phase"),
+            registry=self.registry,
+        )
+        self.state_active = Gauge(
+            "dmf_bench_run_state_active",
+            "One when the run is in the labelled state, zero otherwise.",
+            (*RUN_LABELS, "state"),
             registry=self.registry,
         )
         self.last_progress_timestamp = Gauge(
@@ -138,13 +183,32 @@ class BenchmarkMetrics:
         phase: str,
         expected: int,
         committed: int,
+        state: str | None = None,
+        expected_units: int | None = None,
+        committed_units: int | None = None,
     ) -> None:
         labels = _run_labels(benchmark, framework, protocol)
-        self.expected_units.labels(*labels).set(expected)
-        self.committed_units.labels(*labels).set(committed)
-        self.progress_ratio.labels(*labels).set((committed / expected) if expected else 0.0)
+        resolved_expected_units = expected if expected_units is None else expected_units
+        resolved_committed_units = committed if committed_units is None else committed_units
+        self.expected_units.labels(*labels).set(resolved_expected_units)
+        self.committed_units.labels(*labels).set(resolved_committed_units)
+        self.progress_ratio.labels(*labels).set(
+            (resolved_committed_units / resolved_expected_units)
+            if resolved_expected_units
+            else 0.0
+        )
+        self.expected_items.labels(*labels).set(expected)
+        self.committed_items.labels(*labels).set(committed)
+        self.item_progress_ratio.labels(*labels).set(
+            (committed / expected) if expected else 0.0
+        )
         for candidate in PHASES:
             self.phase_active.labels(*labels, candidate).set(1 if candidate == phase else 0)
+        resolved_state = str(state or phase).upper()
+        for candidate in RUN_STATES:
+            self.state_active.labels(*labels, candidate).set(
+                1 if candidate == resolved_state else 0
+            )
         self.last_progress_timestamp.labels(*labels).set(time.time())
 
     def restore_run_status(self, run_dir: str | Path) -> None:
@@ -153,6 +217,7 @@ class BenchmarkMetrics:
         status = _read_object(run_path / "run-status.json")
         inputs = manifest.get("fingerprint_inputs") or {}
         items = status.get("items") or {}
+        units = status.get("units") or {}
         self.record_run_status(
             benchmark=str(inputs.get("benchmark", "")),
             framework=str(inputs.get("framework", "")),
@@ -160,6 +225,9 @@ class BenchmarkMetrics:
             phase=str(status.get("phase", status.get("state", "PREFLIGHT"))),
             expected=int(items.get("expected", 0)),
             committed=int(items.get("committed", 0)),
+            state=str(status.get("state", "PREFLIGHT")),
+            expected_units=int(units.get("expected", items.get("expected", 0))),
+            committed_units=int(units.get("committed", items.get("committed", 0))),
         )
 
     def record_attempt(self, *, benchmark: str, framework: str, protocol: str, outcome: str) -> None:
@@ -208,24 +276,35 @@ class BenchmarkMetrics:
     def content_type(self) -> str:
         return CONTENT_TYPE_LATEST
 
-    def write_snapshot(self, run_dir: str | Path) -> Path:
+    def write_snapshot(
+        self,
+        run_dir: str | Path,
+        *,
+        operational_summary: dict[str, Any] | None = None,
+    ) -> Path:
         metrics_dir = Path(run_dir) / "metrics"
         metrics_dir.mkdir(parents=True, exist_ok=True)
         snapshot_path = metrics_dir / "prometheus-snapshot.prom"
         snapshot_path.write_bytes(self.render())
-        write_json_atomic(
-            metrics_dir / "operational-summary.json",
-            {
-                "schema_version": 1,
-                "metrics_snapshot_path": snapshot_path.relative_to(Path(run_dir)).as_posix(),
-                "content_type": self.content_type(),
-                "cardinality_policy": {
-                    "run_id_label": "forbidden",
-                    "item_id_label": "forbidden",
-                    "prompt_label": "forbidden",
-                    "collection_label": "forbidden",
-                },
+        summary_path = metrics_dir / "operational-summary.json"
+        existing = _read_object(summary_path) if summary_path.is_file() else {}
+        payload = {
+            **existing,
+            "schema_version": 1,
+            "metrics_snapshot_path": snapshot_path.relative_to(Path(run_dir)).as_posix(),
+            "content_type": self.content_type(),
+            "cardinality_policy": {
+                "run_id_label": "forbidden",
+                "item_id_label": "forbidden",
+                "prompt_label": "forbidden",
+                "collection_label": "forbidden",
             },
+        }
+        if operational_summary is not None:
+            payload.update(operational_summary)
+        write_json_atomic(
+            summary_path,
+            payload,
         )
         return snapshot_path
 
@@ -238,6 +317,12 @@ def start_metrics_endpoint(
 ) -> MetricsServer:
     httpd, thread = start_http_server(port, addr=address, registry=metrics.registry)
     return MetricsServer(port=int(httpd.server_port), thread=thread, httpd=httpd)
+
+
+def stop_metrics_endpoint(server: MetricsServer) -> None:
+    server.httpd.shutdown()
+    server.httpd.server_close()
+    server.thread.join(timeout=5)
 
 
 def _read_object(path: Path) -> dict[str, Any]:

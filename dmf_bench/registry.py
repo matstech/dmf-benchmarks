@@ -22,12 +22,12 @@ BENCHMARKS: dict[str, BenchmarkInfo] = {
     "locomo": BenchmarkInfo(
         name="locomo",
         unit_type="locomo-conversation",
-        protocols=("strict", "native"),
+        protocols=("native",),
     ),
     "longmemeval": BenchmarkInfo(
         name="longmemeval",
         unit_type="longmemeval-question",
-        protocols=("strict", "native"),
+        protocols=("native",),
     ),
 }
 
@@ -36,7 +36,7 @@ FRAMEWORKS: dict[str, FrameworkInfo] = {
     "mem0": FrameworkInfo(name="mem0", storage_backend="qdrant-server"),
 }
 
-PROTOCOLS: tuple[str, ...] = ("strict", "native")
+PROTOCOLS: tuple[str, ...] = ("native",)
 
 
 def supported_combinations(

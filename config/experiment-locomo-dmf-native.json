@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "experiment_id": "local-locomo-dmf-native",
+  "benchmark": "locomo",
+  "framework": "dmf",
+  "protocol": "native",
+  "runtime": {
+    "root": "/bench",
+    "runs_dir": "/bench/runs",
+    "cache_dir": "/bench/cache",
+    "metrics_port": 9464,
+    "log_level": "INFO"
+  },
+  "framework_config": {
+    "path": "/bench/config/locomo_dmf_qdrant_settings.toml",
+    "sha256": "54c99182ca2e5506b12a0480559a026f5cb445587832a4eb1a0653c3fbc5a890",
+    "format": "toml",
+    "profile": "local-native-mini-v1"
+  },
+  "qdrant": {
+    "endpoint_env": "QDRANT_URL",
+    "retention": "keep",
+    "request_timeout_seconds": 10
+  },
+  "dataset": {
+    "name": "locomo",
+    "source": "local-fixture",
+    "revision": "locomo-mini-v1",
+    "sha256": "c0235f6bdfe58d1f52530c2a659625fdaf38d3fa8b8d701057990fbd9437129e",
+    "path": "/bench/datasets/locomo/locomo-mini.json"
+  },
+  "selection": {
+    "ordered_item_ids": ["conversation-0001"],
+    "filters": {"categories": [1, 2]},
+    "seed": 7
+  },
+  "models": {
+    "answerer": {
+      "provider": "openai",
+      "requested_model": "gpt-4.1-mini",
+      "parameters": {"temperature": 0, "max_tokens": 4096},
+      "runtime": {"timeout_seconds": 120, "rpm": 200, "max_retries": 5}
+    },
+    "judge": {
+      "provider": "openai",
+      "requested_model": "gpt-5-mini",
+      "parameters": {
+        "temperature": 0,
+        "max_tokens": 4096,
+        "reasoning_effort": "low"
+      },
+      "runtime": {"timeout_seconds": 120, "rpm": 200, "max_retries": 5}
+    }
+  },
+  "evaluation": {
+    "required": ["primary_judge_score", "rigorous_report"],
+    "optional": ["ablation_report"],
+    "ablation_required": false
+  },
+  "artifact_store": {"type": "local", "uri": "/bench/runs"}
+}

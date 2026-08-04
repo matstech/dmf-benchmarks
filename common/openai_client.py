@@ -41,7 +41,7 @@ import logging
 import os
 import random
 import time
-from typing import Any
+from typing import Any, Callable
 
 import openai
 from openai import OpenAI
@@ -52,6 +52,47 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_PROVIDERS = frozenset({"openai", "openrouter", "ollama"})
 REASONING_EFFORT_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
+
+class ProviderRequestError(RuntimeError):
+    """Fail-closed provider failure with bounded-retry diagnostics."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool,
+        attempts: int,
+    ) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.attempts = attempts
+
+
+class ProviderResponseError(RuntimeError):
+    """Raised when a provider returns a structurally unusable response."""
+
+
+def is_retryable_provider_error(exc: BaseException) -> bool:
+    """Classify transient transport failures without retrying caller errors."""
+    if isinstance(
+        exc,
+        (
+            TimeoutError,
+            ConnectionError,
+            openai.APITimeoutError,
+            openai.APIConnectionError,
+            openai.RateLimitError,
+            openai.InternalServerError,
+        ),
+    ):
+        return True
+
+    if isinstance(exc, openai.APIStatusError):
+        status_code = int(getattr(exc, "status_code", 0) or 0)
+        return status_code in {408, 409, 425, 429} or status_code >= 500
+
+    return False
 
 
 def normalize_provider_name(provider: str) -> str:
@@ -69,7 +110,7 @@ def resolve_provider_runtime_config(provider: str) -> tuple[str | None, str | No
 
     if normalized == "openai":
         api_key = os.getenv("OPENAI_API_KEY")
-        base_url = os.getenv("OPENAI_BASE_URL")
+        base_url = os.getenv("OPENAI_BASE_URL") or None
         if not api_key:
             raise ValueError(
                 "Provider 'openai' requires OPENAI_API_KEY in the environment or .env file."
@@ -114,11 +155,17 @@ class OpenAIClient:
         max_retries: int = 5,
         timeout: float = 120.0,
         rpm: int = 200,
+        sleeper: Callable[[float], None] = time.sleep,
+        retry_callback: Callable[[BaseException, int], None] | None = None,
     ):
+        if max_retries < 0:
+            raise ValueError("max_retries cannot be negative.")
         self.model = model
         self.max_retries = max_retries
         self.timeout = timeout
         self.rpm = rpm
+        self._sleeper = sleeper
+        self._retry_callback = retry_callback
         self._min_request_interval_seconds = 60.0 / rpm if rpm > 0 else 0.0
         self._last_request_ts = 0.0
         self._reasoning_effort_unsupported_logged = False
@@ -126,6 +173,7 @@ class OpenAIClient:
             api_key=api_key or os.getenv("OPENAI_API_KEY"),
             base_url=base_url,
             timeout=openai.Timeout(timeout, connect=10.0),
+            max_retries=0,
         )
 
     def _token_limit_kwargs(self, max_tokens: int) -> dict[str, Any]:
@@ -154,7 +202,7 @@ class OpenAIClient:
         elapsed = now - self._last_request_ts
         sleep_seconds = self._min_request_interval_seconds - elapsed
         if sleep_seconds > 0:
-            time.sleep(sleep_seconds)
+            self._sleeper(sleep_seconds)
         self._last_request_ts = time.monotonic()
 
     def _reasoning_effort_kwargs(self, reasoning_effort: str | None) -> dict[str, Any]:
@@ -223,7 +271,8 @@ class OpenAIClient:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_prompt})
 
-        for attempt in range(self.max_retries):
+        total_attempts = self.max_retries + 1
+        for attempt in range(total_attempts):
             try:
                 self._wait_for_rate_limit_slot()
                 response = self.client.chat.completions.create(
@@ -238,19 +287,9 @@ class OpenAIClient:
                 finish_reason = response.choices[0].finish_reason
 
                 if content is None:
-                    logger.warning(
-                        "Generation returned None (finish_reason=%s)",
-                        finish_reason,
-                    )
-                    if attempt < self.max_retries - 1:
-                        time.sleep(self._retry_sleep_seconds(attempt))
-                        continue
-                    return LLMResponse(
-                        response="",
-                        token_usage=self.empty_usage(),
-                        model=response.model,
-                        finish_reason=finish_reason,
-                        raw=response.model_dump() if include_raw else None,
+                    raise ProviderResponseError(
+                        "Provider returned no text content "
+                        f"(finish_reason={finish_reason!r})."
                     )
 
                 return LLMResponse(
@@ -260,30 +299,29 @@ class OpenAIClient:
                     finish_reason=finish_reason,
                     raw=response.model_dump() if include_raw else None,
                 )
-            except TimeoutError:
-                logger.warning(
-                    "OpenAI generation attempt %d/%d timed out",
-                    attempt + 1,
-                    self.max_retries,
-                )
             except Exception as exc:
+                retryable = is_retryable_provider_error(exc)
+                attempts = attempt + 1
                 logger.warning(
-                    "OpenAI generation attempt %d/%d failed: %s",
-                    attempt + 1,
-                    self.max_retries,
-                    exc,
+                    "Provider generation attempt %d/%d failed "
+                    "(retryable=%s, error_type=%s)",
+                    attempts,
+                    total_attempts,
+                    retryable,
+                    type(exc).__name__,
                 )
+                if not retryable or attempts >= total_attempts:
+                    raise ProviderRequestError(
+                        "Provider generation failed "
+                        f"after {attempts} attempt(s): {type(exc).__name__}.",
+                        retryable=retryable,
+                        attempts=attempts,
+                    ) from exc
+                if self._retry_callback is not None:
+                    self._retry_callback(exc, attempts)
+                self._sleeper(self._retry_sleep_seconds(attempt))
 
-            if attempt < self.max_retries - 1:
-                time.sleep(self._retry_sleep_seconds(attempt))
-
-        return LLMResponse(
-            response="",
-            token_usage=self.empty_usage(),
-            model=self.model,
-            finish_reason=None,
-            raw=None,
-        )
+        raise AssertionError("Provider retry loop exited unexpectedly.")
 
     def call_judge(
         self,

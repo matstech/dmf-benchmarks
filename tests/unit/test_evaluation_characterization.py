@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import pytest
 
 from common.native_reporting import (
@@ -5,12 +7,16 @@ from common.native_reporting import (
     apply_native_primary_judge_score,
 )
 from common.results_io import ensure_locomo_uniform_schema
+from locomo.evaluate_ablation import evaluate_ablation as evaluate_locomo_ablation
 from locomo.evaluate_rigorous import evaluate_flat as evaluate_locomo_flat
+from longmemeval.evaluate_ablation import (
+    evaluate_ablation as evaluate_longmemeval_ablation,
+)
 from longmemeval.evaluate_rigorous import ensure_uniform_schema as ensure_longmemeval_uniform_schema
 from longmemeval.evaluate_rigorous import evaluate_flat as evaluate_longmemeval_flat
 
 
-def test_native_primary_quality_only_uses_native_judge_score() -> None:
+def test_native_primary_quality_reports_missing_unscored_items() -> None:
     native_item = apply_native_primary_judge_score(
         {"protocol_mode": "native", "category_name": "temporal"},
         judgment="CORRECT",
@@ -19,22 +25,15 @@ def test_native_primary_quality_only_uses_native_judge_score() -> None:
         judge_provider="fake",
         judge_model="fake-judge",
     )
-    strict_item = apply_native_primary_judge_score(
-        {"protocol_mode": "strict", "category_name": "temporal"},
-        judgment="WRONG",
-        score=0.0,
-        reason="misses",
-        judge_provider="fake",
-        judge_model="fake-judge",
-    )
+    unscored_item = {"protocol_mode": "native", "category_name": "temporal"}
 
     report = aggregate_native_primary_quality(
-        [native_item, strict_item],
+        [native_item, unscored_item],
         benchmark_name="locomo",
     )
 
     assert native_item["judge_score"] == 1.0
-    assert "judge_score" not in strict_item
+    assert "judge_score" not in unscored_item
     assert report["overall"]["judged_count"] == 1
     assert report["overall"]["missing_count"] == 1
     assert report["overall"]["avg_judge_score"] == 1.0
@@ -118,6 +117,48 @@ def test_longmemeval_rigorous_flat_metrics_known_values() -> None:
     assert metrics["overall"]["mrr"] == 0.5
     assert metrics["by_group"]["single-session-user"]["exact_match"] == 1.0
     assert metrics["by_group"]["temporal-reasoning"]["recall_at_k"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("evaluate", "reference"),
+    [
+        (
+            evaluate_locomo_ablation,
+            {"category_name": "temporal", "evidence": ["D1:1"]},
+        ),
+        (
+            evaluate_longmemeval_ablation,
+            {
+                "question_type": "single-session-user",
+                "answer_session_ids": ["session-a"],
+            },
+        ),
+    ],
+)
+def test_ablation_distinguishes_available_empty_native_diagnostics(
+    evaluate: Callable[..., dict[str, object]],
+    reference: dict[str, object],
+) -> None:
+    item = {
+        **reference,
+        "retrieval": {
+            "search_results": [],
+            "recall_diagnostics": {
+                "diagnostics_available": True,
+                "diagnostic_source": "dmf_structured_native_final_projection",
+                "raw_stage_available": False,
+                "raw_candidates": [],
+                "ranked_candidates_canonical": [],
+                "final_candidates_canonical": [],
+            },
+        },
+    }
+
+    result = evaluate([item])
+
+    assert result["stats"]["questions_with_diagnostics"] == 1
+    assert result["stats"]["questions_without_diagnostics"] == 0
+    assert result["stages"]["final"]["overall"]["recall_at_k"] == 0.0
 
 
 def test_incomplete_or_mixed_result_schema_is_rejected() -> None:

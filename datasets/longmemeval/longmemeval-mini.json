@@ -1,0 +1,74 @@
+[
+  {
+    "question_id": "lme-001",
+    "question_type": "single-session-user",
+    "question": "What snack does Sam prefer?",
+    "answer": "almonds",
+    "question_date": "2024/02/10 (Sat) 09:00",
+    "answer_session_ids": [
+      "session-a"
+    ],
+    "haystack_session_ids": [
+      "session-b",
+      "session-a"
+    ],
+    "haystack_dates": [
+      "2024/02/09 (Fri) 08:00",
+      "2024/02/01 (Thu) 08:00"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "I bought tea."
+        },
+        {
+          "role": "assistant",
+          "content": "Noted."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I prefer almonds as a snack."
+        },
+        {
+          "role": "assistant",
+          "content": "I will remember that."
+        }
+      ]
+    ]
+  },
+  {
+    "question_id": "lme-002",
+    "question_type": "temporal-reasoning",
+    "question": "Which event happened first?",
+    "answer": "the Rome trip",
+    "question_date": "2024/03/10 (Sun) 09:00",
+    "answer_session_ids": [
+      "session-c"
+    ],
+    "haystack_session_ids": [
+      "session-d",
+      "session-c"
+    ],
+    "haystack_dates": [
+      "2024/03/05 (Tue) 11:00",
+      "2024/03/01 (Fri) 11:00"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "I booked a train."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "The Rome trip happened before the concert."
+        }
+      ]
+    ]
+  }
+]

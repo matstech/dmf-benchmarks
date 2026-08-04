@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from dmf_bench.api import create_app
 from dmf_bench.artifacts import LocalArtifactStore
-from dmf_bench.atomic_io import read_json, write_json_atomic
+from dmf_bench.atomic_io import write_json_atomic
 from dmf_bench.cli import main
 from dmf_bench.contracts import RunManifest
 from dmf_bench.state import StateError
@@ -50,8 +50,8 @@ def test_local_only_committed_verify_and_inspect_on_shared_volume(tmp_path: Path
     assert verified["shared_volume_root"] == str(tmp_path / "shared-runs")
     assert verified["verified_artifact_count"] >= 3
     assert verified["retry_policy"]["status"] == "NOT_APPLICABLE"
-    assert inspected["api_mode"] == "read-write-json-artifacts"
-    assert inspected["writable_api"] is True
+    assert inspected["api_mode"] == "read-only"
+    assert inspected["writable_api"] is False
     assert inspected["artifact_count"] == verified["verified_artifact_count"]
 
 
@@ -93,16 +93,26 @@ def test_artifact_api_lists_verifies_and_downloads_json(tmp_path: Path) -> None:
     commit_fixture_run(store)
     client = TestClient(create_app(tmp_path / "shared-runs"))
 
+    landing = client.get("/")
     health = client.get("/health")
+    services = client.get("/services")
     run = client.get("/runs/run-001")
     artifacts = client.get("/runs/run-001/artifacts")
     verified = client.get("/runs/run-001/verify")
     download = client.get("/runs/run-001/artifacts/reports/summary.json")
 
+    assert landing.status_code == 200
+    assert landing.headers["content-type"].startswith("text/html")
+    assert "DMF Benchmarks" in landing.text
     assert health.json() == {
         "status": "ok",
-        "writable": True,
-        "write_contract": "json-artifact-batch",
+        "mode": "read-only",
+        "writable": False,
+    }
+    assert services.json()["services"]["grafana"] == {
+        "label": "Grafana",
+        "port": 3000,
+        "path": "/d/dmf-benchmarks/dmf-benchmarks",
     }
     assert run.json()["completed"] is True
     assert artifacts.json()["artifacts"]
@@ -112,11 +122,28 @@ def test_artifact_api_lists_verifies_and_downloads_json(tmp_path: Path) -> None:
     assert download.json() == {"evaluated": 1, "expected": 1}
 
 
-def test_artifact_api_publishes_json_batch_to_shared_volume(tmp_path: Path) -> None:
+def test_artifact_api_service_catalog_uses_published_ports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GRAFANA_PORT", "4300")
+    monkeypatch.setenv("PROMETHEUS_PORT", "49090")
+    monkeypatch.setenv("QDRANT_HTTP_PORT", "46333")
+    client = TestClient(create_app(tmp_path / "shared-runs"))
+
+    services = client.get("/services").json()["services"]
+
+    assert services["grafana"]["port"] == 4300
+    assert services["prometheus"]["port"] == 49090
+    assert services["qdrant"]["port"] == 46333
+
+
+def test_artifact_api_refuses_writes_and_does_not_mutate_shared_volume(tmp_path: Path) -> None:
     runs_dir = tmp_path / "shared-runs"
     store = LocalArtifactStore(runs_dir)
-    store.create_run(make_manifest())
+    run_dir = store.create_run(make_manifest())
     client = TestClient(create_app(runs_dir))
+    before = sorted(path.relative_to(run_dir) for path in run_dir.rglob("*"))
 
     response = client.post(
         "/runs/run-001/artifacts",
@@ -128,14 +155,8 @@ def test_artifact_api_publishes_json_batch_to_shared_volume(tmp_path: Path) -> N
         },
     )
 
-    assert response.status_code == 201
-    assert response.json()["status"] == "published"
-    assert response.json()["verified"]["status"] == "verified"
-    assert store.verify_committed("run-001")["verified_artifact_count"] == 2
-    assert read_json(runs_dir / "run-001" / "final" / "reports" / "summary.json") == {
-        "evaluated": 1,
-        "expected": 1,
-    }
+    assert response.status_code == 405
+    assert sorted(path.relative_to(run_dir) for path in run_dir.rglob("*")) == before
 
 
 def test_artifact_api_rejects_unlisted_or_unsafe_artifact_path(tmp_path: Path) -> None:
@@ -145,42 +166,6 @@ def test_artifact_api_rejects_unlisted_or_unsafe_artifact_path(tmp_path: Path) -
 
     assert client.get("/runs/run-001/artifacts/../run-manifest.json").status_code == 404
     assert client.get("/runs/run-001/artifacts/not-listed.json").status_code == 404
-
-
-def test_artifact_api_rejects_invalid_json_publication_paths(tmp_path: Path) -> None:
-    runs_dir = tmp_path / "shared-runs"
-    LocalArtifactStore(runs_dir).create_run(make_manifest())
-    client = TestClient(create_app(runs_dir))
-
-    unsafe = client.post(
-        "/runs/run-001/artifacts",
-        json={"artifacts": [{"path": "../outside.json", "payload": {"ok": True}}]},
-    )
-    non_json = client.post(
-        "/runs/run-001/artifacts",
-        json={"artifacts": [{"path": "reports/summary.txt", "payload": {"ok": True}}]},
-    )
-    reserved = client.post(
-        "/runs/run-001/artifacts",
-        json={"artifacts": [{"path": "manifest.json", "payload": {"ok": True}}]},
-    )
-
-    assert unsafe.status_code == 422
-    assert non_json.status_code == 422
-    assert reserved.status_code == 422
-
-
-def test_artifact_api_rejects_write_after_completed(tmp_path: Path) -> None:
-    runs_dir = tmp_path / "shared-runs"
-    commit_fixture_run(LocalArtifactStore(runs_dir))
-    client = TestClient(create_app(runs_dir))
-
-    response = client.post(
-        "/runs/run-001/artifacts",
-        json={"artifacts": [{"path": "reports/extra.json", "payload": {"ok": True}}]},
-    )
-
-    assert response.status_code == 409
 
 
 def test_cli_does_not_expose_artifact_api_command(capsys: pytest.CaptureFixture[str]) -> None:

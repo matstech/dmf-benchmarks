@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -26,6 +26,64 @@ class BenchmarkUnit:
     unit_id: str
     item_ids: tuple[str, ...]
     metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class FrameworkRunContext:
+    """Operational run identity required for isolated framework resources."""
+
+    run_id: str
+    scientific_fingerprint: str
+    run_dir: Path
+
+
+@dataclass(frozen=True)
+class AnswererRequest:
+    """Complete prompt envelope passed to an answerer transport."""
+
+    system_prompt: str
+    user_prompt: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class JudgeRequest:
+    """Prediction and benchmark metadata required by a scientific judge."""
+
+    prediction: dict[str, Any]
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RetrievalResult:
+    """Framework-neutral retrieval payload consumed by benchmark adapters."""
+
+    cutoff_label: str
+    search_results: tuple[dict[str, Any], ...] = ()
+    native_context: Any = ""
+    native_surface_diagnostics: dict[str, Any] = field(default_factory=dict)
+    recall_diagnostics: dict[str, Any] = field(default_factory=dict)
+    memory_internal_usage: dict[str, Any] = field(default_factory=dict)
+    memories_evaluated: int = 0
+    timing: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.cutoff_label:
+            raise ValueError("RetrievalResult.cutoff_label cannot be empty.")
+        if self.memories_evaluated < 0:
+            raise ValueError("RetrievalResult.memories_evaluated cannot be negative.")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "cutoff_label": self.cutoff_label,
+            "search_results": [dict(item) for item in self.search_results],
+            "native_context": self.native_context,
+            "native_surface_diagnostics": dict(self.native_surface_diagnostics),
+            "recall_diagnostics": dict(self.recall_diagnostics),
+            "memory_internal_usage": dict(self.memory_internal_usage),
+            "memories_evaluated": self.memories_evaluated,
+            "timing": dict(self.timing),
+        }
 
 
 @runtime_checkable
@@ -54,7 +112,7 @@ class FrameworkAdapter(Protocol):
 class AnswererAdapter(Protocol):
     name: str
 
-    def generate(self, prompt: str, metadata: dict[str, Any]) -> dict[str, Any]:
+    def generate(self, request: AnswererRequest) -> dict[str, Any]:
         """Return one deterministic answer payload for the runner boundary."""
 
 
@@ -62,7 +120,7 @@ class AnswererAdapter(Protocol):
 class JudgeAdapter(Protocol):
     name: str
 
-    def judge(self, question: str, expected: str, generated: str) -> dict[str, Any]:
+    def judge(self, request: JudgeRequest) -> dict[str, Any]:
         """Return one judge payload for the runner boundary."""
 
 

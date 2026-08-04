@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from dmf_bench.adapters.base import BenchmarkUnit
+from dmf_bench.adapters.base import BenchmarkUnit, FrameworkRunContext, JudgeRequest, RetrievalResult
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import write_json_atomic
 from dmf_bench.contracts import ArtifactRef, RunManifest, UnitCheckpoint, hash_canonical_json, sha256_file
@@ -16,7 +16,15 @@ from dmf_bench.state import UnitState
 class ExternalFixtureFramework:
     name = "fixture-memory"
 
-    def cleanup_unit(self, _unit: BenchmarkUnit, _item: dict[str, Any], _config: dict[str, Any]) -> None:
+    def cleanup_unit(
+        self,
+        _unit: BenchmarkUnit,
+        _item: dict[str, Any],
+        _config: dict[str, Any],
+        *,
+        run_context: FrameworkRunContext,
+    ) -> None:
+        del run_context
         return None
 
     def prepare_unit(
@@ -24,7 +32,10 @@ class ExternalFixtureFramework:
         unit: BenchmarkUnit,
         _item: dict[str, Any],
         _config: dict[str, Any],
+        *,
+        run_context: FrameworkRunContext,
     ) -> dict[str, Any]:
+        del run_context
         return {"prepared_unit_id": unit.unit_id}
 
     def retrieve(
@@ -33,14 +44,20 @@ class ExternalFixtureFramework:
         _item: dict[str, Any],
         _config: dict[str, Any],
         prepared: dict[str, Any],
-    ) -> dict[str, Any]:
-        return {"unit_id": unit.unit_id, "prepared": prepared}
+        *,
+        run_context: FrameworkRunContext,
+    ) -> RetrievalResult:
+        del run_context
+        return RetrievalResult(
+            cutoff_label="fixture",
+            native_context={"unit_id": unit.unit_id, "prepared": prepared},
+        )
 
 
 class TinyBenchmarkFixture:
     name = "tinybench"
     atomic_unit = "tiny-unit"
-    supported_protocols = ("strict",)
+    supported_protocols = ("native",)
 
     def enumerate_units(self, _config: dict[str, Any]) -> list[BenchmarkUnit]:
         return [BenchmarkUnit(unit_id="tiny-001", item_ids=("tiny-001",), metadata={"question": "2+2?"})]
@@ -49,7 +66,7 @@ class TinyBenchmarkFixture:
         return {
             "schema_version": 1,
             "benchmark": self.name,
-            "protocol": "strict",
+            "protocol": "native",
             "framework": ExternalFixtureFramework.name,
             "question_id": unit.unit_id,
             "question": "2+2?",
@@ -60,14 +77,21 @@ class TinyBenchmarkFixture:
 
 class FixtureJudge:
     name = "fixture-judge"
+    judge_fingerprint = hash_canonical_json(
+        {"schema_version": 1, "rubric": "fixture-exact-match-v1"}
+    )
 
-    def judge(self, _question: str, expected: str, generated: str) -> dict[str, Any]:
+    def judge(self, request: JudgeRequest) -> dict[str, Any]:
+        expected = str(request.prediction.get("ground_truth_answer", ""))
+        generated = str(request.prediction.get("generated_answer", ""))
         return {
             "judgment": "CORRECT" if expected == generated else "WRONG",
             "score": 1.0 if expected == generated else 0.0,
             "reason": "fixture exact match",
+            "judge_provider": "fixture",
+            "judge_requested_model": "fixture-judge",
             "judge_model": "fixture-judge",
-            "judge_fingerprint": "fixture-judge-v1",
+            "judge_fingerprint": self.judge_fingerprint,
         }
 
 
@@ -81,6 +105,9 @@ def tiny_report(evaluations: list[dict[str, Any]], _metadata: dict[str, Any]) ->
     }
 
 
+tiny_report.evaluator_version = "tiny-report-v1"  # type: ignore[attr-defined]
+
+
 def create_tiny_committed_run(store: LocalArtifactStore) -> str:
     benchmark = TinyBenchmarkFixture()
     unit = benchmark.enumerate_units({})[0]
@@ -88,9 +115,18 @@ def create_tiny_committed_run(store: LocalArtifactStore) -> str:
         "schema_version": 1,
         "benchmark": benchmark.name,
         "framework": ExternalFixtureFramework.name,
-        "protocol": "strict",
+        "protocol": "native",
         "dataset": {"name": "tinybench", "source": "fixture", "revision": "v1", "sha256": "0" * 64},
         "selection": {"ordered_item_ids": [unit.unit_id], "seed": 1},
+        "models": {
+            "judge": {
+                "provider": "fixture",
+                "requested_model": "fixture-judge",
+                "parameters": {},
+            }
+        },
+        "judge_contract": {"schema_version": 1, "rubric": "fixture-exact-match-v1"},
+        "evaluation": {"required": ["primary_judge_score", "tiny_report"]},
     }
     manifest = RunManifest(
         run_id="tiny-run",
@@ -137,22 +173,22 @@ def _read_prediction(path: Path) -> dict[str, Any]:
 
 
 def test_explicit_registry_accepts_external_framework_without_default_registry_mutation() -> None:
-    benchmarks = {"tinybench": BenchmarkInfo("tinybench", "tiny-unit", ("strict",))}
+    benchmarks = {"tinybench": BenchmarkInfo("tinybench", "tiny-unit", ("native",))}
     frameworks = {**FRAMEWORKS, ExternalFixtureFramework.name: FrameworkInfo(ExternalFixtureFramework.name, "fixture")}
 
     validate_combination(
         "tinybench",
         ExternalFixtureFramework.name,
-        "strict",
+        "native",
         benchmarks=benchmarks,
         frameworks=frameworks,
-        protocols=("strict",),
+        protocols=("native",),
     )
 
-    assert ("tinybench", ExternalFixtureFramework.name, "strict") in supported_combinations(
+    assert ("tinybench", ExternalFixtureFramework.name, "native") in supported_combinations(
         benchmarks=benchmarks,
         frameworks=frameworks,
-        protocols=("strict",),
+        protocols=("native",),
     )
     assert ExternalFixtureFramework.name not in FRAMEWORKS
 
@@ -168,7 +204,7 @@ def test_fixture_benchmark_and_evaluator_extend_finalizer_without_runner_or_stor
         judge=FixtureJudge(),
         prediction_loaders={"tinybench": load_tiny_predictions},
         evaluation_plans={
-            ("tinybench", "strict", ExternalFixtureFramework.name): (
+            ("tinybench", "native", ExternalFixtureFramework.name): (
                 EvaluationRequirement("primary_judge_score", required=True),
                 EvaluationRequirement("tiny_report", required=True),
             )
