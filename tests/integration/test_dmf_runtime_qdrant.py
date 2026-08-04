@@ -138,11 +138,10 @@ def experiment_config(
     tmp_path: Path,
     *,
     benchmark: str,
-    protocol: str,
 ) -> dict[str, Any]:
     dataset_path = FIXTURE_DIR / f"{benchmark}-mini.json"
     framework_path = CONFIG_DIR / f"{benchmark}_dmf_qdrant_settings.toml"
-    experiment_id = f"integration-{benchmark}-{protocol}-{uuid.uuid4().hex[:10]}"
+    experiment_id = f"integration-{benchmark}-{uuid.uuid4().hex[:10]}"
     selection = (
         {
             "ordered_item_ids": ["conversation-0001"],
@@ -157,11 +156,10 @@ def experiment_config(
         }
     )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "experiment_id": experiment_id,
         "benchmark": benchmark,
         "framework": "dmf",
-        "protocol": protocol,
         "runtime": {
             "root": str(tmp_path),
             "runs_dir": str(tmp_path / "runs"),
@@ -270,7 +268,7 @@ def test_locomo_dmf_predict_only_on_qdrant(
     tmp_path: Path,
 ) -> None:
     require_qdrant()
-    config = experiment_config(tmp_path, benchmark="locomo", protocol="native")
+    config = experiment_config(tmp_path, benchmark="locomo")
     benchmark = LoCoMoAdapter()
     unit = benchmark.enumerate_units(config)[0]
     _index, conversation, _questions = benchmark.selected_conversations_by_id(config)[
@@ -302,10 +300,8 @@ def test_locomo_dmf_predict_only_on_qdrant(
         predictions = read_json(
             run_dir / "items" / "conversation-0001" / "predictions.json"
         )["predictions"]
-        assert [prediction["protocol"] for prediction in predictions] == [
-            "native",
-            "native",
-        ]
+        assert all(prediction["schema_version"] == 2 for prediction in predictions)
+        assert all("protocol" not in prediction for prediction in predictions)
         assert all(item["retrieval"]["search_results"] for item in predictions)
         assert all(
             item["retrieval"]["recall_diagnostics"][
@@ -353,7 +349,7 @@ def test_longmemeval_dmf_predict_only_on_qdrant(
     tmp_path: Path,
 ) -> None:
     require_qdrant()
-    config = experiment_config(tmp_path, benchmark="longmemeval", protocol="native")
+    config = experiment_config(tmp_path, benchmark="longmemeval")
     benchmark = LongMemEvalAdapter()
     unit = benchmark.enumerate_units(config)[0]
     question = benchmark.selected_questions_by_id(config)[unit.unit_id]
@@ -381,7 +377,8 @@ def test_longmemeval_dmf_predict_only_on_qdrant(
         counts = assert_owned_collections_committed(adapter, cleanup_manifest)
         assert counts["primary"] == 4
         prediction = read_json(run_dir / "items" / "lme-001" / "prediction.json")
-        assert prediction["protocol"] == "native"
+        assert prediction["schema_version"] == 2
+        assert "protocol" not in prediction
         assert prediction["retrieval"]["search_results"] == []
         assert prediction["retrieval"]["recall_diagnostics"][
             "diagnostics_available"

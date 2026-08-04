@@ -10,7 +10,7 @@ from dmf_bench.adapters.longmemeval import LongMemEvalAdapter
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json
 from dmf_bench.cli import main
-from dmf_bench.contracts import sha256_file
+from dmf_bench.contracts import REPORT_SCHEMA_VERSION, sha256_file
 from dmf_bench.runner import (
     InjectedInterrupt,
     LongMemEvalPredictOnlyRunner,
@@ -106,17 +106,16 @@ class FakeAnswerer:
         }
 
 
-def make_longmemeval_config(tmp_path: Path, *, protocol: str = "native") -> dict[str, Any]:
+def make_longmemeval_config(tmp_path: Path) -> dict[str, Any]:
     dataset_path = tmp_path / "longmemeval-mini.json"
     shutil.copy2(FIXTURE_DIR / "longmemeval-mini.json", dataset_path)
     framework_config_path = tmp_path / "framework.toml"
     framework_config_path.write_text("[ltm]\nstorage_type = \"qdrant\"\n", encoding="utf-8")
     return {
-        "schema_version": 1,
-        "experiment_id": f"fixture-longmemeval-dmf-{protocol}",
+        "schema_version": 2,
+        "experiment_id": "fixture-longmemeval-dmf",
         "benchmark": "longmemeval",
         "framework": "dmf",
-        "protocol": protocol,
         "runtime": {
             "root": str(tmp_path),
             "runs_dir": str(tmp_path / "runs"),
@@ -196,14 +195,13 @@ def test_longmemeval_adapter_filters_and_samples_when_selection_uses_wildcard(
     assert [unit.unit_id for unit in units] == ["lme-001"]
 
 
-def test_native_prompt_surface_is_protocol_labeled(tmp_path: Path) -> None:
+def test_prompt_surface_builds_v2_prediction(tmp_path: Path) -> None:
     native_config = make_longmemeval_config(tmp_path)
     adapter = LongMemEvalAdapter()
     question = adapter.selected_questions_by_id(native_config)["lme-001"]
 
     native_input = adapter.build_answerer_input(
         question=question,
-        protocol="native",
         framework_name="dmf",
         retrieval={"native_context": {"memory": "I prefer almonds."}},
     )
@@ -213,7 +211,6 @@ def test_native_prompt_surface_is_protocol_labeled(tmp_path: Path) -> None:
 
     native_prediction = adapter.build_prediction(
         question=question,
-        protocol="native",
         framework_name="dmf",
         retrieval={
             "native_context": {"memory": "I prefer almonds."},
@@ -225,7 +222,8 @@ def test_native_prompt_surface_is_protocol_labeled(tmp_path: Path) -> None:
         answerer_input=native_input,
         answerer_output={"generated_answer": "almonds", "answerer_model": "fixture"},
     )
-    assert native_prediction["protocol_label"] == "native/longmemeval"
+    assert native_prediction["schema_version"] == 2
+    assert "protocol" not in native_prediction
     assert native_prediction["ground_truth_answer"] == "almonds"
     assert native_prediction["native"]["native_context"] == {"memory": "I prefer almonds."}
     assert native_prediction["retrieval"]["search_results"][0]["metadata"][
@@ -246,7 +244,7 @@ def test_predict_only_runner_commits_question_predictions_and_stops_partial(
     )
 
     result = runner.run(config)
-    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf-native"
+    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf"
 
     assert result.state == "PARTIAL"
     assert result.committed_unit_ids == ("lme-001", "lme-002")
@@ -254,8 +252,11 @@ def test_predict_only_runner_commits_question_predictions_and_stops_partial(
     assert len(answerer.calls) == 2
     assert read_json(run_dir / "run-status.json")["state"] == "PARTIAL"
     prediction = read_json(run_dir / "items" / "lme-001" / "prediction.json")
-    assert prediction["protocol"] == "native"
+    assert prediction["schema_version"] == 2
+    assert "protocol" not in prediction
     assert prediction["native"]["native_context"]["question_id"] == "lme-001"
+    timing = read_json(run_dir / "items" / "lme-001" / "timing.json")
+    assert timing["schema_version"] == REPORT_SCHEMA_VERSION
     checkpoint = read_json(
         run_dir / "checkpoints" / "lme-001" / "checkpoint.json"
     )
@@ -307,7 +308,7 @@ def test_interrupt_before_prediction_commit_restarts_unit(tmp_path: Path) -> Non
             answerer=FakeAnswerer(),
         ).run(config, interrupt_at="before-prediction-commit")
 
-    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf-native"
+    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf"
     assert not (run_dir / "items" / "lme-001" / "prediction.json").exists()
     assert plan_resume(run_dir).restart_unit_ids == ("lme-001", "lme-002")
 
@@ -335,7 +336,7 @@ def test_interrupt_after_prediction_commit_does_not_regenerate_committed_unit(
             answerer=FakeAnswerer(),
         ).run(config, interrupt_at="after-prediction-commit")
 
-    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf-native"
+    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf"
     assert plan_resume(run_dir).committed_unit_ids == ("lme-001",)
     assert plan_resume(run_dir).restart_unit_ids == ("lme-002",)
 

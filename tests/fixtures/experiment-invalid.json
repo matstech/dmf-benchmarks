@@ -1,9 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "experiment_id": "fixture-invalid",
   "benchmark": "locomo",
   "framework": "dmf",
-  "protocol": "unsupported",
   "runtime": {
     "root": "relative",
     "runs_dir": "/bench/runs",

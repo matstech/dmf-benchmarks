@@ -4,8 +4,8 @@ COMPOSE ?= docker compose -f $(BENCHMARKS_DIR)/deploy/compose.yaml
 
 LOCOMO_FRAMEWORK ?= dmf
 LONGMEMEVAL_FRAMEWORK ?= dmf
-LOCOMO_EXPERIMENT ?= /bench/config/experiment-locomo-$(LOCOMO_FRAMEWORK)-native.json
-LONGMEMEVAL_EXPERIMENT ?= /bench/config/experiment-longmemeval-$(LONGMEMEVAL_FRAMEWORK)-native.json
+LOCOMO_EXPERIMENT ?= /bench/config/experiment-locomo-$(LOCOMO_FRAMEWORK).json
+LONGMEMEVAL_EXPERIMENT ?= /bench/config/experiment-longmemeval-$(LONGMEMEVAL_FRAMEWORK).json
 RUN_ID ?=
 RUN_ID_ARG = $(if $(strip $(RUN_ID)),--run-id $(RUN_ID),)
 
@@ -24,8 +24,8 @@ LEGACY_LONGMEMEVAL_ARGS ?=
 help:
 	@printf "Official containerized commands:\n"
 	@printf "  make stack-up       Start Qdrant, Artifact API, Prometheus and Grafana\n"
-	@printf "  make locomo        Run the native LoCoMo experiment through dmf-bench\n"
-	@printf "  make longmemeval   Run the native LongMemEval experiment through dmf-bench\n"
+	@printf "  make locomo        Run the LoCoMo experiment through dmf-bench\n"
+	@printf "  make longmemeval   Run the LongMemEval experiment through dmf-bench\n"
 	@printf "  make resume RUN_ID=<id>  Resume a persisted dmf-bench run\n"
 	@printf "  make status RUN_ID=<id>  Inspect a persisted dmf-bench run\n"
 	@printf "  make stack-down     Stop the stack without deleting named volumes\n"

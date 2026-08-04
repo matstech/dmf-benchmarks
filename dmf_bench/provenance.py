@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from dmf_bench.config import redact_secrets, sanitize_endpoint
-from dmf_bench.contracts import hash_canonical_json, sha256_file
+from dmf_bench.contracts import PROVENANCE_SCHEMA_VERSION, hash_canonical_json, sha256_file
 from dmf_bench.fingerprints import (
     framework_config_identity,
     judge_contract_identity,
@@ -30,7 +30,7 @@ def build_run_provenance(
     models = _mapping(sanitized.get("models"))
 
     return {
-        "schema_version": 1,
+        "schema_version": PROVENANCE_SCHEMA_VERSION,
         "scientific": {
             "resolved_config_sha256": hash_canonical_json(scientific_config_payload(sanitized)),
             "fingerprint_inputs_sha256": hash_canonical_json(fingerprint_inputs),
@@ -64,7 +64,6 @@ def build_run_provenance(
                     {
                         "benchmark": sanitized.get("benchmark"),
                         "framework": sanitized.get("framework"),
-                        "protocol": sanitized.get("protocol"),
                     }
                 ),
             },

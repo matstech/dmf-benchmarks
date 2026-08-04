@@ -183,11 +183,10 @@ class FakeEngineBuilder:
         return bundle
 
 
-def runtime_config(tmp_path: Path, *, benchmark: str, protocol: str) -> dict[str, Any]:
+def runtime_config(tmp_path: Path, *, benchmark: str) -> dict[str, Any]:
     return {
         "benchmark": benchmark,
         "framework": "dmf",
-        "protocol": protocol,
         "runtime": {
             "root": str(tmp_path),
             "runs_dir": str(tmp_path / "runs"),
@@ -268,7 +267,7 @@ def test_locomo_runtime_ingests_once_retrieves_many_and_cleans_owned_resources(
     tmp_path: Path,
 ) -> None:
     unit, conversation, questions = locomo_case()
-    config = runtime_config(tmp_path, benchmark="locomo", protocol="native")
+    config = runtime_config(tmp_path, benchmark="locomo")
     context = run_context(tmp_path)
     client = FakeQdrantClient()
     builder = FakeEngineBuilder()
@@ -370,7 +369,7 @@ def test_locomo_runtime_ingests_once_retrieves_many_and_cleans_owned_resources(
 
 def test_dmf_resources_are_isolated_by_run_and_unit(tmp_path: Path) -> None:
     unit, conversation, _questions = locomo_case()
-    config = runtime_config(tmp_path, benchmark="locomo", protocol="native")
+    config = runtime_config(tmp_path, benchmark="locomo")
     first = adapter_for(
         benchmark="locomo",
         client=FakeQdrantClient(),
@@ -408,7 +407,7 @@ def test_longmemeval_runtime_preserves_order_and_normalizes_native_surface(
     tmp_path: Path,
 ) -> None:
     unit, question = longmemeval_case()
-    config = runtime_config(tmp_path, benchmark="longmemeval", protocol="native")
+    config = runtime_config(tmp_path, benchmark="longmemeval")
     context = run_context(tmp_path)
     client = FakeQdrantClient()
     builder = FakeEngineBuilder()
@@ -475,7 +474,7 @@ def test_failed_ingestion_removes_partial_collections_and_local_cards(
     tmp_path: Path,
 ) -> None:
     unit, conversation, _questions = locomo_case()
-    config = runtime_config(tmp_path, benchmark="locomo", protocol="native")
+    config = runtime_config(tmp_path, benchmark="locomo")
     client = FakeQdrantClient()
     builder = FakeEngineBuilder(fail_at=2)
     adapter = adapter_for(benchmark="locomo", client=client, builder=builder)
@@ -529,7 +528,7 @@ def test_factory_uses_qdrant_url_without_requiring_api_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = runtime_config(tmp_path, benchmark="locomo", protocol="native")
+    config = runtime_config(tmp_path, benchmark="locomo")
     client = FakeQdrantClient()
     calls: list[tuple[str, str | None, float]] = []
 
@@ -554,7 +553,7 @@ def test_default_engine_builder_uses_runtime_cache_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = runtime_config(tmp_path, benchmark="locomo", protocol="native")
+    config = runtime_config(tmp_path, benchmark="locomo")
     monkeypatch.setenv("QDRANT_URL", "http://qdrant:6333")
 
     adapter = DmfQdrantFrameworkAdapter.from_experiment(
@@ -572,7 +571,7 @@ def test_factory_fails_before_client_creation_when_qdrant_url_is_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = runtime_config(tmp_path, benchmark="locomo", protocol="native")
+    config = runtime_config(tmp_path, benchmark="locomo")
     monkeypatch.delenv("QDRANT_URL", raising=False)
     client_created = False
 

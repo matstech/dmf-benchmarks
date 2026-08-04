@@ -11,6 +11,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, G
 from prometheus_client import generate_latest, start_http_server
 
 from dmf_bench.atomic_io import read_json, write_json_atomic
+from dmf_bench.contracts import RUN_MANIFEST_SCHEMA_VERSION, RUN_STATUS_SCHEMA_VERSION
 from dmf_bench.state import StateError
 
 
@@ -47,7 +48,7 @@ RUN_STATES = (
     "FAILED_PUBLISHING",
     "FAILED_VERIFYING",
 )
-RUN_LABELS = ("benchmark", "framework", "protocol")
+RUN_LABELS = ("benchmark", "framework")
 
 
 @dataclass(frozen=True)
@@ -179,7 +180,6 @@ class BenchmarkMetrics:
         *,
         benchmark: str,
         framework: str,
-        protocol: str,
         phase: str,
         expected: int,
         committed: int,
@@ -187,7 +187,7 @@ class BenchmarkMetrics:
         expected_units: int | None = None,
         committed_units: int | None = None,
     ) -> None:
-        labels = _run_labels(benchmark, framework, protocol)
+        labels = _run_labels(benchmark, framework)
         resolved_expected_units = expected if expected_units is None else expected_units
         resolved_committed_units = committed if committed_units is None else committed_units
         self.expected_units.labels(*labels).set(resolved_expected_units)
@@ -215,13 +215,20 @@ class BenchmarkMetrics:
         run_path = Path(run_dir)
         manifest = _read_object(run_path / "run-manifest.json")
         status = _read_object(run_path / "run-status.json")
+        if manifest.get("schema_version") != RUN_MANIFEST_SCHEMA_VERSION:
+            raise StateError(
+                f"Run manifest must declare schema_version={RUN_MANIFEST_SCHEMA_VERSION}."
+            )
+        if status.get("schema_version") != RUN_STATUS_SCHEMA_VERSION:
+            raise StateError(
+                f"Run status must declare schema_version={RUN_STATUS_SCHEMA_VERSION}."
+            )
         inputs = manifest.get("fingerprint_inputs") or {}
         items = status.get("items") or {}
         units = status.get("units") or {}
         self.record_run_status(
             benchmark=str(inputs.get("benchmark", "")),
             framework=str(inputs.get("framework", "")),
-            protocol=str(inputs.get("protocol", "")),
             phase=str(status.get("phase", status.get("state", "PREFLIGHT"))),
             expected=int(items.get("expected", 0)),
             committed=int(items.get("committed", 0)),
@@ -230,19 +237,18 @@ class BenchmarkMetrics:
             committed_units=int(units.get("committed", items.get("committed", 0))),
         )
 
-    def record_attempt(self, *, benchmark: str, framework: str, protocol: str, outcome: str) -> None:
-        self.attempts_total.labels(*_run_labels(benchmark, framework, protocol), _bounded(outcome)).inc()
+    def record_attempt(self, *, benchmark: str, framework: str, outcome: str) -> None:
+        self.attempts_total.labels(*_run_labels(benchmark, framework), _bounded(outcome)).inc()
 
     def observe_phase_duration(
         self,
         *,
         benchmark: str,
         framework: str,
-        protocol: str,
         phase: str,
         seconds: float,
     ) -> None:
-        self.phase_duration.labels(*_run_labels(benchmark, framework, protocol), _phase(phase)).observe(seconds)
+        self.phase_duration.labels(*_run_labels(benchmark, framework), _phase(phase)).observe(seconds)
 
     def record_llm_request(
         self,
@@ -332,8 +338,8 @@ def _read_object(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _run_labels(benchmark: str, framework: str, protocol: str) -> tuple[str, str, str]:
-    return (_bounded(benchmark), _bounded(framework), _bounded(protocol))
+def _run_labels(benchmark: str, framework: str) -> tuple[str, str]:
+    return (_bounded(benchmark), _bounded(framework))
 
 
 def _phase(value: str) -> str:

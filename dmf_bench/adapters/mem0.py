@@ -503,10 +503,7 @@ class Mem0QdrantFrameworkAdapter:
         config: dict[str, Any],
         prepared: Mem0PreparedUnit,
     ) -> RetrievalResult:
-        protocol = _required_string(config, "protocol")
-        if protocol == "native":
-            return self._retrieve_native(question_id, question_text, prepared)
-        raise Mem0RuntimeError(f"Unsupported Mem0 protocol: {protocol!r}.")
+        return self._retrieve_native(question_id, question_text, prepared)
 
     def _retrieve_native(
         self,

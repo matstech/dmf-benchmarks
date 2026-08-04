@@ -69,10 +69,9 @@ def experiment_config(
     judge_provider: str = "openai",
 ) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "benchmark": benchmark,
         "framework": "dmf",
-        "protocol": "native",
         "models": {
             "answerer": {
                 "provider": answerer_provider,
@@ -151,7 +150,7 @@ def test_judge_reuses_legacy_prompt_surface_and_parser(benchmark: str) -> None:
     }
 
     result = adapter.judge(
-        JudgeRequest(prediction=prediction, metadata={"protocol": "native"})
+        JudgeRequest(prediction=prediction)
     )
 
     expected_prompt = build_judge_user_prompt(

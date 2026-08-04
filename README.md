@@ -6,9 +6,9 @@ This repository contains the benchmark evaluation suite for the [dmf](https://gi
 
 It implements isolated end-to-end evaluation pipelines for two standard long-term memory benchmarks: [LoCoMo (Long-Context Memory Benchmark)](https://github.com/snap-research/locomo) and [LongMemEval](https://github.com/xiaowu0162/LongMemEval/tree/main).
 
-## Native Approach
+## Framework-owned retrieval approach
 
-The operational experiment configs in this repository use the native approach, which directly queries each memory framework's natural storage surface. Native is the only supported benchmark protocol; configs declaring another protocol, including the retired `strict` protocol, are rejected during validation.
+The benchmark directly queries each memory framework's natural storage surface. This is the product behavior in the v2 runtime and is no longer a selectable configuration dimension.
 
 Specifically, during question answering, the framework-native context is retrieved and formatted into a minimal context injection prompt for the answerer model (following the official guidelines and examples of each benchmark framework). This provides a realistic assessment of each framework's retrieval quality.
 
@@ -63,7 +63,7 @@ OLLAMA_BASE_URL=http://host.docker.internal:11434
 The selected experiment must also set `models.answerer.provider` and/or
 `models.judge.provider` to `ollama` (or `openrouter`) and declare the requested
 model. A Mem0 experiment must separately use a framework config whose internal
-LLM provider is compatible with that environment. The four checked-in native
+LLM provider is compatible with that environment. The four checked-in
 smoke configs and their Mem0 framework configs currently select OpenAI.
 
 ## Implemented Pipeline
@@ -140,14 +140,14 @@ instead of downloading an unpinned model during a benchmark. The pinned model
 materialization procedure will be defined as part of the separately approved
 provider-backed canary; do not set `HF_HUB_OFFLINE=0` for a scientific run.
 
-The local experiment configs deliberately select the `native` protocol. Models,
-dataset selection, filters and evaluator requirements live in those JSON files,
+Models, dataset selection, filters and evaluator requirements live in the local
+experiment JSON files,
 not in the Makefile:
 
-- `config/experiment-locomo-dmf-native.json`
-- `config/experiment-locomo-mem0-native.json`
-- `config/experiment-longmemeval-dmf-native.json`
-- `config/experiment-longmemeval-mem0-native.json`
+- `config/experiment-locomo-dmf.json`
+- `config/experiment-locomo-mem0.json`
+- `config/experiment-longmemeval-dmf.json`
+- `config/experiment-longmemeval-mem0.json`
 
 They currently reference the pinned local mini datasets under `datasets/` and
 are smoke/development experiments, not paper-scale reproductions.
@@ -167,7 +167,7 @@ The equivalent direct Docker command is:
 ```bash
 docker compose --profile job -f deploy/compose.yaml run --rm benchmark \
   run \
-  --config /bench/config/experiment-locomo-dmf-native.json \
+  --config /bench/config/experiment-locomo-dmf.json \
   --run-id local-locomo-dmf-001
 ```
 
@@ -250,7 +250,7 @@ dataset pinning and provider-backed canaries are separate, cost-gated work.
 
 The deterministic container matrix certifies infrastructure and lifecycle
 behavior without remote LLM calls. It does not establish provider-backed or
-paper-scale equivalence. That requires a separately approved native canary with:
+paper-scale equivalence. That requires a separately approved provider-backed canary with:
 
 - immutable dataset and embedding-model revisions;
 - an agreed item/question scope;

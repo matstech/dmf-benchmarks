@@ -1,4 +1,4 @@
-"""Deterministic 2-benchmark x 2-framework native certification harness.
+"""Deterministic 2-benchmark x 2-framework certification harness.
 
 This module is reachable only through an explicit ``python -m`` invocation in
 the Phase 21 container gate. Production experiment configs continue to use the
@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 from dmf_bench.cli import main as cli_main
 from dmf_bench.container_fixture import fixture_application_builder
-from dmf_bench.contracts import sha256_file
+from dmf_bench.contracts import REPORT_SCHEMA_VERSION, sha256_file
 from dmf_bench.registry import supported_combinations
 
 
@@ -35,9 +35,9 @@ def build_matrix_configs(
 ) -> list[dict[str, Any]]:
     """Resolve all supported combinations against deterministic fixtures."""
     configs: list[dict[str, Any]] = []
-    for benchmark, framework, protocol in supported_combinations():
+    for benchmark, framework in supported_combinations():
         config = deepcopy(base_config)
-        run_id = f"{run_prefix}-{benchmark}-{framework}-{protocol}"
+        run_id = f"{run_prefix}-{benchmark}-{framework}"
         framework_suffix = "toml" if framework == "dmf" else "yaml"
         framework_path = (
             config_dir / f"{benchmark}_{framework}_qdrant_settings.{framework_suffix}"
@@ -51,7 +51,6 @@ def build_matrix_configs(
                 "experiment_id": run_id,
                 "benchmark": benchmark,
                 "framework": framework,
-                "protocol": protocol,
             }
         )
         config["framework_config"] = {
@@ -118,14 +117,13 @@ def run_matrix(
                     "run_id": run_id,
                     "benchmark": str(config["benchmark"]),
                     "framework": str(config["framework"]),
-                    "protocol": str(config["protocol"]),
                 }
             )
 
     print(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": REPORT_SCHEMA_VERSION,
                 "state": "COMPLETED",
                 "completed_count": len(completed),
                 "runs": completed,

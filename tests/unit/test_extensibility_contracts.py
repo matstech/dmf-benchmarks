@@ -57,16 +57,14 @@ class ExternalFixtureFramework:
 class TinyBenchmarkFixture:
     name = "tinybench"
     atomic_unit = "tiny-unit"
-    supported_protocols = ("native",)
 
     def enumerate_units(self, _config: dict[str, Any]) -> list[BenchmarkUnit]:
         return [BenchmarkUnit(unit_id="tiny-001", item_ids=("tiny-001",), metadata={"question": "2+2?"})]
 
     def build_prediction(self, unit: BenchmarkUnit) -> dict[str, Any]:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "benchmark": self.name,
-            "protocol": "native",
             "framework": ExternalFixtureFramework.name,
             "question_id": unit.unit_id,
             "question": "2+2?",
@@ -97,7 +95,7 @@ class FixtureJudge:
 
 def tiny_report(evaluations: list[dict[str, Any]], _metadata: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "evaluator": "tiny_report",
         "evaluator_version": "tiny-report-v1",
         "status": "COMPLETED",
@@ -112,10 +110,9 @@ def create_tiny_committed_run(store: LocalArtifactStore) -> str:
     benchmark = TinyBenchmarkFixture()
     unit = benchmark.enumerate_units({})[0]
     fingerprint_inputs = {
-        "schema_version": 1,
+        "schema_version": 2,
         "benchmark": benchmark.name,
         "framework": ExternalFixtureFramework.name,
-        "protocol": "native",
         "dataset": {"name": "tinybench", "source": "fixture", "revision": "v1", "sha256": "0" * 64},
         "selection": {"ordered_item_ids": [unit.unit_id], "seed": 1},
         "models": {
@@ -156,10 +153,7 @@ def create_tiny_committed_run(store: LocalArtifactStore) -> str:
 
 def load_tiny_predictions(run_dir: Path, manifest: RunManifest) -> list[dict[str, Any]]:
     return [
-        {
-            **_read_prediction(run_dir / "items" / unit_id / "prediction.json"),
-            "protocol_mode": str(manifest.fingerprint_inputs["protocol"]),
-        }
+        _read_prediction(run_dir / "items" / unit_id / "prediction.json")
         for unit_id in manifest.expected_item_ids
     ]
 
@@ -173,22 +167,19 @@ def _read_prediction(path: Path) -> dict[str, Any]:
 
 
 def test_explicit_registry_accepts_external_framework_without_default_registry_mutation() -> None:
-    benchmarks = {"tinybench": BenchmarkInfo("tinybench", "tiny-unit", ("native",))}
+    benchmarks = {"tinybench": BenchmarkInfo("tinybench", "tiny-unit")}
     frameworks = {**FRAMEWORKS, ExternalFixtureFramework.name: FrameworkInfo(ExternalFixtureFramework.name, "fixture")}
 
     validate_combination(
         "tinybench",
         ExternalFixtureFramework.name,
-        "native",
         benchmarks=benchmarks,
         frameworks=frameworks,
-        protocols=("native",),
     )
 
-    assert ("tinybench", ExternalFixtureFramework.name, "native") in supported_combinations(
+    assert ("tinybench", ExternalFixtureFramework.name) in supported_combinations(
         benchmarks=benchmarks,
         frameworks=frameworks,
-        protocols=("native",),
     )
     assert ExternalFixtureFramework.name not in FRAMEWORKS
 
@@ -204,7 +195,7 @@ def test_fixture_benchmark_and_evaluator_extend_finalizer_without_runner_or_stor
         judge=FixtureJudge(),
         prediction_loaders={"tinybench": load_tiny_predictions},
         evaluation_plans={
-            ("tinybench", "native", ExternalFixtureFramework.name): (
+            ("tinybench", ExternalFixtureFramework.name): (
                 EvaluationRequirement("primary_judge_score", required=True),
                 EvaluationRequirement("tiny_report", required=True),
             )

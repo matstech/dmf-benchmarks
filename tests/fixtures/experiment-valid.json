@@ -1,9 +1,8 @@
 {
-  "schema_version": 1,
-  "experiment_id": "fixture-locomo-dmf-native",
+  "schema_version": 2,
+  "experiment_id": "fixture-locomo-dmf",
   "benchmark": "locomo",
   "framework": "dmf",
-  "protocol": "native",
   "runtime": {
     "root": "/bench",
     "runs_dir": "/bench/runs",

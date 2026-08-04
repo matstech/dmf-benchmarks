@@ -1,9 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "experiment_id": "docker-stop-resume-fixture",
   "benchmark": "locomo",
   "framework": "dmf",
-  "protocol": "native",
   "runtime": {
     "root": "/bench",
     "runs_dir": "/bench/runs",

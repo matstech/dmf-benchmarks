@@ -26,7 +26,7 @@ def test_container_matrix_resolves_all_combinations_with_pinned_inputs() -> None
     )
 
     assert [
-        (config["benchmark"], config["framework"], config["protocol"])
+        (config["benchmark"], config["framework"])
         for config in configs
     ] == supported_combinations()
     assert len({config["experiment_id"] for config in configs}) == 4

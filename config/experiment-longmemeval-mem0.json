@@ -1,9 +1,8 @@
 {
-  "schema_version": 1,
-  "experiment_id": "local-longmemeval-mem0-native",
+  "schema_version": 2,
+  "experiment_id": "local-longmemeval-mem0",
   "benchmark": "longmemeval",
   "framework": "mem0",
-  "protocol": "native",
   "runtime": {
     "root": "/bench",
     "runs_dir": "/bench/runs",
@@ -15,7 +14,7 @@
     "path": "/bench/config/longmemeval_mem0_qdrant_settings.yaml",
     "sha256": "4501ed36cacb140b7d9ab8d913ef1c12a3fadd8784b6ec7993809ad3f3ad11b4",
     "format": "yaml",
-    "profile": "local-native-mini-v1"
+    "profile": "local-mini-v2"
   },
   "qdrant": {
     "endpoint_env": "QDRANT_URL",

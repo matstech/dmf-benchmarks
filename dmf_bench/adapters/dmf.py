@@ -375,10 +375,7 @@ class DmfQdrantFrameworkAdapter:
         config: dict[str, Any],
         prepared: DmfPreparedUnit,
     ) -> RetrievalResult:
-        protocol = _required_string(config, "protocol")
-        if protocol == "native":
-            return self._retrieve_native(question_text, prepared)
-        raise DmfRuntimeError(f"Unsupported DMF protocol: {protocol!r}.")
+        return self._retrieve_native(question_text, prepared)
 
     def _retrieve_native(
         self,

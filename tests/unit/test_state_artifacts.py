@@ -105,16 +105,28 @@ def test_run_and_unit_state_transitions_are_explicit() -> None:
 
 def test_truncated_json_and_semantic_incomplete_checkpoint_are_rejected(tmp_path: Path) -> None:
     truncated = tmp_path / "truncated.json"
-    truncated.write_text('{"schema_version": 1', encoding="utf-8")
+    truncated.write_text('{"schema_version": 2', encoding="utf-8")
 
     with pytest.raises(ValueError, match="Invalid JSON file"):
         read_json(truncated)
 
     incomplete = tmp_path / "checkpoint.json"
-    write_json_atomic(incomplete, {"schema_version": 1, "run_id": "run-001"})
+    write_json_atomic(incomplete, {"schema_version": 2, "run_id": "run-001"})
 
     with pytest.raises(StateError, match="Invalid unit checkpoint"):
         load_unit_checkpoint(incomplete)
+
+
+def test_v1_run_manifest_is_rejected_without_migration(tmp_path: Path) -> None:
+    store = LocalArtifactStore(tmp_path / "runs")
+    run_dir = store.create_run(make_manifest())
+    manifest_path = run_dir / "run-manifest.json"
+    payload = read_json(manifest_path)
+    payload["schema_version"] = 1
+    write_json_atomic(manifest_path, payload)
+
+    with pytest.raises(StateError, match="v1 state is not supported"):
+        plan_resume(run_dir)
 
 
 def test_atomic_write_failure_keeps_previous_checkpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -43,11 +43,6 @@ SECONDARY_RIGOROUS_DESCRIPTION = (
 )
 
 
-def is_native_evaluation(item: dict[str, Any]) -> bool:
-    """Return whether an evaluation item belongs to the native protocol."""
-    return str(item.get("protocol_mode", "")).strip().lower() == "native"
-
-
 def apply_native_primary_judge_score(
     item: dict[str, Any],
     *,
@@ -67,16 +62,15 @@ def apply_native_primary_judge_score(
     item["judge_provider"] = judge_provider
     item["judge_model"] = judge_model
 
-    if is_native_evaluation(item):
-        item["judge_score"] = normalized_score
-        item["primary_quality"] = {
-            "metric": PRIMARY_QUALITY_METRIC,
-            "score": normalized_score,
-            "label": normalized_label,
-            "reason": reason,
-            "judge_provider": judge_provider,
-            "judge_model": judge_model,
-        }
+    item["judge_score"] = normalized_score
+    item["primary_quality"] = {
+        "metric": PRIMARY_QUALITY_METRIC,
+        "score": normalized_score,
+        "label": normalized_label,
+        "reason": reason,
+        "judge_provider": judge_provider,
+        "judge_model": judge_model,
+    }
 
     return item
 
@@ -191,7 +185,6 @@ def build_native_secondary_rigorous_manifest(
     return {
         "report_type": "secondary_rigorous",
         "benchmark": benchmark_name,
-        "protocol_mode": "native",
         "description": SECONDARY_RIGOROUS_DESCRIPTION,
         "input_path": str(input_path),
         "artifacts": {

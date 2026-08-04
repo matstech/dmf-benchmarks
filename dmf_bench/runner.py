@@ -31,8 +31,11 @@ from dmf_bench.contracts import (
     ArtifactRef,
     Attempt,
     LifecycleCheckpoint,
+    PREDICTION_SCHEMA_VERSION,
+    REPORT_SCHEMA_VERSION,
     RunManifest,
     RunStatus,
+    SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
     UnitCheckpoint,
     scientific_fingerprint,
     hash_canonical_json,
@@ -98,7 +101,7 @@ class LongMemEvalQuestionFramework(Protocol):
         *,
         run_context: FrameworkRunContext,
     ) -> RetrievalResult:
-        """Return protocol-specific retrieval/native context payload."""
+        """Return framework retrieval and context payload."""
 
 
 class LoCoMoConversationFramework(Protocol):
@@ -134,7 +137,7 @@ class LoCoMoConversationFramework(Protocol):
         *,
         run_context: FrameworkRunContext,
     ) -> RetrievalResult:
-        """Return protocol-specific retrieval/native context for one question."""
+        """Return framework retrieval and context for one question."""
 
 
 @dataclass(frozen=True)
@@ -190,9 +193,6 @@ class LongMemEvalPredictOnlyRunner:
     ) -> PredictOnlyResult:
         if config.get("benchmark") != "longmemeval":
             raise ValueError("LongMemEvalPredictOnlyRunner only supports benchmark='longmemeval'.")
-        protocol = str(config.get("protocol", ""))
-        if protocol not in self.benchmark.supported_protocols:
-            raise ValueError(f"Unsupported LongMemEval protocol: {protocol!r}.")
         if str(config.get("framework", "")) != self.framework.name:
             raise ValueError(
                 f"Config framework {config.get('framework')!r} does not match "
@@ -287,7 +287,6 @@ class LongMemEvalPredictOnlyRunner:
                         question,
                         config,
                         manifest,
-                        protocol,
                         run_context,
                         cancel_check,
                     )
@@ -399,7 +398,7 @@ class LongMemEvalPredictOnlyRunner:
             run_id
             or config.get("run_id")
             or config.get("experiment_id")
-            or f"longmemeval-{config.get('framework')}-{config.get('protocol')}-{fingerprint[:12]}"
+            or f"longmemeval-{config.get('framework')}-{fingerprint[:12]}"
         )
         return RunManifest(
             run_id=resolved_run_id,
@@ -447,7 +446,6 @@ class LongMemEvalPredictOnlyRunner:
         question: dict[str, Any],
         config: dict[str, Any],
         manifest: RunManifest,
-        protocol: str,
         run_context: FrameworkRunContext,
         cancel_check: Callable[[], None] | None,
     ) -> tuple[Path, ...]:
@@ -472,7 +470,6 @@ class LongMemEvalPredictOnlyRunner:
         _check_cancel(cancel_check)
         answerer_input = self.benchmark.build_answerer_input(
             question=question,
-            protocol=protocol,
             framework_name=self.framework.name,
             retrieval=retrieval,
         )
@@ -506,7 +503,6 @@ class LongMemEvalPredictOnlyRunner:
         _check_cancel(cancel_check)
         prediction = self.benchmark.build_prediction(
             question=question,
-            protocol=protocol,
             framework_name=self.framework.name,
             retrieval=retrieval,
             answerer_input=answerer_input,
@@ -518,7 +514,7 @@ class LongMemEvalPredictOnlyRunner:
         write_json_atomic(
             timing_path,
             {
-                "schema_version": 1,
+                "schema_version": REPORT_SCHEMA_VERSION,
                 "benchmark": str(prediction.get("benchmark", "longmemeval")),
                 "question_id": str(prediction.get("question_id", unit.unit_id)),
                 "pipeline_timing": pipeline_timing,
@@ -607,7 +603,6 @@ class LongMemEvalPredictOnlyRunner:
             self.metrics.record_run_status(
                 benchmark=str(manifest.fingerprint_inputs.get("benchmark", "")),
                 framework=str(manifest.fingerprint_inputs.get("framework", "")),
-                protocol=str(manifest.fingerprint_inputs.get("protocol", "")),
                 phase="RUNNING",
                 expected=expected,
                 committed=committed,
@@ -661,9 +656,6 @@ class LoCoMoPredictOnlyRunner:
     ) -> PredictOnlyResult:
         if config.get("benchmark") != "locomo":
             raise ValueError("LoCoMoPredictOnlyRunner only supports benchmark='locomo'.")
-        protocol = str(config.get("protocol", ""))
-        if protocol not in self.benchmark.supported_protocols:
-            raise ValueError(f"Unsupported LoCoMo protocol: {protocol!r}.")
         if str(config.get("framework", "")) != self.framework.name:
             raise ValueError(
                 f"Config framework {config.get('framework')!r} does not match "
@@ -776,7 +768,6 @@ class LoCoMoPredictOnlyRunner:
                             conversation,
                             question,
                             config,
-                            protocol,
                             prepared,
                             ingestion_ms,
                             run_context,
@@ -906,7 +897,7 @@ class LoCoMoPredictOnlyRunner:
             run_id
             or config.get("run_id")
             or config.get("experiment_id")
-            or f"locomo-{config.get('framework')}-{config.get('protocol')}-{fingerprint[:12]}"
+            or f"locomo-{config.get('framework')}-{fingerprint[:12]}"
         )
         return RunManifest(
             run_id=resolved_run_id,
@@ -954,7 +945,6 @@ class LoCoMoPredictOnlyRunner:
         conversation: dict[str, Any],
         question: LoCoMoQuestion,
         config: dict[str, Any],
-        protocol: str,
         prepared: dict[str, Any],
         ingestion_ms: float,
         run_context: FrameworkRunContext,
@@ -973,7 +963,6 @@ class LoCoMoPredictOnlyRunner:
         answerer_input = self.benchmark.build_answerer_input(
             conversation=conversation,
             question=question,
-            protocol=protocol,
             framework_name=self.framework.name,
             retrieval=retrieval,
         )
@@ -1008,7 +997,6 @@ class LoCoMoPredictOnlyRunner:
         prediction = self.benchmark.build_prediction(
             conversation=conversation,
             question=question,
-            protocol=protocol,
             framework_name=self.framework.name,
             retrieval=retrieval,
             answerer_input=answerer_input,
@@ -1020,7 +1008,7 @@ class LoCoMoPredictOnlyRunner:
         write_json_atomic(
             timing_path,
             {
-                "schema_version": 1,
+                "schema_version": REPORT_SCHEMA_VERSION,
                 "benchmark": str(prediction.get("benchmark", "locomo")),
                 "conversation_idx": question.conversation_idx,
                 "question_id": question.question_id,
@@ -1040,7 +1028,7 @@ class LoCoMoPredictOnlyRunner:
         write_json_atomic(
             aggregate_path,
             {
-                "schema_version": 1,
+                "schema_version": PREDICTION_SCHEMA_VERSION,
                 "benchmark": "locomo",
                 "atomic_unit": self.benchmark.atomic_unit,
                 "conversation_id": unit.unit_id,
@@ -1123,7 +1111,6 @@ class LoCoMoPredictOnlyRunner:
             self.metrics.record_run_status(
                 benchmark=str(manifest.fingerprint_inputs.get("benchmark", "")),
                 framework=str(manifest.fingerprint_inputs.get("framework", "")),
-                protocol=str(manifest.fingerprint_inputs.get("protocol", "")),
                 phase="RUNNING",
                 expected=len(terminal_ids),
                 committed=committed,
@@ -1175,7 +1162,7 @@ def _write_running_phase_checkpoint(
 
     input_fingerprint = hash_canonical_json(
         {
-            "schema_version": 1,
+            "schema_version": SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
             "expected_unit_ids": list(manifest.expected_item_ids),
             "unit_checkpoint_digests": {
                 checkpoint.unit_id: checkpoint.checkpoint_digest
@@ -1238,7 +1225,7 @@ def _write_failed_running_checkpoint(
         scientific_fingerprint=manifest.scientific_fingerprint,
         input_fingerprint=hash_canonical_json(
             {
-                "schema_version": 1,
+                "schema_version": SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
                 "expected_unit_ids": list(manifest.expected_item_ids),
             }
         ),
@@ -1298,7 +1285,6 @@ def _emit_unit_event(
         attempt_id=attempt.attempt_id,
         benchmark=str(inputs.get("benchmark", "")),
         framework=str(inputs.get("framework", "")),
-        protocol=str(inputs.get("protocol", "")),
         phase="RUNNING",
         unit_index=unit_index,
         unit_id_hash=hashlib.sha256(unit.unit_id.encode("utf-8")).hexdigest()[:16],

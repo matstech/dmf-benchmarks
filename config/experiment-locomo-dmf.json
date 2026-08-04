@@ -1,9 +1,8 @@
 {
-  "schema_version": 1,
-  "experiment_id": "local-locomo-dmf-native",
+  "schema_version": 2,
+  "experiment_id": "local-locomo-dmf",
   "benchmark": "locomo",
   "framework": "dmf",
-  "protocol": "native",
   "runtime": {
     "root": "/bench",
     "runs_dir": "/bench/runs",
@@ -15,7 +14,7 @@
     "path": "/bench/config/locomo_dmf_qdrant_settings.toml",
     "sha256": "54c99182ca2e5506b12a0480559a026f5cb445587832a4eb1a0653c3fbc5a890",
     "format": "toml",
-    "profile": "local-native-mini-v1"
+    "profile": "local-mini-v2"
   },
   "qdrant": {
     "endpoint_env": "QDRANT_URL",

@@ -50,10 +50,10 @@ def write_valid_config(tmp_path: Path, *, dataset_path: Path | None = None) -> P
 
 def test_supported_combinations_are_explicit_and_deterministic() -> None:
     assert supported_combinations() == [
-        ("locomo", "dmf", "native"),
-        ("locomo", "mem0", "native"),
-        ("longmemeval", "dmf", "native"),
-        ("longmemeval", "mem0", "native"),
+        ("locomo", "dmf"),
+        ("locomo", "mem0"),
+        ("longmemeval", "dmf"),
+        ("longmemeval", "mem0"),
     ]
 
 
@@ -131,11 +131,11 @@ def test_resolved_config_persists_redacted_canonical_artifact(
 
 
 def test_validate_rejects_invalid_config_before_runtime_io() -> None:
-    with pytest.raises(ValueError, match="Unsupported protocol"):
+    with pytest.raises(ValueError, match="root must be absolute"):
         resolve_config(FIXTURE_DIR / "experiment-invalid.json")
 
 
-def test_validate_rejects_removed_strict_protocol(tmp_path: Path) -> None:
+def test_validate_rejects_removed_protocol_field(tmp_path: Path) -> None:
     config_path = write_valid_config(tmp_path)
     config = json.loads(config_path.read_text(encoding="utf-8"))
     config["protocol"] = "strict"
@@ -143,7 +143,20 @@ def test_validate_rejects_removed_strict_protocol(tmp_path: Path) -> None:
 
     with pytest.raises(
         ValueError,
-        match="Unsupported protocol 'strict'. Supported: native",
+        match="field 'protocol' was removed in schema v2",
+    ):
+        resolve_config(config_path)
+
+
+def test_validate_rejects_v1_config_before_preflight(tmp_path: Path) -> None:
+    config_path = write_valid_config(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["schema_version"] = 1
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="schema_version=2; v1 configs are not supported",
     ):
         resolve_config(config_path)
 
@@ -166,9 +179,10 @@ def test_cli_list_prints_supported_surface(capsys: pytest.CaptureFixture[str]) -
     output = capsys.readouterr().out
 
     assert "benchmarks:" in output
-    assert "  native" in output
-    assert "/strict" not in output
-    assert "longmemeval/mem0/native" in output
+    assert "protocols:" not in output
+    assert "longmemeval/mem0" in output
+    assert output.count("  locomo/") == 2
+    assert output.count("  longmemeval/") == 2
 
 
 def test_cli_validate_prints_redacted_json(

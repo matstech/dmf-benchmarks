@@ -149,17 +149,17 @@ def test_cli_materialize_dataset_prints_config_fragment(
 
 
 def test_preset_fingerprint_and_resolution_are_stable(tmp_path: Path) -> None:
-    preset = BUILTIN_PRESETS["paper/locomo-dmf-native-v1"]
+    preset = BUILTIN_PRESETS["paper/locomo-dmf-v2"]
     framework_config_path = tmp_path / "framework.toml"
     framework_config_path.write_text("[ltm]\nstorage_type = \"qdrant\"\n", encoding="utf-8")
     first = resolve_preset(
-        "paper/locomo-dmf-native-v1",
+        "paper/locomo-dmf-v2",
         dataset_path=tmp_path / "locomo10.json",
         framework_config_path=framework_config_path,
         runtime_root=tmp_path,
     )
     second = resolve_preset(
-        "paper/locomo-dmf-native-v1",
+        "paper/locomo-dmf-v2",
         dataset_path=tmp_path / "locomo10.json",
         framework_config_path=framework_config_path,
         runtime_root=tmp_path,
@@ -168,7 +168,7 @@ def test_preset_fingerprint_and_resolution_are_stable(tmp_path: Path) -> None:
     assert first == second
     assert first["preset"]["profile"] == "paper"
     assert first["preset"]["fingerprint"] == preset.fingerprint()
-    assert first["preset"]["fingerprint"] != BUILTIN_PRESETS["default/locomo-dmf-native"].fingerprint()
+    assert first["preset"]["fingerprint"] != BUILTIN_PRESETS["default/locomo-dmf"].fingerprint()
 
 
 def test_manifest_provenance_excludes_secrets_and_separates_operational_data(
@@ -184,10 +184,9 @@ def test_manifest_provenance_excludes_secrets_and_separates_operational_data(
     resolved = resolve_config(config_path)
     resolved.data["models"]["answerer"]["api_key"] = "must-not-leak"
     fingerprint_inputs = {
-        "schema_version": 1,
+        "schema_version": 2,
         "benchmark": resolved.data["benchmark"],
         "framework": resolved.data["framework"],
-        "protocol": resolved.data["protocol"],
         "dataset": resolved.data["dataset"],
         "selection": resolved.data["selection"],
     }

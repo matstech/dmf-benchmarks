@@ -16,9 +16,14 @@ from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json, write_json_atomic
 from dmf_bench.contracts import (
     Attempt,
+    EVALUATION_SCHEMA_VERSION,
+    JUDGMENT_SCHEMA_VERSION,
     LifecycleCheckpoint,
+    PREDICTION_SCHEMA_VERSION,
+    REPORT_SCHEMA_VERSION,
     RunManifest,
     RunStatus,
+    SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
     hash_canonical_json,
     sha256_file,
 )
@@ -83,7 +88,7 @@ class OfflineLifecycleFinalizer:
         judge: JudgeAdapter,
         metrics: BenchmarkMetrics | None = None,
         events: JsonEventLogger | None = None,
-        evaluation_plans: dict[tuple[str, str, str], tuple[EvaluationRequirement, ...]] | None = None,
+        evaluation_plans: dict[tuple[str, str], tuple[EvaluationRequirement, ...]] | None = None,
         prediction_loaders: dict[str, PredictionLoader] | None = None,
         evaluators: dict[str, Evaluator] | None = None,
     ) -> None:
@@ -149,7 +154,11 @@ class OfflineLifecycleFinalizer:
 
         phase = "JUDGING"
         phase_input = hash_canonical_json(
-            {"schema_version": 1, "phase": phase, "run_id": manifest.run_id}
+            {
+                "schema_version": SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
+                "phase": phase,
+                "run_id": manifest.run_id,
+            }
         )
         phase_predecessor: str | None = None
         committed_items = 0
@@ -222,7 +231,7 @@ class OfflineLifecycleFinalizer:
             evaluator_identities = self._evaluation_identities(metadata)
             evaluation_input = hash_canonical_json(
                 {
-                    "schema_version": 1,
+                    "schema_version": SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
                     "judging_checkpoint": judging_checkpoint.checkpoint_digest,
                     "evaluations_sha256": sha256_file(
                         run_dir / "evaluations" / "evaluations.json"
@@ -296,7 +305,7 @@ class OfflineLifecycleFinalizer:
             phase_predecessor = evaluation_checkpoint.checkpoint_digest
             report_input = hash_canonical_json(
                 {
-                    "schema_version": 1,
+                    "schema_version": SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
                     "evaluation_checkpoint": evaluation_checkpoint.checkpoint_digest,
                     "evaluation_summary_sha256": sha256_file(
                         run_dir / "evaluations" / "evaluation-summary.json"
@@ -354,7 +363,7 @@ class OfflineLifecycleFinalizer:
                     expected_item_ids=terminal_ids,
                     artifacts=report_paths,
                     predecessor_digest=evaluation_checkpoint.checkpoint_digest,
-                    metadata={"report_schema_version": 1},
+                    metadata={"report_schema_version": REPORT_SCHEMA_VERSION},
                 )
                 if interrupt_at == "after-report":
                     raise InjectedTerminalInterrupt("Interrupted after report phase.")
@@ -363,7 +372,7 @@ class OfflineLifecycleFinalizer:
             phase_predecessor = reporting_checkpoint.checkpoint_digest
             publishing_input = hash_canonical_json(
                 {
-                    "schema_version": 1,
+                    "schema_version": SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
                     "reporting_checkpoint": reporting_checkpoint.checkpoint_digest,
                     "backend": "local-only",
                 }
@@ -424,7 +433,7 @@ class OfflineLifecycleFinalizer:
             phase_predecessor = publishing_checkpoint.checkpoint_digest
             verifying_input = hash_canonical_json(
                 {
-                    "schema_version": 1,
+                    "schema_version": SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
                     "publishing_checkpoint": publishing_checkpoint.checkpoint_digest,
                     "staged_manifest_sha256": sha256_file(staged.manifest_path),
                 }
@@ -590,12 +599,10 @@ class OfflineLifecycleFinalizer:
     def _metadata_from_manifest(self, manifest: RunManifest) -> dict[str, Any]:
         inputs = manifest.fingerprint_inputs
         return {
-            "schema_version": 1,
+            "schema_version": REPORT_SCHEMA_VERSION,
             "run_id": manifest.run_id,
             "benchmark": str(inputs.get("benchmark", "")),
             "framework": str(inputs.get("framework", "")),
-            "protocol": str(inputs.get("protocol", "")),
-            "protocol_mode": str(inputs.get("protocol", "")),
             "scientific_fingerprint": manifest.scientific_fingerprint,
         }
 
@@ -623,6 +630,14 @@ class OfflineLifecycleFinalizer:
         predictions: list[dict[str, Any]],
         expected_item_ids: tuple[str, ...],
     ) -> None:
+        if any(
+            prediction.get("schema_version") != PREDICTION_SCHEMA_VERSION
+            for prediction in predictions
+        ):
+            raise StateError(
+                "Evaluation refused: prediction schema_version must be "
+                f"{PREDICTION_SCHEMA_VERSION}; v1 state is not supported."
+            )
         observed = tuple(str(item.get("question_id", "")) for item in predictions)
         if not all(observed) or observed != expected_item_ids or len(set(observed)) != len(observed):
             raise StateError(
@@ -655,7 +670,7 @@ class OfflineLifecycleFinalizer:
         provider, requested_model, rubric_fingerprint = self._judge_identity(manifest)
         return hash_canonical_json(
             {
-                "schema_version": 1,
+                "schema_version": SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
                 "predictions": [
                     {
                         "question_id": str(item["question_id"]),
@@ -690,7 +705,7 @@ class OfflineLifecycleFinalizer:
             prediction_digest = hash_canonical_json(prediction)
             item_input = hash_canonical_json(
                 {
-                    "schema_version": 1,
+                    "schema_version": SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
                     "question_id": question_id,
                     "prediction_sha256": prediction_digest,
                     "judge_provider": provider,
@@ -739,8 +754,7 @@ class OfflineLifecycleFinalizer:
                 _check_cancel(cancel_check)
                 judged_item = {
                     **prediction,
-                    "schema_version": 1,
-                    "protocol_mode": metadata["protocol"],
+                    "schema_version": JUDGMENT_SCHEMA_VERSION,
                     "scientific_fingerprint": manifest.scientific_fingerprint,
                     "prediction_sha256": prediction_digest,
                     "judge_input_fingerprint": item_input,
@@ -768,7 +782,7 @@ class OfflineLifecycleFinalizer:
                 write_json_atomic(
                     timing_path,
                     {
-                        "schema_version": 1,
+                        "schema_version": REPORT_SCHEMA_VERSION,
                         "benchmark": str(prediction.get("benchmark", "")),
                         "conversation_idx": prediction.get("conversation_idx"),
                         "question_id": question_id,
@@ -816,7 +830,7 @@ class OfflineLifecycleFinalizer:
         manifest: RunManifest,
     ) -> None:
         provider, requested_model, rubric_fingerprint = self._judge_identity(manifest)
-        if judgment.get("schema_version") != 1:
+        if judgment.get("schema_version") != JUDGMENT_SCHEMA_VERSION:
             raise StateError("Judgment schema_version mismatch.")
         if str(judgment.get("question_id", "")) != question_id:
             raise StateError("Judgment question_id mismatch.")
@@ -865,14 +879,12 @@ class OfflineLifecycleFinalizer:
     ) -> tuple[dict[str, Any], tuple[Path, ...], dict[str, str]]:
         requirements = evaluation_plan_for(
             benchmark=metadata["benchmark"],
-            protocol=metadata["protocol"],
             framework=metadata["framework"],
             plans=self.evaluation_plans,
         )
         reports: dict[str, Any] = {
-            "schema_version": 1,
+            "schema_version": EVALUATION_SCHEMA_VERSION,
             "benchmark": metadata["benchmark"],
-            "protocol": metadata["protocol"],
             "framework": metadata["framework"],
             "requirements": [requirement_to_dict(item) for item in requirements],
             "artifacts": {},
@@ -887,7 +899,7 @@ class OfflineLifecycleFinalizer:
             evaluator_version = self._expected_evaluator_version(requirement, metadata)
             item_input = hash_canonical_json(
                 {
-                    "schema_version": 1,
+                    "schema_version": SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
                     "evaluations_sha256": evaluations_digest,
                     "requirement": requirement_to_dict(requirement),
                     "evaluator_version": evaluator_version,
@@ -993,7 +1005,6 @@ class OfflineLifecycleFinalizer:
     def _evaluation_identities(self, metadata: dict[str, Any]) -> list[dict[str, Any]]:
         requirements = evaluation_plan_for(
             benchmark=metadata["benchmark"],
-            protocol=metadata["protocol"],
             framework=metadata["framework"],
             plans=self.evaluation_plans,
         )
@@ -1016,7 +1027,10 @@ class OfflineLifecycleFinalizer:
         requirement: EvaluationRequirement,
         evaluator_version: str,
     ) -> None:
-        if not isinstance(artifact, dict) or artifact.get("schema_version") != 1:
+        if (
+            not isinstance(artifact, dict)
+            or artifact.get("schema_version") != EVALUATION_SCHEMA_VERSION
+        ):
             raise StateError(f"Evaluator schema mismatch: {requirement.name}")
         if artifact.get("evaluator") != requirement.name:
             raise StateError(f"Evaluator identity mismatch: {requirement.name}")
@@ -1036,7 +1050,7 @@ class OfflineLifecycleFinalizer:
     ) -> dict[str, Any]:
         if requirement.not_applicable_reason:
             return {
-                "schema_version": 1,
+                "schema_version": EVALUATION_SCHEMA_VERSION,
                 "evaluator": requirement.name,
                 "evaluator_version": "not-applicable-v1",
                 "status": "NOT_APPLICABLE",
@@ -1059,7 +1073,7 @@ class OfflineLifecycleFinalizer:
         raise StateError(f"Evaluator is not implemented: {requirement.name}")
 
     def _validate_evaluation_summary(self, reports: dict[str, Any]) -> None:
-        if reports.get("schema_version") != 1:
+        if reports.get("schema_version") != EVALUATION_SCHEMA_VERSION:
             raise StateError("Evaluation summary schema mismatch.")
         if not isinstance(reports.get("artifacts"), dict):
             raise StateError("Evaluation summary artifacts must be an object.")
@@ -1079,11 +1093,10 @@ class OfflineLifecycleFinalizer:
         usage = _build_usage_report(evaluations)
         timing = _build_execution_timing_report(run_dir, evaluations, attempt)
         summary = {
-            "schema_version": 1,
+            "schema_version": REPORT_SCHEMA_VERSION,
             "run_id": manifest.run_id,
             "scientific_fingerprint": manifest.scientific_fingerprint,
             "benchmark": metadata["benchmark"],
-            "protocol": metadata["protocol"],
             "framework": metadata["framework"],
             "counts": {
                 "expected": len(evaluations),
@@ -1111,7 +1124,6 @@ class OfflineLifecycleFinalizer:
             f"# dmf-bench run {manifest.run_id}\n\n"
             f"- benchmark: {metadata['benchmark']}\n"
             f"- framework: {metadata['framework']}\n"
-            f"- protocol: {metadata['protocol']}\n"
             f"- expected: {len(evaluations)}\n"
             f"- evaluated: {len(evaluations)}\n"
             f"- excluded: 0\n"
@@ -1255,7 +1267,6 @@ class OfflineLifecycleFinalizer:
             self.metrics.record_run_status(
                 benchmark=str(inputs.get("benchmark", "")),
                 framework=str(inputs.get("framework", "")),
-                protocol=str(inputs.get("protocol", "")),
                 phase=phase,
                 expected=len(terminal_ids),
                 committed=committed,
@@ -1350,13 +1361,11 @@ class OfflineFullLifecycleRunner:
         self.metrics.record_attempt(
             benchmark=str(config.get("benchmark", "")),
             framework=str(config.get("framework", "")),
-            protocol=str(config.get("protocol", "")),
             outcome=outcome,
         )
         self.metrics.observe_phase_duration(
             benchmark=str(config.get("benchmark", "")),
             framework=str(config.get("framework", "")),
-            protocol=str(config.get("protocol", "")),
             phase="RUNNING",
             seconds=time.perf_counter() - started_at,
         )
@@ -1374,7 +1383,7 @@ def _build_usage_report(evaluations: list[dict[str, Any]]) -> dict[str, Any]:
     evaluation_total = _sum_usage(judge)
     overall_total = _sum_usage(benchmark_total, evaluation_total)
     return {
-        "schema_version": 1,
+        "schema_version": REPORT_SCHEMA_VERSION,
         "scope": "committed_successful_items",
         "item_count": len(evaluations),
         "components": {
@@ -1499,7 +1508,7 @@ def _build_execution_timing_report(
         started_at = started_at.replace(tzinfo=timezone.utc)
     execution_seconds = max(0.0, (measured_at - started_at).total_seconds())
     return {
-        "schema_version": 1,
+        "schema_version": REPORT_SCHEMA_VERSION,
         "scope": {
             "name": "active_attempt_through_reporting",
             "includes": "prediction, judging, evaluation and report generation",
@@ -1547,7 +1556,7 @@ def primary_judge_report(
     )
     count = len(scores)
     return {
-        "schema_version": 1,
+        "schema_version": EVALUATION_SCHEMA_VERSION,
         "benchmark": metadata["benchmark"],
         "evaluator": "primary_judge_score",
         "evaluator_version": "primary-judge-v1",
@@ -1638,7 +1647,6 @@ def _emit_phase_event(
         attempt_id=attempt.attempt_id,
         benchmark=str(inputs.get("benchmark", "")),
         framework=str(inputs.get("framework", "")),
-        protocol=str(inputs.get("protocol", "")),
         phase=phase,
         outcome=(
             "failed"

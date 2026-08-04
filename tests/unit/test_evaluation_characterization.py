@@ -16,16 +16,16 @@ from longmemeval.evaluate_rigorous import ensure_uniform_schema as ensure_longme
 from longmemeval.evaluate_rigorous import evaluate_flat as evaluate_longmemeval_flat
 
 
-def test_native_primary_quality_reports_missing_unscored_items() -> None:
+def test_primary_quality_reports_missing_unscored_items() -> None:
     native_item = apply_native_primary_judge_score(
-        {"protocol_mode": "native", "category_name": "temporal"},
+        {"category_name": "temporal"},
         judgment="CORRECT",
         score=1.0,
         reason="matches",
         judge_provider="fake",
         judge_model="fake-judge",
     )
-    unscored_item = {"protocol_mode": "native", "category_name": "temporal"}
+    unscored_item = {"category_name": "temporal"}
 
     report = aggregate_native_primary_quality(
         [native_item, unscored_item],

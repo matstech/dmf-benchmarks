@@ -822,7 +822,6 @@ def build_native_evaluation_item(
     item = dict(base_result)
     item.update(
         {
-            "protocol_mode": "native",
             "surface_marker": surface_marker,
             "native_context": native_context,
             "task_prompt": task_prompt,
@@ -908,7 +907,6 @@ def build_native_results_bundle(
     metadata = {
         "benchmark": benchmark_name,
         "project_name": project_name,
-        "protocol_mode": "native",
         "total_questions": len(evaluations),
     }
     if framework:

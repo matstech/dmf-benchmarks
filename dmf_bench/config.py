@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from .atomic_io import write_json_atomic
-from .contracts import sha256_file
+from .contracts import EXPERIMENT_CONFIG_SCHEMA_VERSION, sha256_file
 from .registry import validate_combination
 
 
@@ -92,7 +92,6 @@ def resolve_config(
     *,
     benchmark: str | None = None,
     framework: str | None = None,
-    protocol: str | None = None,
 ) -> ResolvedConfig:
     source_path = Path(path).resolve()
     data = load_experiment_config(source_path)
@@ -101,23 +100,25 @@ def resolve_config(
         data["benchmark"] = benchmark
     if framework is not None:
         data["framework"] = framework
-    if protocol is not None:
-        data["protocol"] = protocol
-
     validate_config(data, source_path=source_path)
     data["source_path"] = str(source_path)
     return ResolvedConfig(source_path=source_path, data=data)
 
 
 def validate_config(data: dict[str, Any], *, source_path: Path) -> None:
-    if data.get("schema_version") != 1:
-        raise ValueError("Experiment config must declare schema_version=1.")
+    if data.get("schema_version") != EXPERIMENT_CONFIG_SCHEMA_VERSION:
+        raise ValueError(
+            "Experiment config must declare "
+            f"schema_version={EXPERIMENT_CONFIG_SCHEMA_VERSION}; "
+            f"v{data.get('schema_version')} configs are not supported."
+        )
+    if "protocol" in data:
+        raise ValueError("Experiment config field 'protocol' was removed in schema v2.")
     reject_inline_secrets(data)
 
     benchmark = required_string(data, "benchmark")
     framework = required_string(data, "framework")
-    protocol = required_string(data, "protocol")
-    validate_combination(benchmark, framework, protocol)
+    validate_combination(benchmark, framework)
 
     runtime = required_mapping(data, "runtime")
     for key in ("root", "runs_dir", "cache_dir"):

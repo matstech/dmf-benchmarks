@@ -183,11 +183,10 @@ def make_longmemeval_config(tmp_path: Path) -> dict[str, Any]:
     dataset_path = tmp_path / "longmemeval-mini.json"
     shutil.copy2(FIXTURE_DIR / "longmemeval-mini.json", dataset_path)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "experiment_id": "lifecycle-longmemeval",
         "benchmark": "longmemeval",
         "framework": "dmf",
-        "protocol": "native",
         "runtime": {"root": str(tmp_path), "runs_dir": str(tmp_path / "runs"), "cache_dir": str(tmp_path / "cache")},
         "dataset": {"name": "longmemeval", "path": str(dataset_path), "sha256": sha256_file(dataset_path)},
         "selection": {"ordered_item_ids": ["lme-001", "lme-002"], "filters": {}, "seed": 7},
@@ -204,11 +203,10 @@ def make_locomo_config(tmp_path: Path) -> dict[str, Any]:
     dataset_path = tmp_path / "locomo-mini.json"
     shutil.copy2(FIXTURE_DIR / "locomo-mini.json", dataset_path)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "experiment_id": "lifecycle-locomo",
         "benchmark": "locomo",
         "framework": "mem0",
-        "protocol": "native",
         "runtime": {"root": str(tmp_path), "runs_dir": str(tmp_path / "runs"), "cache_dir": str(tmp_path / "cache")},
         "dataset": {"name": "locomo", "path": str(dataset_path), "sha256": sha256_file(dataset_path)},
         "selection": {"ordered_item_ids": ["conversation-0001"], "filters": {"categories": [1, 2]}, "seed": 7},
@@ -362,6 +360,38 @@ def test_finalizer_refuses_incomplete_expected_prediction_set(tmp_path: Path) ->
 
     with pytest.raises(StateError, match="expected prediction set is incomplete"):
         OfflineLifecycleFinalizer(artifact_store=store, judge=FakeJudge()).finalize("lifecycle-longmemeval")
+
+
+def test_finalizer_rejects_v1_predictions_without_compatibility_parser(
+    tmp_path: Path,
+) -> None:
+    config = make_longmemeval_config(tmp_path)
+    store = LocalArtifactStore(tmp_path / "runs")
+    LongMemEvalPredictOnlyRunner(
+        artifact_store=store,
+        framework=FakeLongMemEvalFramework(),
+        answerer=FakeAnswerer(["almonds", "the Rome trip"]),
+    ).run(config)
+
+    def load_v1_predictions(
+        run_dir: Path,
+        manifest: Any,
+    ) -> list[dict[str, Any]]:
+        predictions = [
+            read_json(run_dir / "items" / item_id / "prediction.json")
+            for item_id in manifest.expected_item_ids
+        ]
+        for prediction in predictions:
+            prediction["schema_version"] = 1
+        return predictions
+
+    finalizer = OfflineLifecycleFinalizer(
+        artifact_store=store,
+        judge=FakeJudge(),
+        prediction_loaders={"longmemeval": load_v1_predictions},
+    )
+    with pytest.raises(StateError, match="v1 state is not supported"):
+        finalizer.finalize("lifecycle-longmemeval")
 
 
 def test_terminal_resume_does_not_regenerate_valid_judgments(tmp_path: Path) -> None:
@@ -582,7 +612,7 @@ def test_resume_regenerates_only_invalid_judgment(
 
     judgment_path = store.run_dir("lifecycle-longmemeval") / "judgments" / "lme-001.json"
     if corruption == "truncated":
-        judgment_path.write_text('{"schema_version":1', encoding="utf-8")
+        judgment_path.write_text('{"schema_version":2', encoding="utf-8")
     elif corruption == "wrong-fingerprint":
         payload = read_json(judgment_path)
         payload["judge_fingerprint"] = "f" * 64

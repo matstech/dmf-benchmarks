@@ -10,7 +10,7 @@ from dmf_bench.adapters.locomo import LoCoMoAdapter
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json
 from dmf_bench.cli import main
-from dmf_bench.contracts import sha256_file
+from dmf_bench.contracts import REPORT_SCHEMA_VERSION, sha256_file
 from dmf_bench.runner import InjectedInterrupt, LoCoMoPredictOnlyRunner
 from dmf_bench.state import StateError, plan_resume
 
@@ -105,17 +105,16 @@ class FakeAnswerer:
         }
 
 
-def make_locomo_config(tmp_path: Path, *, protocol: str = "native") -> dict[str, Any]:
+def make_locomo_config(tmp_path: Path) -> dict[str, Any]:
     dataset_path = tmp_path / "locomo-mini.json"
     shutil.copy2(FIXTURE_DIR / "locomo-mini.json", dataset_path)
     framework_config_path = tmp_path / "framework.toml"
     framework_config_path.write_text("[ltm]\nstorage_type = \"qdrant\"\n", encoding="utf-8")
     return {
-        "schema_version": 1,
-        "experiment_id": f"fixture-locomo-dmf-{protocol}",
+        "schema_version": 2,
+        "experiment_id": "fixture-locomo-dmf",
         "benchmark": "locomo",
         "framework": "dmf",
-        "protocol": protocol,
         "runtime": {
             "root": str(tmp_path),
             "runs_dir": str(tmp_path / "runs"),
@@ -192,7 +191,7 @@ def test_locomo_adapter_filters_categories_and_conversation_ids(tmp_path: Path) 
     assert units[0].item_ids == ("conv0_q1",)
 
 
-def test_native_locomo_surface_is_protocol_labeled(
+def test_locomo_surface_builds_v2_prediction(
     tmp_path: Path,
 ) -> None:
     native_config = make_locomo_config(tmp_path)
@@ -203,7 +202,6 @@ def test_native_locomo_surface_is_protocol_labeled(
     native_input = adapter.build_answerer_input(
         conversation=conversation,
         question=question,
-        protocol="native",
         framework_name="dmf",
         retrieval={"native_context": {"memory": "Pixel's bed is near the kitchen window."}},
     )
@@ -214,7 +212,6 @@ def test_native_locomo_surface_is_protocol_labeled(
     native_prediction = adapter.build_prediction(
         conversation=conversation,
         question=question,
-        protocol="native",
         framework_name="dmf",
         retrieval={
             "native_context": {"memory": "Pixel bed"},
@@ -226,14 +223,14 @@ def test_native_locomo_surface_is_protocol_labeled(
         answerer_input=native_input,
         answerer_output={"generated_answer": "near the kitchen window", "answerer_model": "fixture"},
     )
-    assert native_prediction["protocol_label"] == "native/locomo"
+    assert native_prediction["schema_version"] == 2
+    assert "protocol" not in native_prediction
     assert native_prediction["question_id"] == "conv0_q1"
     assert native_prediction["ground_truth_answer"] == "near the kitchen window"
     assert native_prediction["native"]["native_context"] == {"memory": "Pixel bed"}
     assert native_prediction["retrieval"]["search_results"][0]["metadata"][
         "source_unit_id"
     ] == "D2:1"
-    assert native_config["protocol"] == "native"
 
 
 def test_locomo_runner_uses_one_ingestion_and_commits_conversation_atomically(
@@ -248,7 +245,7 @@ def test_locomo_runner_uses_one_ingestion_and_commits_conversation_atomically(
         framework=framework,
         answerer=answerer,
     ).run(config)
-    run_dir = tmp_path / "runs" / "fixture-locomo-dmf-native"
+    run_dir = tmp_path / "runs" / "fixture-locomo-dmf"
 
     assert result.state == "PARTIAL"
     assert result.committed_unit_ids == ("conversation-0001",)
@@ -269,6 +266,10 @@ def test_locomo_runner_uses_one_ingestion_and_commits_conversation_atomically(
     )
     aggregate = read_json(run_dir / "items" / "conversation-0001" / "predictions.json")
     assert aggregate["question_ids"] == ["conv0_q0", "conv0_q1"]
+    timing = read_json(
+        run_dir / "items" / "conversation-0001" / "timing" / "conv0_q0.json"
+    )
+    assert timing["schema_version"] == REPORT_SCHEMA_VERSION
 
 
 def test_locomo_resume_skips_committed_conversation(tmp_path: Path) -> None:
@@ -304,7 +305,7 @@ def test_locomo_interrupt_after_ingestion_restarts_entire_conversation(tmp_path:
             answerer=FakeAnswerer(),
         ).run(config, interrupt_at="after-ingestion-before-first-prediction")
 
-    run_dir = tmp_path / "runs" / "fixture-locomo-dmf-native"
+    run_dir = tmp_path / "runs" / "fixture-locomo-dmf"
     assert plan_resume(run_dir).restart_unit_ids == ("conversation-0001",)
     cleanup_manifest_path = (
         run_dir / "items" / "conversation-0001" / "cleanup-manifest.json"
@@ -335,7 +336,7 @@ def test_locomo_interrupt_between_predictions_discards_partial_outputs(
             answerer=FakeAnswerer(["first-partial", "unused"]),
         ).run(config, interrupt_at="after-first-prediction")
 
-    run_dir = tmp_path / "runs" / "fixture-locomo-dmf-native"
+    run_dir = tmp_path / "runs" / "fixture-locomo-dmf"
     partial_path = run_dir / "items" / "conversation-0001" / "questions" / "conv0_q0.json"
     assert partial_path.exists()
     assert plan_resume(run_dir).restart_unit_ids == ("conversation-0001",)

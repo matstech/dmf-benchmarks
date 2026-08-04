@@ -30,11 +30,11 @@
       "targets": [
         {
           "expr": "dmf_bench_run_progress_ratio",
-          "legendFormat": "{{benchmark}}/{{framework}}/{{protocol}} units"
+          "legendFormat": "{{benchmark}}/{{framework}} units"
         },
         {
           "expr": "dmf_bench_run_item_progress_ratio",
-          "legendFormat": "{{benchmark}}/{{framework}}/{{protocol}} items"
+          "legendFormat": "{{benchmark}}/{{framework}} items"
         }
       ],
       "title": "Run progress",

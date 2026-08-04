@@ -10,6 +10,24 @@ from typing import Any, Literal
 from .atomic_io import canonical_json_bytes
 
 
+EXPERIMENT_CONFIG_SCHEMA_VERSION = 2
+RUN_MANIFEST_SCHEMA_VERSION = 2
+ATTEMPT_SCHEMA_VERSION = 2
+LIFECYCLE_CHECKPOINT_SCHEMA_VERSION = 2
+UNIT_CHECKPOINT_SCHEMA_VERSION = 2
+EVALUATION_REF_SCHEMA_VERSION = 2
+RUN_STATUS_SCHEMA_VERSION = 2
+COMPLETION_MARKER_SCHEMA_VERSION = 2
+PREDICTION_SCHEMA_VERSION = 2
+JUDGMENT_SCHEMA_VERSION = 2
+EVALUATION_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 2
+PUBLICATION_MANIFEST_SCHEMA_VERSION = 2
+STRUCTURED_LOG_SCHEMA_VERSION = 2
+SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION = 2
+PROVENANCE_SCHEMA_VERSION = 2
+
+
 RunPhase = Literal[
     "PREFLIGHT",
     "RUNNING",
@@ -80,11 +98,14 @@ class RunManifest:
     atomic_unit: str
     resume_policy: str = "restart-unit"
     provenance: dict[str, Any] = field(default_factory=dict)
-    schema_version: int = 1
+    schema_version: int = RUN_MANIFEST_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1:
-            raise ValueError("RunManifest schema_version must be 1.")
+        if self.schema_version != RUN_MANIFEST_SCHEMA_VERSION:
+            raise ValueError(
+                f"RunManifest schema_version must be {RUN_MANIFEST_SCHEMA_VERSION}; "
+                f"v{self.schema_version} state is not supported."
+            )
         if not self.run_id:
             raise ValueError("run_id cannot be empty.")
         assert_sha256(self.scientific_fingerprint, field_name="scientific_fingerprint")
@@ -129,12 +150,15 @@ class Attempt:
     resumed_from_attempt_id: str | None = None
     status: str = "IN_PROGRESS"
     completed_at: str | None = None
-    schema_version: int = 1
+    schema_version: int = ATTEMPT_SCHEMA_VERSION
     attempt_digest: str = ""
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1:
-            raise ValueError("Attempt schema_version must be 1.")
+        if self.schema_version != ATTEMPT_SCHEMA_VERSION:
+            raise ValueError(
+                f"Attempt schema_version must be {ATTEMPT_SCHEMA_VERSION}; "
+                f"v{self.schema_version} state is not supported."
+            )
         if not self.attempt_id or not self.run_id or not self.started_at:
             raise ValueError("attempt_id, run_id and started_at cannot be empty.")
         if self.entry_phase not in {
@@ -213,12 +237,16 @@ class LifecycleCheckpoint:
     artifacts: tuple[ArtifactRef, ...] = field(default_factory=tuple)
     predecessor_digest: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    schema_version: int = 1
+    schema_version: int = LIFECYCLE_CHECKPOINT_SCHEMA_VERSION
     checkpoint_digest: str = ""
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1:
-            raise ValueError("LifecycleCheckpoint schema_version must be 1.")
+        if self.schema_version != LIFECYCLE_CHECKPOINT_SCHEMA_VERSION:
+            raise ValueError(
+                "LifecycleCheckpoint schema_version must be "
+                f"{LIFECYCLE_CHECKPOINT_SCHEMA_VERSION}; "
+                f"v{self.schema_version} state is not supported."
+            )
         if not self.run_id or not self.attempt_id:
             raise ValueError("run_id and attempt_id cannot be empty.")
         if self.phase not in {
@@ -298,12 +326,15 @@ class UnitCheckpoint:
     status: str
     scientific_fingerprint: str
     artifacts: tuple[ArtifactRef, ...] = field(default_factory=tuple)
-    schema_version: int = 1
+    schema_version: int = UNIT_CHECKPOINT_SCHEMA_VERSION
     checkpoint_digest: str = ""
 
     def __post_init__(self) -> None:
-        if self.schema_version != 1:
-            raise ValueError("UnitCheckpoint schema_version must be 1.")
+        if self.schema_version != UNIT_CHECKPOINT_SCHEMA_VERSION:
+            raise ValueError(
+                f"UnitCheckpoint schema_version must be {UNIT_CHECKPOINT_SCHEMA_VERSION}; "
+                f"v{self.schema_version} state is not supported."
+            )
         if not self.run_id or not self.unit_id:
             raise ValueError("run_id and unit_id cannot be empty.")
         assert_sha256(self.scientific_fingerprint, field_name="scientific_fingerprint")
@@ -363,7 +394,14 @@ class EvaluationRef:
     evaluation_id: str
     status: str
     artifact: ArtifactRef
-    schema_version: int = 1
+    schema_version: int = EVALUATION_REF_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != EVALUATION_REF_SCHEMA_VERSION:
+            raise ValueError(
+                f"EvaluationRef schema_version must be {EVALUATION_REF_SCHEMA_VERSION}; "
+                f"v{self.schema_version} state is not supported."
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -385,7 +423,14 @@ class RunStatus:
     expected_units: int | None = None
     committed_units: int | None = None
     failed_units: int = 0
-    schema_version: int = 1
+    schema_version: int = RUN_STATUS_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != RUN_STATUS_SCHEMA_VERSION:
+            raise ValueError(
+                f"RunStatus schema_version must be {RUN_STATUS_SCHEMA_VERSION}; "
+                f"v{self.schema_version} state is not supported."
+            )
 
     def to_dict(self) -> dict[str, Any]:
         expected_units = self.expected if self.expected_units is None else self.expected_units
@@ -414,10 +459,16 @@ class CompletionMarker:
     scientific_fingerprint: str
     final_manifest_sha256: str
     verified_artifact_count: int
-    schema_version: int = 1
+    schema_version: int = COMPLETION_MARKER_SCHEMA_VERSION
     state: str = "COMPLETED"
 
     def __post_init__(self) -> None:
+        if self.schema_version != COMPLETION_MARKER_SCHEMA_VERSION:
+            raise ValueError(
+                "CompletionMarker schema_version must be "
+                f"{COMPLETION_MARKER_SCHEMA_VERSION}; "
+                f"v{self.schema_version} state is not supported."
+            )
         if self.state != "COMPLETED":
             raise ValueError("CompletionMarker state must be COMPLETED.")
         assert_sha256(self.scientific_fingerprint, field_name="scientific_fingerprint")

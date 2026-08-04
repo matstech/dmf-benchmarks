@@ -152,11 +152,10 @@ def experiment_config(
     tmp_path: Path,
     *,
     benchmark: str,
-    protocol: str,
 ) -> dict[str, Any]:
     dataset_path = FIXTURE_DIR / f"{benchmark}-mini.json"
     framework_path = CONFIG_DIR / f"{benchmark}_mem0_qdrant_settings.yaml"
-    experiment_id = f"integration-{benchmark}-mem0-{protocol}-{uuid.uuid4().hex[:10]}"
+    experiment_id = f"integration-{benchmark}-mem0-{uuid.uuid4().hex[:10]}"
     selection = (
         {
             "ordered_item_ids": ["conversation-0001"],
@@ -171,11 +170,10 @@ def experiment_config(
         }
     )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "experiment_id": experiment_id,
         "benchmark": benchmark,
         "framework": "mem0",
-        "protocol": protocol,
         "runtime": {
             "root": str(tmp_path),
             "runs_dir": str(tmp_path / "runs"),
@@ -278,7 +276,7 @@ def test_mem0_predict_only_on_qdrant(
     monkeypatch.setattr(spacy_models, "get_nlp_full", lambda: None)
     monkeypatch.setattr(spacy_models, "get_nlp_lemma", lambda: None)
 
-    config = experiment_config(tmp_path, benchmark=benchmark, protocol="native")
+    config = experiment_config(tmp_path, benchmark=benchmark)
     builder = TrackingMem0EngineBuilder()
     adapter = Mem0QdrantFrameworkAdapter.from_experiment(
         config,
@@ -336,7 +334,8 @@ def test_mem0_predict_only_on_qdrant(
             predictions = [
                 read_json(run_dir / "items" / unit.unit_id / "prediction.json")
             ]
-        assert all(prediction["protocol"] == "native" for prediction in predictions)
+        assert all(prediction["schema_version"] == 2 for prediction in predictions)
+        assert all("protocol" not in prediction for prediction in predictions)
         assert all(
             prediction["memory_internal_usage"]["available"] is True
             for prediction in predictions

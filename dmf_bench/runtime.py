@@ -31,7 +31,6 @@ class RuntimeAssemblyError(RuntimeError):
 class RuntimeRequest:
     benchmark: str
     framework: str
-    protocol: str
     answerer_provider: str
     judge_provider: str
 
@@ -43,11 +42,10 @@ class RuntimeRequest:
         request = cls(
             benchmark=_required_string(config, "benchmark"),
             framework=_required_string(config, "framework"),
-            protocol=_required_string(config, "protocol"),
             answerer_provider=_required_string(answerer, "provider"),
             judge_provider=_required_string(judge, "provider"),
         )
-        validate_combination(request.benchmark, request.framework, request.protocol)
+        validate_combination(request.benchmark, request.framework)
         return request
 
 

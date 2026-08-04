@@ -74,7 +74,7 @@ class FixtureFramework:
         self,
         unit: BenchmarkUnit,
         question: dict[str, Any],
-        config: dict[str, Any],
+        _config: dict[str, Any],
         _prepared: dict[str, Any],
         *,
         run_context: FrameworkRunContext,
@@ -92,19 +92,12 @@ class FixtureFramework:
             if self.name == "dmf"
             else {}
         )
-        if config["protocol"] == "native":
-            return RetrievalResult(
-                native_context={"question_id": unit.unit_id},
-                native_surface_diagnostics={"result_count": 1},
-                cutoff_label="native",
-                search_results=search_results,
-                recall_diagnostics=diagnostics,
-                memories_evaluated=1,
-            )
         return RetrievalResult(
+            native_context={"question_id": unit.unit_id},
+            native_surface_diagnostics={"result_count": 1},
             search_results=search_results,
             recall_diagnostics=diagnostics,
-            cutoff_label="top_1",
+            cutoff_label="native",
             memories_evaluated=1,
         )
 
@@ -113,7 +106,7 @@ class FixtureFramework:
         unit: BenchmarkUnit,
         _conversation: dict[str, Any],
         question: Any,
-        config: dict[str, Any],
+        _config: dict[str, Any],
         _prepared: dict[str, Any],
         *,
         run_context: FrameworkRunContext,
@@ -131,22 +124,15 @@ class FixtureFramework:
             if self.name == "dmf"
             else {}
         )
-        if config["protocol"] == "native":
-            return RetrievalResult(
-                native_context={
-                    "conversation_id": unit.unit_id,
-                    "question_id": question.question_id,
-                },
-                native_surface_diagnostics={"result_count": 1},
-                cutoff_label="native",
-                search_results=search_results,
-                recall_diagnostics=diagnostics,
-                memories_evaluated=1,
-            )
         return RetrievalResult(
+            native_context={
+                "conversation_id": unit.unit_id,
+                "question_id": question.question_id,
+            },
+            native_surface_diagnostics={"result_count": 1},
             search_results=search_results,
             recall_diagnostics=diagnostics,
-            cutoff_label="top_1",
+            cutoff_label="native",
             memories_evaluated=1,
         )
 
@@ -233,7 +219,6 @@ def write_config(
     *,
     benchmark: str,
     framework: str,
-    protocol: str,
     run_id: str,
 ) -> Path:
     root.mkdir(parents=True)
@@ -263,11 +248,10 @@ def write_config(
         "runtime": {"timeout_seconds": 30, "rpm": 100, "max_retries": 0},
     }
     config = {
-        "schema_version": 1,
+        "schema_version": 2,
         "experiment_id": run_id,
         "benchmark": benchmark,
         "framework": framework,
-        "protocol": protocol,
         "runtime": {
             "root": str(root),
             "runs_dir": str(root / "runs"),
@@ -311,15 +295,14 @@ def test_cli_runs_full_offline_lifecycle_for_all_supported_combinations(
     monkeypatch.setenv("DMF_BENCH_METRICS_PORT", "0")
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-leak-runtime")
 
-    executed: list[tuple[str, str, str]] = []
-    for index, (benchmark, framework, protocol) in enumerate(supported_combinations()):
+    executed: list[tuple[str, str]] = []
+    for index, (benchmark, framework) in enumerate(supported_combinations()):
         root = tmp_path / f"case-{index}"
-        run_id = f"cli-{benchmark}-{framework}-{protocol}"
+        run_id = f"cli-{benchmark}-{framework}"
         config_path = write_config(
             root,
             benchmark=benchmark,
             framework=framework,
-            protocol=protocol,
             run_id=run_id,
         )
 
@@ -328,6 +311,11 @@ def test_cli_runs_full_offline_lifecycle_for_all_supported_combinations(
         final_dir = run_dir / "final"
         assert read_json(run_dir / "run-status.json")["state"] == "COMPLETED"
         assert read_json(final_dir / "COMPLETED.json")["state"] == "COMPLETED"
+        assert read_json(run_dir / "run-manifest.json")["schema_version"] == 2
+        assert all(
+            "protocol" not in path.read_text(encoding="utf-8").lower()
+            for path in final_dir.rglob("*.json")
+        )
 
         evaluations = read_json(final_dir / "evaluations" / "evaluations.json")
         rigorous = read_json(final_dir / "evaluations" / "rigorous_report.json")
@@ -339,7 +327,7 @@ def test_cli_runs_full_offline_lifecycle_for_all_supported_combinations(
         if framework == "dmf":
             assert ablation["metrics"]["stats"]["questions_without_diagnostics"] == 0
 
-        executed.append((benchmark, framework, protocol))
+        executed.append((benchmark, framework))
 
     assert executed == supported_combinations()
 
@@ -362,7 +350,6 @@ def test_cli_predict_only_status_and_resume_use_persisted_config(
         root,
         benchmark="longmemeval",
         framework="dmf",
-        protocol="native",
         run_id=run_id,
     )
 
@@ -411,11 +398,10 @@ def test_invalid_run_config_fails_before_builder_or_run_creation(tmp_path: Path)
         root,
         benchmark="locomo",
         framework="dmf",
-        protocol="native",
         run_id="invalid-config",
     )
     payload = json.loads(config_path.read_text(encoding="utf-8"))
-    payload["protocol"] = "unsupported"
+    payload["schema_version"] = 1
     config_path.write_text(json.dumps(payload), encoding="utf-8")
     builder_called = False
 
@@ -444,7 +430,6 @@ def test_missing_openai_key_is_reported_in_json_log_and_stderr(
         root,
         benchmark="locomo",
         framework="dmf",
-        protocol="native",
         run_id="missing-openai-key",
     )
     payload = json.loads(config_path.read_text(encoding="utf-8"))
@@ -463,7 +448,8 @@ def test_missing_openai_key_is_reported_in_json_log_and_stderr(
         if '"event":"run.failed"' in line
     ]
     assert len(failure_events) == 1
-    assert failure_events[0]["protocol"] == "native"
+    assert failure_events[0]["schema_version"] == 2
+    assert "protocol" not in failure_events[0]
     assert expected in failure_events[0]["message"]
     assert f"ValueError: {expected}" in captured.err
     assert not (root / "runs").exists()
@@ -483,7 +469,6 @@ def test_third_party_exception_is_reported_without_escaping_cli(
         root,
         benchmark="locomo",
         framework="dmf",
-        protocol="native",
         run_id="third-party-failure",
     )
 
@@ -520,7 +505,6 @@ def test_cli_exit_codes_distinguish_runtime_scientific_and_interrupt_failures(
         runtime_root,
         benchmark="longmemeval",
         framework="dmf",
-        protocol="native",
         run_id="runtime-failure",
     )
 
@@ -538,7 +522,6 @@ def test_cli_exit_codes_distinguish_runtime_scientific_and_interrupt_failures(
         scientific_root,
         benchmark="longmemeval",
         framework="dmf",
-        protocol="native",
         run_id="scientific-failure",
     )
 
@@ -562,7 +545,6 @@ def test_cli_exit_codes_distinguish_runtime_scientific_and_interrupt_failures(
         interrupt_root,
         benchmark="longmemeval",
         framework="dmf",
-        protocol="native",
         run_id="interrupt-exit",
     )
 
@@ -590,7 +572,6 @@ def test_metrics_are_scrapable_while_answerer_is_blocked(tmp_path: Path) -> None
         root,
         benchmark="longmemeval",
         framework="dmf",
-        protocol="native",
         run_id="metrics-live",
     )
     config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -622,6 +603,7 @@ def test_metrics_are_scrapable_while_answerer_is_blocked(tmp_path: Path) -> None
         ).read().decode("utf-8")
         assert "dmf_bench_run_progress_ratio" in body
         assert "dmf_bench_run_expected_items" in body
+        assert "protocol=" not in body
     finally:
         release.set()
         worker.join(timeout=10)
@@ -637,7 +619,6 @@ def test_signal_cancellation_interrupts_at_boundary_and_resume_completes(tmp_pat
         root,
         benchmark="longmemeval",
         framework="dmf",
-        protocol="native",
         run_id="signal-resume",
     )
     config = json.loads(config_path.read_text(encoding="utf-8"))

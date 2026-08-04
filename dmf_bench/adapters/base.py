@@ -89,7 +89,6 @@ class RetrievalResult:
 @runtime_checkable
 class BenchmarkAdapter(Protocol):
     name: str
-    supported_protocols: tuple[str, ...]
 
     def enumerate_units(self, config: dict[str, Any]) -> list[BenchmarkUnit]:
         """Return the ordered benchmark units for a resolved config."""

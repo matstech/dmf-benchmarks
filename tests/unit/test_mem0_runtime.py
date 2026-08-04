@@ -177,11 +177,10 @@ class FakeMem0EngineBuilder:
         return Mem0EngineBundle(memory=object(), backend=backend)  # type: ignore[arg-type]
 
 
-def runtime_config(tmp_path: Path, *, benchmark: str, protocol: str) -> dict[str, Any]:
+def runtime_config(tmp_path: Path, *, benchmark: str) -> dict[str, Any]:
     return {
         "benchmark": benchmark,
         "framework": "mem0",
-        "protocol": protocol,
         "runtime": {
             "root": str(tmp_path),
             "runs_dir": str(tmp_path / "runs"),
@@ -252,7 +251,7 @@ def test_locomo_runtime_ingests_once_reuses_memory_and_preserves_provenance(
     tmp_path: Path,
 ) -> None:
     unit, conversation, questions = locomo_case()
-    config = runtime_config(tmp_path, benchmark="locomo", protocol="native")
+    config = runtime_config(tmp_path, benchmark="locomo")
     context = run_context(tmp_path)
     client = FakeQdrantClient()
     builder = FakeMem0EngineBuilder()
@@ -311,7 +310,7 @@ def test_longmemeval_runtime_preserves_pair_order_and_native_surface(
     tmp_path: Path,
 ) -> None:
     unit, question = longmemeval_case()
-    config = runtime_config(tmp_path, benchmark="longmemeval", protocol="native")
+    config = runtime_config(tmp_path, benchmark="longmemeval")
     context = run_context(tmp_path)
     client = FakeQdrantClient()
     builder = FakeMem0EngineBuilder()
@@ -351,7 +350,7 @@ def test_longmemeval_runtime_preserves_pair_order_and_native_surface(
 
 def test_mem0_resources_are_isolated_by_run_and_unit(tmp_path: Path) -> None:
     unit, question = longmemeval_case()
-    config = runtime_config(tmp_path, benchmark="longmemeval", protocol="native")
+    config = runtime_config(tmp_path, benchmark="longmemeval")
     first = adapter_for(
         benchmark="longmemeval",
         client=FakeQdrantClient(),
@@ -384,7 +383,7 @@ def test_mem0_resources_are_isolated_by_run_and_unit(tmp_path: Path) -> None:
 
 def test_failed_ingestion_removes_partial_collections_and_history(tmp_path: Path) -> None:
     unit, conversation, _questions = locomo_case()
-    config = runtime_config(tmp_path, benchmark="locomo", protocol="native")
+    config = runtime_config(tmp_path, benchmark="locomo")
     client = FakeQdrantClient()
     builder = FakeMem0EngineBuilder(fail_at=2)
     adapter = adapter_for(benchmark="locomo", client=client, builder=builder)
@@ -498,7 +497,7 @@ def test_factory_uses_qdrant_without_api_key_and_requires_disabled_telemetry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = runtime_config(tmp_path, benchmark="locomo", protocol="native")
+    config = runtime_config(tmp_path, benchmark="locomo")
     client = FakeQdrantClient()
     calls: list[tuple[str, str | None, float]] = []
 
@@ -546,7 +545,6 @@ def test_mem0_provenance_records_pinned_distribution_and_fork_commit() -> None:
     config = {
         "benchmark": "locomo",
         "framework": "mem0",
-        "protocol": "native",
         "framework_config": {
             "format": "yaml",
             "profile": "qdrant",

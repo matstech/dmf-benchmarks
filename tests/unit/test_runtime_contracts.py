@@ -39,14 +39,12 @@ class FixtureJudge:
 def experiment_config(
     benchmark: str = "locomo",
     framework: str = "dmf",
-    protocol: str = "native",
 ) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "experiment_id": "fixture-run",
         "benchmark": benchmark,
         "framework": framework,
-        "protocol": protocol,
         "runtime": {
             "root": "/bench",
             "runs_dir": "/bench/runs",
@@ -113,15 +111,14 @@ def runtime_factories() -> RuntimeFactories:
 
 
 def test_explicit_factories_assemble_every_supported_runtime_combination() -> None:
-    for benchmark, framework, protocol in supported_combinations():
+    for benchmark, framework in supported_combinations():
         components = assemble_runtime(
-            experiment_config(benchmark, framework, protocol),
+            experiment_config(benchmark, framework),
             factories=runtime_factories(),
         )
 
         assert components.request.benchmark == benchmark
         assert components.request.framework == framework
-        assert components.request.protocol == protocol
         assert components.benchmark.name == benchmark
         assert components.framework.name == framework
 
@@ -208,7 +205,7 @@ def test_retrieval_and_judge_contracts_keep_scientific_metadata() -> None:
             "ground_truth_answer": "Yesterday",
             "generated_answer": "Yesterday",
         },
-        metadata={"benchmark": "longmemeval", "protocol": "native"},
+        metadata={"benchmark": "longmemeval"},
     )
 
     assert retrieval["recall_diagnostics"]["raw_candidates"][0]["id"] == "raw-1"

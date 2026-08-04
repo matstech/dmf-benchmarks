@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dmf_bench.contracts import hash_canonical_json, sha256_file
+from dmf_bench.contracts import (
+    EXPERIMENT_CONFIG_SCHEMA_VERSION,
+    hash_canonical_json,
+    sha256_file,
+)
 from dmf_bench.datasets import dataset_config_for_id
 
 
@@ -16,7 +20,6 @@ class PresetRecord:
     profile: str
     benchmark: str
     framework: str
-    protocol: str
     dataset_id: str
     selection: dict[str, Any]
     models: dict[str, Any]
@@ -32,7 +35,6 @@ class PresetRecord:
             "profile": self.profile,
             "benchmark": self.benchmark,
             "framework": self.framework,
-            "protocol": self.protocol,
             "dataset_id": self.dataset_id,
             "selection": self.selection,
             "models": self.models,
@@ -65,12 +67,11 @@ def _model(
 
 
 BUILTIN_PRESETS: dict[str, PresetRecord] = {
-    "paper/locomo-dmf-native-v1": PresetRecord(
-        preset_id="paper/locomo-dmf-native-v1",
+    "paper/locomo-dmf-v2": PresetRecord(
+        preset_id="paper/locomo-dmf-v2",
         profile="paper",
         benchmark="locomo",
         framework="dmf",
-        protocol="native",
         dataset_id="locomo-official-unpinned",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
@@ -79,12 +80,11 @@ BUILTIN_PRESETS: dict[str, PresetRecord] = {
         },
         evaluation={"required": ["primary_judge_score", "rigorous_report"], "optional": ["ablation_report"]},
     ),
-    "default/locomo-dmf-native": PresetRecord(
-        preset_id="default/locomo-dmf-native",
+    "default/locomo-dmf": PresetRecord(
+        preset_id="default/locomo-dmf",
         profile="default",
         benchmark="locomo",
         framework="dmf",
-        protocol="native",
         dataset_id="locomo-official-unpinned",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
@@ -93,12 +93,11 @@ BUILTIN_PRESETS: dict[str, PresetRecord] = {
         },
         evaluation={"required": ["primary_judge_score", "rigorous_report"], "optional": ["ablation_report"]},
     ),
-    "paper/longmemeval-dmf-native-v1": PresetRecord(
-        preset_id="paper/longmemeval-dmf-native-v1",
+    "paper/longmemeval-dmf-v2": PresetRecord(
+        preset_id="paper/longmemeval-dmf-v2",
         profile="paper",
         benchmark="longmemeval",
         framework="dmf",
-        protocol="native",
         dataset_id="longmemeval-s-official-unpinned",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
@@ -107,12 +106,11 @@ BUILTIN_PRESETS: dict[str, PresetRecord] = {
         },
         evaluation={"required": ["primary_judge_score", "rigorous_report"], "optional": ["ablation_report"]},
     ),
-    "default/longmemeval-dmf-native": PresetRecord(
-        preset_id="default/longmemeval-dmf-native",
+    "default/longmemeval-dmf": PresetRecord(
+        preset_id="default/longmemeval-dmf",
         profile="default",
         benchmark="longmemeval",
         framework="dmf",
-        protocol="native",
         dataset_id="longmemeval-s-official-unpinned",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
@@ -142,11 +140,10 @@ def resolve_preset(
     if not framework_path.is_file():
         raise ValueError(f"Framework config file not found: {framework_path}")
     return {
-        "schema_version": 1,
+        "schema_version": EXPERIMENT_CONFIG_SCHEMA_VERSION,
         "experiment_id": preset_id.replace("/", "-"),
         "benchmark": preset.benchmark,
         "framework": preset.framework,
-        "protocol": preset.protocol,
         "runtime": {
             "root": str(root),
             "runs_dir": str(root / "runs"),

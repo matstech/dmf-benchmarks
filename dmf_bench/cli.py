@@ -14,11 +14,12 @@ from .adapters.longmemeval import LongMemEvalAdapter
 from .artifacts import LocalArtifactStore
 from .atomic_io import read_json
 from .config import ResolvedConfig, resolve_config, validate_config
+from .contracts import RUN_STATUS_SCHEMA_VERSION
 from .datasets import dataset_config_for_id, load_dataset_registry, materialize_dataset, registry_as_dict
 from .execution import CancellationController, RunInterrupted
 from .logging_config import JsonEventLogger, redact
 from .metrics import BenchmarkMetrics, MetricsServer, start_metrics_endpoint, stop_metrics_endpoint
-from .registry import BENCHMARKS, FRAMEWORKS, PROTOCOLS, supported_combinations
+from .registry import BENCHMARKS, FRAMEWORKS, supported_combinations
 from .runtime import RuntimeApplication, assemble_application
 from .state import RunState, StateError, plan_resume
 
@@ -39,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("list", help="List supported benchmarks, frameworks, and protocols.")
+    subparsers.add_parser("list", help="List supported benchmarks and frameworks.")
 
     validate_parser = subparsers.add_parser(
         "validate",
@@ -48,7 +49,6 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--config", required=True, help="Path to experiment JSON config.")
     validate_parser.add_argument("--benchmark", choices=sorted(BENCHMARKS), help="Override benchmark.")
     validate_parser.add_argument("--framework", choices=sorted(FRAMEWORKS), help="Override framework.")
-    validate_parser.add_argument("--protocol", choices=PROTOCOLS, help="Override protocol.")
 
     run_parser = subparsers.add_parser(
         "run",
@@ -143,7 +143,6 @@ def main(
                 args.config,
                 benchmark=args.benchmark,
                 framework=args.framework,
-                protocol=args.protocol,
             )
         except ValueError as exc:
             parser.exit(2, f"dmf-bench validate: error: {exc}\n")
@@ -216,7 +215,6 @@ def main(
                 "state": "PLANNED",
                 "benchmark": resolved.data["benchmark"],
                 "framework": resolved.data["framework"],
-                "protocol": resolved.data["protocol"],
                 "mode": "predict-only" if args.predict_only else "full",
                 "expected_final_state": "PARTIAL" if args.predict_only else "COMPLETED",
                 "resume": False,
@@ -281,7 +279,6 @@ def _execute(
         "run_id": resolved_run_id or None,
         "benchmark": config.get("benchmark"),
         "framework": config.get("framework"),
-        "protocol": config.get("protocol"),
     }
     events = JsonEventLogger(level=str(runtime.get("log_level", "INFO")))
     metrics = BenchmarkMetrics()
@@ -427,6 +424,11 @@ def _status(runs_dir: str | Path, run_id: str) -> int:
         payload = read_json(run_dir / "run-status.json")
         if not isinstance(payload, dict):
             raise StateError("run-status.json must contain a JSON object.")
+        if payload.get("schema_version") != RUN_STATUS_SCHEMA_VERSION:
+            raise StateError(
+                "run-status.json must declare "
+                f"schema_version={RUN_STATUS_SCHEMA_VERSION}."
+            )
         state = str(payload.get("state", ""))
         if state not in {candidate.value for candidate in RunState}:
             raise StateError(f"run-status.json contains an unsupported state: {state!r}.")
@@ -515,10 +517,6 @@ def print_list(stream: TextIO) -> None:
     for framework, info in sorted(FRAMEWORKS.items()):
         print(f"  {framework}: storage_backend={info.storage_backend}", file=stream)
 
-    print("protocols:", file=stream)
-    for protocol in PROTOCOLS:
-        print(f"  {protocol}", file=stream)
-
     print("supported combinations:", file=stream)
-    for benchmark, framework, protocol in supported_combinations():
-        print(f"  {benchmark}/{framework}/{protocol}", file=stream)
+    for benchmark, framework in supported_combinations():
+        print(f"  {benchmark}/{framework}", file=stream)

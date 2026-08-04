@@ -143,7 +143,7 @@ services:
     command:
       - "run"
       - "--config"
-      - "${DMF_BENCH_CONFIG:-/bench/config/experiment-locomo-dmf-native.json}"
+      - "${DMF_BENCH_CONFIG:-/bench/config/experiment-locomo-dmf.json}"
     environment:
       DMF_BENCH_HARNESS_COMMIT: ${DMF_BENCH_HARNESS_COMMIT:-unknown}
       DMF_BENCH_IMAGE_DIGEST: ${DMF_BENCH_IMAGE_DIGEST:-unknown}

@@ -85,7 +85,6 @@ MemoryFramework = Literal["dmf", "mem0"]
 
 BENCHMARK_NAME = "locomo"
 NATIVE_BENCHMARK_RESULTS_NAME = "native/locomo"
-NATIVE_PROTOCOL_MODE = "native"
 NATIVE_ENTRYPOINT = "python -m locomo.native_pipeline"
 log = logging.getLogger(__name__)
 
@@ -126,7 +125,6 @@ def build_native_run_manifest(
     )
     return {
         "benchmark": BENCHMARK_NAME,
-        "protocol_mode": NATIVE_PROTOCOL_MODE,
         "framework": framework,
         "entrypoint": NATIVE_ENTRYPOINT,
         "output_dir": str(native_output_dir(project_name)),
@@ -282,7 +280,6 @@ def build_native_answerer_inputs_for_question(
     question_id = f"conv{conversation_idx}_q{question_idx}"
     payload = {
         "benchmark": BENCHMARK_NAME,
-        "protocol_mode": NATIVE_PROTOCOL_MODE,
         "framework": framework,
         "question_id": question_id,
         "conversation_idx": conversation_idx,

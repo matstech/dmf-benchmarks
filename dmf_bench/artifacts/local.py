@@ -13,6 +13,7 @@ from dmf_bench.atomic_io import read_json, write_json_atomic
 from dmf_bench.contracts import (
     ArtifactRef,
     CompletionMarker,
+    PUBLICATION_MANIFEST_SCHEMA_VERSION,
     RunManifest,
     hash_canonical_json,
     sha256_file,
@@ -123,9 +124,18 @@ class LocalArtifactStore:
         completion = read_json(completion_path)
         if not isinstance(completion, dict):
             raise StateError("Completion marker must be a JSON object.")
+        try:
+            CompletionMarker.from_dict(completion)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise StateError(f"Invalid completion marker: {exc}") from exc
         final_manifest = read_json(final_manifest_path)
         if not isinstance(final_manifest, dict):
             raise StateError("Final manifest must be a JSON object.")
+        if final_manifest.get("schema_version") != PUBLICATION_MANIFEST_SCHEMA_VERSION:
+            raise StateError(
+                "Final publication manifest must declare "
+                f"schema_version={PUBLICATION_MANIFEST_SCHEMA_VERSION}."
+            )
 
         if completion.get("run_id") != manifest.run_id:
             raise StateError("Completion marker run_id mismatch.")
@@ -225,7 +235,7 @@ class LocalArtifactStore:
             manifest = load_manifest(run_dir)
             artifacts = build_artifact_refs(payload_dir)
             manifest_payload = {
-                "schema_version": 1,
+                "schema_version": PUBLICATION_MANIFEST_SCHEMA_VERSION,
                 "run_id": run_id,
                 "scientific_fingerprint": manifest.scientific_fingerprint,
                 "artifacts": [artifact.to_dict() for artifact in artifacts],
@@ -341,8 +351,11 @@ class LocalArtifactStore:
         if not isinstance(manifest, dict):
             raise StateError("Publication manifest must be a JSON object.")
         run_manifest = load_manifest(run_dir)
-        if manifest.get("schema_version") != 1:
-            raise StateError("Publication manifest schema_version mismatch.")
+        if manifest.get("schema_version") != PUBLICATION_MANIFEST_SCHEMA_VERSION:
+            raise StateError(
+                "Publication manifest must declare "
+                f"schema_version={PUBLICATION_MANIFEST_SCHEMA_VERSION}."
+            )
         if manifest.get("run_id") != staged.run_id:
             raise StateError("Publication manifest run_id mismatch.")
         if manifest.get("scientific_fingerprint") != run_manifest.scientific_fingerprint:

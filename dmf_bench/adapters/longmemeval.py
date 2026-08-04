@@ -13,7 +13,7 @@ from longmemeval.utils import (
     sample_questions_stratified,
 )
 
-from dmf_bench.contracts import sha256_file
+from dmf_bench.contracts import PREDICTION_SCHEMA_VERSION, sha256_file
 
 from .base import BenchmarkUnit
 
@@ -34,7 +34,6 @@ class LongMemEvalAnswererInput:
 
 class LongMemEvalAdapter:
     name = "longmemeval"
-    supported_protocols = ("native",)
     atomic_unit = "longmemeval-question"
 
     def materialize_reference(self, config: dict[str, Any]) -> LongMemEvalReference:
@@ -151,39 +150,33 @@ class LongMemEvalAdapter:
         self,
         *,
         question: dict[str, Any],
-        protocol: str,
         framework_name: str,
         retrieval: dict[str, Any],
     ) -> LongMemEvalAnswererInput:
         question_text = str(question["question"])
         question_date = str(question.get("question_date", ""))
-        if protocol == "native":
-            native_context = retrieval.get("native_context", "")
-            user_prompt = native_prompts.build_answerer_user_prompt(
-                native_context,
-                question_text,
-                question_date,
-            )
-            metadata = {
-                "protocol": protocol,
-                "framework": framework_name,
-                "question_id": str(question["question_id"]),
-                "native_context": native_context,
-                "native_surface_diagnostics": retrieval.get("native_surface_diagnostics", {}),
-            }
-            return LongMemEvalAnswererInput(
-                native_prompts.build_answerer_system_prompt(),
-                user_prompt,
-                metadata,
-            )
-
-        raise ValueError(f"Unsupported LongMemEval protocol: {protocol!r}")
+        native_context = retrieval.get("native_context", "")
+        user_prompt = native_prompts.build_answerer_user_prompt(
+            native_context,
+            question_text,
+            question_date,
+        )
+        metadata = {
+            "framework": framework_name,
+            "question_id": str(question["question_id"]),
+            "native_context": native_context,
+            "native_surface_diagnostics": retrieval.get("native_surface_diagnostics", {}),
+        }
+        return LongMemEvalAnswererInput(
+            native_prompts.build_answerer_system_prompt(),
+            user_prompt,
+            metadata,
+        )
 
     def build_prediction(
         self,
         *,
         question: dict[str, Any],
-        protocol: str,
         framework_name: str,
         retrieval: dict[str, Any],
         answerer_input: LongMemEvalAnswererInput,
@@ -199,10 +192,8 @@ class LongMemEvalAdapter:
             usage = {}
 
         result = {
-            "schema_version": 1,
+            "schema_version": PREDICTION_SCHEMA_VERSION,
             "benchmark": self.name,
-            "protocol": protocol,
-            "protocol_label": f"{protocol}/longmemeval",
             "framework": framework_name,
             "question_id": str(question["question_id"]),
             "question_type": str(question["question_type"]),

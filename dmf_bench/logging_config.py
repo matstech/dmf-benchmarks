@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
+from dmf_bench.contracts import STRUCTURED_LOG_SCHEMA_VERSION
 
-LOG_SCHEMA_VERSION = 1
 SECRET_KEY_PARTS = ("api_key", "apikey", "authorization", "password", "secret", "token")
 ALLOWED_EVENTS = {
     "run.preflight.started",
@@ -42,7 +42,6 @@ LOG_EVENT_FIELDS = {
     "attempt_id",
     "benchmark",
     "framework",
-    "protocol",
     "phase",
     "unit_index",
     "unit_id_hash",
@@ -65,7 +64,6 @@ class JsonEventFormatter(logging.Formatter):
             attempt_id=getattr(record, "attempt_id", None),
             benchmark=getattr(record, "benchmark", None),
             framework=getattr(record, "framework", None),
-            protocol=getattr(record, "protocol", None),
             phase=str(getattr(record, "phase", "UNKNOWN")),
             unit_index=getattr(record, "unit_index", None),
             unit_id_hash=getattr(record, "unit_id_hash", None),
@@ -185,7 +183,6 @@ def build_log_event(
     attempt_id: str | None = None,
     benchmark: str | None = None,
     framework: str | None = None,
-    protocol: str | None = None,
     phase: str = "UNKNOWN",
     unit_index: int | None = None,
     unit_id_hash: str | None = None,
@@ -197,7 +194,7 @@ def build_log_event(
     if event not in ALLOWED_EVENTS:
         raise ValueError(f"Unsupported log event: {event!r}")
     return {
-        "schema_version": LOG_SCHEMA_VERSION,
+        "schema_version": STRUCTURED_LOG_SCHEMA_VERSION,
         "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
         "level": level,
         "event": event,
@@ -206,7 +203,6 @@ def build_log_event(
         "attempt_id": attempt_id,
         "benchmark": benchmark,
         "framework": framework,
-        "protocol": protocol,
         "phase": phase,
         "unit_index": unit_index,
         "unit_id_hash": unit_id_hash,

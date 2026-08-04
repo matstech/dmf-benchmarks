@@ -11,7 +11,7 @@ from locomo import native_prompts
 from locomo.prompts import official_ground_truth_answer
 from locomo.qa import category_name, normalize_generated_answer_for_category
 
-from dmf_bench.contracts import sha256_file
+from dmf_bench.contracts import PREDICTION_SCHEMA_VERSION, sha256_file
 
 from .base import BenchmarkUnit
 
@@ -41,7 +41,6 @@ class LoCoMoAnswererInput:
 
 class LoCoMoAdapter:
     name = "locomo"
-    supported_protocols = ("native",)
     atomic_unit = "locomo-conversation"
 
     def materialize_reference(self, config: dict[str, Any]) -> LoCoMoReference:
@@ -187,43 +186,37 @@ class LoCoMoAdapter:
         *,
         conversation: dict[str, Any],
         question: LoCoMoQuestion,
-        protocol: str,
         framework_name: str,
         retrieval: dict[str, Any],
     ) -> LoCoMoAnswererInput:
         qa_item = question.qa_item
         question_text = str(qa_item.get("question", ""))
         category = int(qa_item.get("category", 0) or 0)
-        if protocol == "native":
-            native_context = retrieval.get("native_context", "")
-            user_prompt = native_prompts.build_answerer_user_prompt(
-                native_context,
-                question_text,
-                category=category,
-            )
-            return LoCoMoAnswererInput(
-                native_prompts.build_answerer_system_prompt(),
-                user_prompt,
-                {
-                    "protocol": protocol,
-                    "framework": framework_name,
-                    "conversation_id": question.conversation_id,
-                    "conversation_idx": question.conversation_idx,
-                    "question_id": question.question_id,
-                    "question_idx": question.question_idx,
-                    "native_context": native_context,
-                    "native_surface_diagnostics": retrieval.get("native_surface_diagnostics", {}),
-                },
-            )
-
-        raise ValueError(f"Unsupported LoCoMo protocol: {protocol!r}")
+        native_context = retrieval.get("native_context", "")
+        user_prompt = native_prompts.build_answerer_user_prompt(
+            native_context,
+            question_text,
+            category=category,
+        )
+        return LoCoMoAnswererInput(
+            native_prompts.build_answerer_system_prompt(),
+            user_prompt,
+            {
+                "framework": framework_name,
+                "conversation_id": question.conversation_id,
+                "conversation_idx": question.conversation_idx,
+                "question_id": question.question_id,
+                "question_idx": question.question_idx,
+                "native_context": native_context,
+                "native_surface_diagnostics": retrieval.get("native_surface_diagnostics", {}),
+            },
+        )
 
     def build_prediction(
         self,
         *,
         conversation: dict[str, Any],
         question: LoCoMoQuestion,
-        protocol: str,
         framework_name: str,
         retrieval: dict[str, Any],
         answerer_input: LoCoMoAnswererInput,
@@ -245,10 +238,8 @@ class LoCoMoAdapter:
             usage = {}
 
         result = {
-            "schema_version": 1,
+            "schema_version": PREDICTION_SCHEMA_VERSION,
             "benchmark": self.name,
-            "protocol": protocol,
-            "protocol_label": f"{protocol}/locomo",
             "framework": framework_name,
             "question_id": question.question_id,
             "conversation_id": question.conversation_id,

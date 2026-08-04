@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from common.judge_prompts import JUDGE_SYSTEM_PROMPT, JUDGE_USER_PROMPT_TEMPLATE
-from dmf_bench.contracts import hash_canonical_json
+from dmf_bench.contracts import SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION, hash_canonical_json
 
 
 JUDGE_ADAPTER_VERSION = 1
@@ -22,10 +22,9 @@ def build_scientific_fingerprint_inputs(
 ) -> dict[str, Any]:
     """Return only inputs that can change scientific benchmark results."""
     payload = {
-        "schema_version": 1,
+        "schema_version": SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION,
         "benchmark": config.get("benchmark"),
         "framework": config.get("framework"),
-        "protocol": config.get("protocol"),
         "framework_config": framework_config_identity(config.get("framework_config")),
         "dataset": dataset_identity(config.get("dataset")),
         "selection": _mapping(config.get("selection")),

@@ -38,7 +38,7 @@ jobs:
     timeout-minutes: 30
     env:
       COMPOSE_PROJECT_NAME: scientific-canary-${{ github.run_id }}-${{ github.run_attempt }}
-      CANARY_CONFIG: /bench/config/experiment-locomo-dmf-native.json
+      CANARY_CONFIG: /bench/config/experiment-locomo-dmf.json
       CANARY_RUN_ID: scientific-canary-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout exact ref without external actions
