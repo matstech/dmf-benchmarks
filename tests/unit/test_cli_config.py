@@ -135,15 +135,15 @@ def test_validate_rejects_invalid_config_before_runtime_io() -> None:
         resolve_config(FIXTURE_DIR / "experiment-invalid.json")
 
 
-def test_validate_rejects_removed_protocol_field(tmp_path: Path) -> None:
+def test_validate_rejects_unknown_top_level_field(tmp_path: Path) -> None:
     config_path = write_valid_config(tmp_path)
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    config["protocol"] = "strict"
+    config["unexpected_field"] = True
     config_path.write_text(json.dumps(config), encoding="utf-8")
 
     with pytest.raises(
         ValueError,
-        match="field 'protocol' was removed in schema v2",
+        match=r"unsupported fields: \['unexpected_field'\]",
     ):
         resolve_config(config_path)
 

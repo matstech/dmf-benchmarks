@@ -5,9 +5,9 @@ from typing import Any
 
 import pytest
 
-from common.judge_prompts import JUDGE_SYSTEM_PROMPT, build_judge_user_prompt
-from common.models import LLMResponse, TokenUsage
-from common.openai_client import (
+from dmf_bench.models import LLMResponse, TokenUsage
+from dmf_bench.providers.judge_prompts import JUDGE_SYSTEM_PROMPT, build_judge_user_prompt
+from dmf_bench.providers.openai_compatible import (
     OpenAIClient,
     ProviderRequestError,
     ProviderResponseError,

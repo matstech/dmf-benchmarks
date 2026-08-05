@@ -40,15 +40,15 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from common.judge_prompts import JUDGE_SYSTEM_PROMPT, build_judge_user_prompt
-from common.models import JudgeSettings
-from common.native_reporting import apply_native_primary_judge_score
-from common.openai_client import (
+from dmf_bench.models import JudgeSettings
+from dmf_bench.providers.judge_prompts import JUDGE_SYSTEM_PROMPT, build_judge_user_prompt
+from dmf_bench.providers.openai_compatible import (
     OpenAIClient,
     model_supports_reasoning_effort,
     normalize_provider_name,
     resolve_provider_runtime_config,
 )
+from dmf_bench.reporting.quality import apply_native_primary_judge_score
 
 logger = logging.getLogger(__name__)
 

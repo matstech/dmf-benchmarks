@@ -18,7 +18,7 @@ from dmf_bench.adapters.dmf import (
     DefaultDmfEngineBuilder,
     DmfQdrantFrameworkAdapter,
 )
-from dmf_bench.adapters.locomo import LoCoMoAdapter
+from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
 from dmf_bench.adapters.longmemeval import LongMemEvalAdapter
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json

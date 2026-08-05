@@ -10,21 +10,22 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from common.mem0_config import (
+from dmf_bench.frameworks.mem0_config import (
     Mem0Config,
     build_mem0_qdrant_server_runtime_config,
     load_mem0_config,
 )
-from common.mem0_local import (
+from dmf_bench.frameworks.mem0_runtime import (
     add_mem0_with_observation_timestamp,
     add_memory_internal_usage,
     empty_memory_internal_usage,
     normalize_mem0_search_response,
     subtract_memory_internal_usage,
 )
-from common.mem0_native_context import build_mem0_native_context_surface
+from dmf_bench.frameworks.mem0_context import build_mem0_native_context_surface
 from dmf_bench.metrics import BenchmarkMetrics
-from locomo import utils as locomo_utils
+from dmf_bench.benchmarks.locomo import dataset as locomo_utils
+from dmf_bench.benchmarks.locomo.adapter import LoCoMoQuestion
 from longmemeval.utils import (
     normalize_longmemeval_haystack,
     render_longmemeval_pair_for_context,
@@ -38,7 +39,6 @@ from .base import (
     ResumeCapability,
     RetrievalResult,
 )
-from .locomo import LoCoMoQuestion
 from .qdrant_lifecycle import (
     CleanupManifest,
     CollectionRole,

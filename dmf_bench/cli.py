@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
-from .adapters.locomo import LoCoMoAdapter
+from .benchmarks.locomo.adapter import LoCoMoAdapter
 from .adapters.longmemeval import LongMemEvalAdapter
 from .artifacts import LocalArtifactStore
 from .atomic_io import read_json
@@ -412,6 +412,7 @@ def _load_resume_config(run_dir: Path, *, runs_dir: Path) -> ResolvedConfig:
     if not isinstance(payload, dict):
         raise ValueError(f"Persisted resolved config must be a JSON object: {config_path}")
     data = json.loads(json.dumps(payload))
+    data.pop("source_path", None)
     runtime = data.get("runtime")
     artifact_store = data.get("artifact_store")
     if not isinstance(runtime, dict) or not isinstance(artifact_store, dict):

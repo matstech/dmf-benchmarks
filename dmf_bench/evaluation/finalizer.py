@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from common.mem0_local import normalize_memory_internal_usage
-from common.results_io import build_timing_report, normalize_answerer_usage
+from dmf_bench.frameworks.mem0_runtime import normalize_memory_internal_usage
+from dmf_bench.reporting.results import build_timing_report, normalize_answerer_usage
 from dmf_bench.adapters.base import JudgeAdapter, JudgeRequest
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json, write_json_atomic
@@ -48,7 +48,7 @@ from dmf_bench.state import (
     write_lifecycle_checkpoint,
 )
 
-from . import locomo as locomo_evaluation
+from dmf_bench.benchmarks.locomo import evaluation as locomo_evaluation
 from . import longmemeval as longmemeval_evaluation
 
 

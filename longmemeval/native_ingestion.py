@@ -20,9 +20,9 @@ from dmf.runtime.pipeline import InteractionPipeline, InteractionProvenance
 from dmf.utils.config import NLPConfig, VectorConfig
 from dmf.utils.config_loader import DMFConfig, load_dmf_config
 
-from common.mem0_config import Mem0Config, load_mem0_config
-from common.mem0_local import LocalMem0BenchmarkItemBackend
-from common.models import IngestedQuestionBundle, MemoryFramework
+from dmf_bench.frameworks.mem0_config import Mem0Config, load_mem0_config
+from dmf_bench.frameworks.mem0_runtime import LocalMem0BenchmarkItemBackend
+from dmf_bench.models import IngestedQuestionBundle, MemoryFramework
 from longmemeval.utils import (
     normalize_longmemeval_haystack,
     pair_turns,

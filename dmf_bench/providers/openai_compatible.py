@@ -46,7 +46,7 @@ from typing import Any, Callable
 import openai
 from openai import OpenAI
 
-from .models import LLMResponse, TokenUsage
+from dmf_bench.models import LLMResponse, TokenUsage
 
 logger = logging.getLogger(__name__)
 

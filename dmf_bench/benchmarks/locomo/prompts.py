@@ -20,7 +20,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Minimal native LoCoMo answerer prompts."""
+"""LoCoMo answerer prompts and answer-target normalization."""
 
 from __future__ import annotations
 
@@ -48,6 +48,8 @@ Question: {question}
 Short answer:
 """.strip()
 
+NO_INFORMATION_ANSWER = "Not mentioned in the conversation"
+
 
 def build_answerer_system_prompt() -> str:
     return ANSWERER_SYSTEM_PROMPT
@@ -71,3 +73,20 @@ def _serialize_native_context(native_context: Any) -> str:
     if isinstance(native_context, str):
         return native_context
     return json.dumps(native_context, ensure_ascii=False, indent=2)
+
+
+def official_ground_truth_answer(category: int, answer: str) -> str:
+    """Return the official target used for a LoCoMo question category."""
+    if category == 5:
+        return NO_INFORMATION_ANSWER
+    return answer
+
+
+def normalize_category_5_prediction(prediction: str, answer: str = "") -> str:
+    """Normalize the official adversarial-category multiple-choice surface."""
+    normalized = prediction.strip().lower()
+    if normalized in {"b", "(b)"} or normalized.startswith("(b)"):
+        return NO_INFORMATION_ANSWER
+    if normalized in {"a", "(a)"} or normalized.startswith("(a)"):
+        return answer
+    return prediction

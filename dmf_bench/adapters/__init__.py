@@ -14,7 +14,7 @@ from .base import (
     ResumeCapability,
     RetrievalResult,
 )
-from .locomo import LoCoMoAdapter
+from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
 from .longmemeval import LongMemEvalAdapter
 from .dmf import (
     DefaultDmfEngineBuilder,

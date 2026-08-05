@@ -7,12 +7,12 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
-from common.judge_prompts import (
+from dmf_bench.providers.judge_prompts import (
     JUDGE_SYSTEM_PROMPT,
     build_judge_user_prompt,
 )
-from common.models import LLMResponse
-from common.openai_client import (
+from dmf_bench.models import LLMResponse
+from dmf_bench.providers.openai_compatible import (
     OpenAIClient,
     ProviderResponseError,
     normalize_provider_name,
@@ -339,7 +339,7 @@ def _parse_judge_response_strict(
         raise ProviderResponseError("Judge response has no recognized verdict.")
 
     if benchmark == "locomo":
-        from locomo.judge import parse_judge_response
+        from dmf_bench.benchmarks.locomo.judge import parse_judge_response
     else:
         from longmemeval.judge import parse_judge_response
     return parse_judge_response(normalized)

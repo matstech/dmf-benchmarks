@@ -30,8 +30,6 @@ include = [
 ]
 packages = [
     { include = "dmf_bench" },
-    { include = "common" },
-    { include = "locomo" },
     { include = "longmemeval" },
 ]
 

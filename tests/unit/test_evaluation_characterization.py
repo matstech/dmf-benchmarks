@@ -2,13 +2,17 @@ from collections.abc import Callable
 
 import pytest
 
-from common.native_reporting import (
+from dmf_bench.reporting.quality import (
     aggregate_native_primary_quality,
     apply_native_primary_judge_score,
 )
-from common.results_io import ensure_locomo_uniform_schema
-from locomo.evaluate_ablation import evaluate_ablation as evaluate_locomo_ablation
-from locomo.evaluate_rigorous import evaluate_flat as evaluate_locomo_flat
+from dmf_bench.benchmarks.locomo.evaluation import ensure_v2_evaluations
+from dmf_bench.benchmarks.locomo.ablation import (
+    evaluate_ablation as evaluate_locomo_ablation,
+)
+from dmf_bench.benchmarks.locomo.rigorous import (
+    evaluate_flat as evaluate_locomo_flat,
+)
 from longmemeval.evaluate_ablation import (
     evaluate_ablation as evaluate_longmemeval_ablation,
 )
@@ -163,7 +167,7 @@ def test_ablation_distinguishes_available_empty_native_diagnostics(
 
 def test_incomplete_or_mixed_result_schema_is_rejected() -> None:
     with pytest.raises(ValueError, match="Unsupported LOCOMO evaluation payload"):
-        ensure_locomo_uniform_schema([{"question": "missing prediction"}])
+        ensure_v2_evaluations([{"question": "missing prediction"}])
 
     with pytest.raises(ValueError, match="Mixed LongMemEval result schemas"):
         ensure_longmemeval_uniform_schema(

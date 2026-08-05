@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from common.judge_prompts import JUDGE_SYSTEM_PROMPT, JUDGE_USER_PROMPT_TEMPLATE
+from dmf_bench.providers.judge_prompts import JUDGE_SYSTEM_PROMPT, JUDGE_USER_PROMPT_TEMPLATE
 from dmf_bench.contracts import SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION, hash_canonical_json
 
 

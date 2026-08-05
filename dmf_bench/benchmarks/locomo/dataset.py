@@ -1,18 +1,9 @@
-"""LoCoMo dataset and framework-native turn serialization utilities."""
+"""Pure LoCoMo timestamp and framework turn serialization utilities."""
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, TypedDict
-
-import requests
-
-
-LOCOMO_DATASET_URL = "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json"
-LOCOMO_DATASET_DIR = "datasets/locomo"
-LOCOMO_DATASET_FILENAME = "locomo10.json"
 
 
 class LocomoNormalizedTurn(TypedDict):
@@ -20,39 +11,6 @@ class LocomoNormalizedTurn(TypedDict):
     utterance_text: str
     image_query: str
     image_caption: str
-
-
-def get_locomo_dataset_path(
-    dest_dir: str = LOCOMO_DATASET_DIR,
-    filename: str = LOCOMO_DATASET_FILENAME,
-) -> Path:
-    return Path(dest_dir) / filename
-
-
-def load_locomo_dataset(
-    dest_dir: str = LOCOMO_DATASET_DIR,
-    filename: str = LOCOMO_DATASET_FILENAME,
-) -> list[Any]:
-    path = get_locomo_dataset_path(dest_dir=dest_dir, filename=filename)
-    with path.open("r", encoding="utf-8") as file:
-        payload = json.load(file)
-    if not isinstance(payload, list):
-        raise ValueError("LoCoMo dataset root must be a JSON array.")
-    return payload
-
-
-def download_locomo_dataset(
-    url: str = LOCOMO_DATASET_URL,
-    dest_dir: str = LOCOMO_DATASET_DIR,
-    filename: str = LOCOMO_DATASET_FILENAME,
-) -> list[Any]:
-    path = get_locomo_dataset_path(dest_dir=dest_dir, filename=filename)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        path.write_bytes(response.content)
-    return load_locomo_dataset(dest_dir=dest_dir, filename=filename)
 
 
 def parse_locomo_date(date_str: str) -> float:
@@ -69,18 +27,6 @@ def parse_locomo_date(date_str: str) -> float:
         except ValueError:
             continue
     raise ValueError(f"Unsupported LoCoMo date: {date_str!r}")
-
-
-def build_locomo_image_tag(turn: dict[str, Any]) -> str:
-    query = str(turn.get("query", "") or "").strip()
-    caption = str(turn.get("blip_caption", "") or "").strip()
-    if query and caption:
-        return f"Image: {query}. {caption}"
-    if query:
-        return f"Image: {query}."
-    if caption:
-        return caption
-    return ""
 
 
 def normalize_locomo_turn(turn: dict[str, Any]) -> LocomoNormalizedTurn:

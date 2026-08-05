@@ -5,15 +5,16 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-
-from locomo import native_prompts
-from locomo.prompts import official_ground_truth_answer
-from locomo.qa import category_name, normalize_generated_answer_for_category
+from typing import TYPE_CHECKING, Any
 
 from dmf_bench.contracts import PREDICTION_SCHEMA_VERSION, sha256_file
 
-from .base import BenchmarkUnit
+if TYPE_CHECKING:
+    from dmf_bench.adapters.base import BenchmarkUnit
+
+from . import prompts
+from .prompts import official_ground_truth_answer
+from .questions import category_name, normalize_generated_answer_for_category
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,8 @@ class LoCoMoAdapter:
         )
 
     def enumerate_units(self, config: dict[str, Any]) -> list[BenchmarkUnit]:
+        from dmf_bench.adapters.base import BenchmarkUnit
+
         reference = self.materialize_reference(config)
         return [
             BenchmarkUnit(
@@ -193,13 +196,13 @@ class LoCoMoAdapter:
         question_text = str(qa_item.get("question", ""))
         category = int(qa_item.get("category", 0) or 0)
         native_context = retrieval.get("native_context", "")
-        user_prompt = native_prompts.build_answerer_user_prompt(
+        user_prompt = prompts.build_answerer_user_prompt(
             native_context,
             question_text,
             category=category,
         )
         return LoCoMoAnswererInput(
-            native_prompts.build_answerer_system_prompt(),
+            prompts.build_answerer_system_prompt(),
             user_prompt,
             {
                 "framework": framework_name,

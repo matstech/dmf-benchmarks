@@ -41,26 +41,26 @@ from uuid import uuid4
 
 from rich.console import Console
 from rich.logging import RichHandler
-from common.dmf_native_context import (
+from dmf_bench.frameworks.dmf_context import (
     DMF_NATIVE_SURFACE_MARKER,
     build_dmf_native_context_surface,
 )
-from common.mem0_local import (
+from dmf_bench.frameworks.mem0_runtime import (
     add_memory_internal_usage,
     subtract_memory_internal_usage,
 )
-from common.mem0_native_context import (
+from dmf_bench.frameworks.mem0_context import (
     MEM0_NATIVE_SURFACE_MARKER,
     build_mem0_native_context_surface,
 )
-from common.native_paths import native_predicted_results_dir
-from common.native_reporting import (
+from dmf_bench.reporting.paths import native_predicted_results_dir
+from dmf_bench.reporting.quality import (
     build_native_secondary_rigorous_manifest,
     native_bundle_path,
     native_primary_report_path,
     native_secondary_manifest_path,
 )
-from common.results_io import (
+from dmf_bench.reporting.results import (
     build_native_evaluation_item,
     build_native_results_bundle,
     load_mem0_question_usage,
@@ -75,7 +75,7 @@ from common.results_io import (
     save_question_result,
     total_native_end_to_end_tokens,
 )
-from common.system_resources import (
+from dmf_bench.reporting.resources import (
     ProcessResourceSampler,
     detect_machine_characteristics,
     format_machine_characteristics,
@@ -296,7 +296,7 @@ def build_native_answerer_inputs_for_question(
 
 def build_answerer(settings: Any) -> Any:
     """Build the answerer lazily; tests can pass a fake answerer directly."""
-    from common.openai_client import OpenAIClient, resolve_provider_runtime_config
+    from dmf_bench.providers.openai_compatible import OpenAIClient, resolve_provider_runtime_config
 
     api_key, base_url = resolve_provider_runtime_config(settings.provider)
     return OpenAIClient(

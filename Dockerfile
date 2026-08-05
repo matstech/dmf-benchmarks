@@ -29,9 +29,7 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry install --only main --no-root --no-ansi
 
 COPY LICENSE ./LICENSE
-COPY common ./common
 COPY dmf_bench ./dmf_bench
-COPY locomo ./locomo
 COPY longmemeval ./longmemeval
 RUN pip install --no-deps .
 

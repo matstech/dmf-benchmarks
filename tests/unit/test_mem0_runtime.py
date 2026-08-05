@@ -8,13 +8,13 @@ from typing import Any
 
 import pytest
 
-from common.mem0_config import Mem0Config, load_mem0_config
-from common.mem0_local import (
+from dmf_bench.frameworks.mem0_config import Mem0Config, load_mem0_config
+from dmf_bench.frameworks.mem0_runtime import (
     add_mem0_with_observation_timestamp,
     empty_memory_internal_usage,
 )
 from dmf_bench.adapters.base import BenchmarkUnit, FrameworkRunContext
-from dmf_bench.adapters.locomo import LoCoMoAdapter
+from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
 from dmf_bench.adapters.longmemeval import LongMemEvalAdapter
 from dmf_bench.adapters.mem0 import (
     Mem0EngineBundle,
@@ -268,6 +268,10 @@ def test_locomo_runtime_ingests_once_reuses_memory_and_preserves_provenance(
     ]
     assert backend.add_calls[0]["messages"][0]["content"] == (
         "Alice: I adopted a grey cat named Pixel."
+    )
+    assert backend.add_calls[2]["messages"][0]["content"] == (
+        "Alice: I moved Pixel's bed near the kitchen window. "
+        "Shared image: query cat bed. The image shows a blue pet bed."
     )
     assert len({call["user_id"] for call in backend.add_calls}) == 1
     assert prepared["qdrant_commit_barrier"] == {

@@ -30,8 +30,12 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from .mem0_local import empty_memory_internal_usage, normalize_memory_internal_usage
-from .native_reporting import (
+from dmf_bench.frameworks.mem0_runtime import (
+    empty_memory_internal_usage,
+    normalize_memory_internal_usage,
+)
+
+from .quality import (
     aggregate_native_primary_quality,
     build_native_primary_quality_report,
     build_native_secondary_rigorous_manifest,
@@ -130,20 +134,6 @@ def question_result_path(
     return output_dir / f"{question_id}.json"
 
 
-def question_predicted_path(
-    *,
-    project_name: str,
-    question_id: str,
-    benchmark_name: str = "longmemeval",
-) -> Path:
-    """Return the prediction marker path for one question."""
-    output_dir = ensure_predicted_results_dir(
-        project_name=project_name,
-        benchmark_name=benchmark_name,
-    )
-    return output_dir / f"_question_{question_id}.predicted.json"
-
-
 def mem0_question_usage_state_path(
     *,
     project_name: str,
@@ -173,66 +163,6 @@ def save_question_result(
     )
     output_path.write_text(
         json.dumps(result, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    return output_path
-
-
-def save_question_results(
-    results: list[dict[str, Any]],
-    *,
-    project_name: str,
-    benchmark_name: str = "locomo",
-) -> list[Path]:
-    """Write all per-question results for one batch and return their paths."""
-    paths: list[Path] = []
-    for result in results:
-        paths.append(
-            save_question_result(
-                result,
-                project_name=project_name,
-                benchmark_name=benchmark_name,
-            )
-        )
-    return paths
-
-
-def is_question_predicted(
-    *,
-    project_name: str,
-    question_id: str,
-    benchmark_name: str = "longmemeval",
-) -> bool:
-    """Return whether one question already has prediction artifacts on disk."""
-    return question_result_path(
-        project_name=project_name,
-        question_id=question_id,
-        benchmark_name=benchmark_name,
-    ).exists() or question_predicted_path(
-        project_name=project_name,
-        question_id=question_id,
-        benchmark_name=benchmark_name,
-    ).exists()
-
-
-def mark_question_predicted(
-    *,
-    project_name: str,
-    question_id: str,
-    benchmark_name: str = "longmemeval",
-) -> Path:
-    """Write the prediction completion marker for one question."""
-    output_path = question_predicted_path(
-        project_name=project_name,
-        question_id=question_id,
-        benchmark_name=benchmark_name,
-    )
-    payload = {
-        "question_id": question_id,
-        "predicted": True,
-    }
-    output_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
     return output_path
@@ -286,34 +216,6 @@ def load_mem0_question_usage(
     return normalize_memory_internal_usage(payload.get("memory_internal"))
 
 
-def conversation_done_path(
-    *,
-    project_name: str,
-    conversation_idx: int,
-    benchmark_name: str = "locomo",
-) -> Path:
-    """Return the completion marker path for one fully processed conversation."""
-    output_dir = ensure_predicted_results_dir(
-        project_name=project_name,
-        benchmark_name=benchmark_name,
-    )
-    return output_dir / f"_conversation_conv_{conversation_idx}.done.json"
-
-
-def conversation_predicted_path(
-    *,
-    project_name: str,
-    conversation_idx: int,
-    benchmark_name: str = "locomo",
-) -> Path:
-    """Return the prediction marker path for one conversation."""
-    output_dir = ensure_predicted_results_dir(
-        project_name=project_name,
-        benchmark_name=benchmark_name,
-    )
-    return output_dir / f"_conversation_conv_{conversation_idx}.predicted.json"
-
-
 def mem0_usage_state_path(
     *,
     project_name: str,
@@ -326,97 +228,6 @@ def mem0_usage_state_path(
         benchmark_name=benchmark_name,
     )
     return output_dir / f"_conversation_conv_{conversation_idx}.mem0_usage.json"
-
-
-def is_conversation_done(
-    *,
-    project_name: str,
-    conversation_idx: int,
-    benchmark_name: str = "locomo",
-) -> bool:
-    """Return whether one conversation is already fully completed."""
-    path = conversation_done_path(
-        project_name=project_name,
-        conversation_idx=conversation_idx,
-        benchmark_name=benchmark_name,
-    )
-    if not path.exists():
-        return False
-    return True
-
-
-def is_conversation_predicted(
-    *,
-    project_name: str,
-    conversation_idx: int,
-    benchmark_name: str = "locomo",
-) -> bool:
-    """Return whether one conversation already has prediction artifacts on disk."""
-    if is_conversation_done(
-        project_name=project_name,
-        conversation_idx=conversation_idx,
-        benchmark_name=benchmark_name,
-    ):
-        return True
-
-    path = conversation_predicted_path(
-        project_name=project_name,
-        conversation_idx=conversation_idx,
-        benchmark_name=benchmark_name,
-    )
-    if not path.exists():
-        return False
-    return True
-
-
-def mark_conversation_predicted(
-    *,
-    project_name: str,
-    conversation_idx: int,
-    question_count: int,
-    benchmark_name: str = "locomo",
-) -> Path:
-    """Write the prediction completion marker for one conversation."""
-    output_path = conversation_predicted_path(
-        project_name=project_name,
-        conversation_idx=conversation_idx,
-        benchmark_name=benchmark_name,
-    )
-    payload = {
-        "conversation_idx": conversation_idx,
-        "predicted": True,
-        "questions": question_count,
-    }
-    output_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    return output_path
-
-
-def mark_conversation_done(
-    *,
-    project_name: str,
-    conversation_idx: int,
-    question_count: int,
-    benchmark_name: str = "locomo",
-) -> Path:
-    """Write the completion marker for one fully processed conversation."""
-    output_path = conversation_done_path(
-        project_name=project_name,
-        conversation_idx=conversation_idx,
-        benchmark_name=benchmark_name,
-    )
-    payload = {
-        "conversation_idx": conversation_idx,
-        "completed": True,
-        "questions": question_count,
-    }
-    output_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    return output_path
 
 
 def save_mem0_conversation_usage(
@@ -441,30 +252,6 @@ def save_mem0_conversation_usage(
         encoding="utf-8",
     )
     return output_path
-
-
-def load_mem0_conversation_usage(
-    *,
-    project_name: str,
-    conversation_idx: int,
-    benchmark_name: str = "locomo",
-) -> dict[str, Any]:
-    """Load Mem0 internal token accounting for one completed conversation."""
-    input_path = mem0_usage_state_path(
-        project_name=project_name,
-        conversation_idx=conversation_idx,
-        benchmark_name=benchmark_name,
-    )
-    if not input_path.exists():
-        raise FileNotFoundError(
-            f"Missing Mem0 usage state for conversation {conversation_idx}: {input_path}"
-        )
-
-    payload = json.loads(input_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Invalid Mem0 usage state format: {input_path}")
-
-    return normalize_memory_internal_usage(payload.get("memory_internal"))
 
 
 def load_question_results(
@@ -950,40 +737,6 @@ def _flat_cutoff_label(evaluation: dict[str, Any]) -> str | None:
     return label or None
 
 
-def locomo_result_schema(evaluation: dict[str, Any]) -> str:
-    """Classify one LOCOMO per-question result as flat, legacy, or unknown."""
-    if (
-        ("generated_answer" in evaluation or "prediction" in evaluation)
-        and not isinstance(evaluation.get("cutoff_results"), dict)
-    ):
-        return "flat"
-
-    if isinstance(evaluation.get("cutoff_results"), dict):
-        return "legacy"
-
-    return "unknown"
-
-
-def ensure_locomo_uniform_schema(evaluations: list[dict[str, Any]]) -> str:
-    """Ensure all LOCOMO evaluations share one supported result schema."""
-    schemas = {locomo_result_schema(evaluation) for evaluation in evaluations}
-    known_schemas = schemas - {"unknown"}
-
-    if "unknown" in schemas:
-        raise ValueError(
-            "Unsupported LOCOMO evaluation payload: expected flat mono-cutoff "
-            "items or legacy cutoff_results items."
-        )
-
-    if len(known_schemas) > 1:
-        raise ValueError(
-            "Mixed LOCOMO result schemas detected in one run output. "
-            "Found both flat mono-cutoff items and legacy cutoff_results items."
-        )
-
-    return next(iter(known_schemas), "flat")
-
-
 def _iter_usage_entries(
     evaluation: dict[str, Any],
     usage_key: str,
@@ -1015,20 +768,3 @@ def aggregate_answerer_usage(evaluations: list[dict[str, Any]]) -> dict[str, int
         for _, usage in _iter_usage_entries(evaluation, "answerer_usage"):
             total = add_answerer_usage(total, usage)
     return total
-
-
-def aggregate_usage_by_cutoff(
-    evaluations: list[dict[str, Any]],
-    usage_key: str,
-) -> dict[str, dict[str, int]]:
-    """Aggregate one usage field separately for each cutoff label."""
-    totals: dict[str, dict[str, int]] = {}
-
-    for evaluation in evaluations:
-        for cutoff_label, usage in _iter_usage_entries(evaluation, usage_key):
-            if not cutoff_label:
-                continue
-            bucket = totals.setdefault(cutoff_label, empty_answerer_usage())
-            totals[cutoff_label] = add_answerer_usage(bucket, usage)
-
-    return totals

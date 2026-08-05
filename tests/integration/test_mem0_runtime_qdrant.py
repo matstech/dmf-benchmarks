@@ -14,7 +14,7 @@ from dmf_bench.adapters.base import (
     FrameworkRunContext,
     JudgeRequest,
 )
-from dmf_bench.adapters.locomo import LoCoMoAdapter
+from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
 from dmf_bench.adapters.longmemeval import LongMemEvalAdapter
 from dmf_bench.adapters.mem0 import (
     DefaultMem0EngineBuilder,

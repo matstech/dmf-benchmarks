@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from common.dmf_native_context import DmfNativeContextSurface
+from dmf_bench.frameworks.dmf_context import DmfNativeContextSurface
 from dmf_bench.adapters.base import BenchmarkUnit, FrameworkRunContext
 from dmf_bench.adapters.dmf import (
     DefaultDmfEngineBuilder,
@@ -16,7 +16,7 @@ from dmf_bench.adapters.dmf import (
     DmfRuntimeError,
     dmf_framework_factories,
 )
-from dmf_bench.adapters.locomo import LoCoMoAdapter
+from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
 from dmf_bench.adapters.longmemeval import LongMemEvalAdapter
 from dmf_bench.adapters.qdrant_lifecycle import CollectionRole
 from dmf.utils.config_loader import load_dmf_config
@@ -348,6 +348,10 @@ def test_locomo_runtime_ingests_once_retrieves_many_and_cleans_owned_resources(
     )
 
     assert len(bundle.memory_engine.entries) == 3
+    assert bundle.pipeline.texts[2] == (
+        "I moved Pixel's bed near the kitchen window. "
+        "Image: query cat bed. The image shows a blue pet bed."
+    )
     assert native_queries == [
         "What is Alice's cat called?",
         "Where did Alice move the bed?",

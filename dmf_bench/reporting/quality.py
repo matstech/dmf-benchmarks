@@ -28,7 +28,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from .native_paths import native_benchmark_results_dir
+from .paths import native_benchmark_results_dir
 
 
 PRIMARY_QUALITY_METRIC = "judge_score"

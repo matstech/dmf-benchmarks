@@ -36,6 +36,23 @@ ENV_ENDPOINT_NAMES = (
     "QDRANT_URL",
 )
 
+EXPERIMENT_CONFIG_FIELDS = frozenset(
+    {
+        "schema_version",
+        "experiment_id",
+        "benchmark",
+        "framework",
+        "runtime",
+        "framework_config",
+        "qdrant",
+        "dataset",
+        "selection",
+        "models",
+        "evaluation",
+        "artifact_store",
+    }
+)
+
 
 @dataclass(frozen=True)
 class ResolvedConfig:
@@ -112,8 +129,11 @@ def validate_config(data: dict[str, Any], *, source_path: Path) -> None:
             f"schema_version={EXPERIMENT_CONFIG_SCHEMA_VERSION}; "
             f"v{data.get('schema_version')} configs are not supported."
         )
-    if "protocol" in data:
-        raise ValueError("Experiment config field 'protocol' was removed in schema v2.")
+    unsupported_fields = sorted(set(data) - EXPERIMENT_CONFIG_FIELDS)
+    if unsupported_fields:
+        raise ValueError(
+            f"Experiment config contains unsupported fields: {unsupported_fields}."
+        )
     reject_inline_secrets(data)
 
     benchmark = required_string(data, "benchmark")

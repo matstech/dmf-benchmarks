@@ -10,7 +10,7 @@ from dmf_bench.adapters.base import AnswererRequest, BenchmarkUnit, FrameworkRun
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json, write_json_atomic
 from dmf_bench.contracts import sha256_file
-from dmf_bench.evaluation import locomo as locomo_eval
+from dmf_bench.benchmarks.locomo import evaluation as locomo_eval
 from dmf_bench.evaluation import longmemeval as longmemeval_eval
 from dmf_bench.evaluation import OfflineFullLifecycleRunner, OfflineLifecycleFinalizer
 from dmf_bench.evaluation.finalizer import InjectedTerminalInterrupt
@@ -21,7 +21,7 @@ from dmf_bench.runner import (
     LongMemEvalPredictOnlyRunner,
 )
 from dmf_bench.state import StateError, load_lifecycle_checkpoint, plan_resume
-from locomo.evaluate_rigorous import evaluate_flat as legacy_locomo_flat
+from dmf_bench.benchmarks.locomo.rigorous import evaluate_flat as pure_locomo_flat
 from longmemeval.evaluate_rigorous import evaluate_flat as legacy_longmemeval_flat
 
 
@@ -456,7 +456,7 @@ def test_required_evaluator_failure_sets_failed_evaluation(
     assert checkpoint.status == "FAILED"
 
 
-def test_internal_evaluator_adapters_match_legacy_pure_functions() -> None:
+def test_internal_evaluator_adapters_match_pure_functions() -> None:
     locomo_items = [
         {
             "generated_answer": "Pixel",
@@ -483,7 +483,7 @@ def test_internal_evaluator_adapters_match_legacy_pure_functions() -> None:
     ]
     metadata = {"top_k": 1, "framework": "dmf"}
 
-    locomo_cutoff, locomo_metrics = legacy_locomo_flat(locomo_items, metadata)
+    locomo_cutoff, locomo_metrics = pure_locomo_flat(locomo_items, metadata)
     longmemeval_cutoff, longmemeval_metrics = legacy_longmemeval_flat(longmemeval_items, metadata)
 
     assert locomo_eval.rigorous_report(locomo_items, metadata)["cutoff_label"] == locomo_cutoff

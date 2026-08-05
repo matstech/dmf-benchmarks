@@ -8,10 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from common.dmf_native_context import build_dmf_native_context_surface
-from common.mem0_local import empty_memory_internal_usage
+from dmf_bench.frameworks.dmf_context import build_dmf_native_context_surface
+from dmf_bench.frameworks.mem0_runtime import empty_memory_internal_usage
 from dmf_bench.metrics import BenchmarkMetrics
-from locomo import utils as locomo_utils
+from dmf_bench.benchmarks.locomo import dataset as locomo_utils
+from dmf_bench.benchmarks.locomo.adapter import LoCoMoQuestion
 from longmemeval.utils import (
     pair_turns,
     parse_longmemeval_date,
@@ -25,7 +26,6 @@ from .base import (
     ResumeCapability,
     RetrievalResult,
 )
-from .locomo import LoCoMoQuestion
 from .qdrant_lifecycle import (
     CleanupManifest,
     CollectionRole,
