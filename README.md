@@ -134,7 +134,10 @@ make stack-up
 ```
 
 The benchmark job uses a read-only root filesystem. Runs, Qdrant state and
-model caches live in named volumes. Hugging Face access is disabled by default
+model caches live in named volumes isolated under the stable
+`dmf-benchmarks-v2` namespace. The read-only Artifact API mounts only the v2
+runs volume; it does not share the benchmark cache or Qdrant/observability
+state. Hugging Face access is disabled by default
 with `HF_HUB_OFFLINE=1`: an empty or incomplete embedding cache fails closed
 instead of downloading an unpinned model during a benchmark. The pinned model
 materialization procedure will be defined as part of the separately approved
@@ -223,8 +226,8 @@ Stop services without deleting named volumes:
 make stack-down
 ```
 
-Do not use `docker compose down --volumes` unless the persisted benchmark,
-Qdrant and dashboard state should be intentionally deleted.
+This stops and removes the v2 containers and network while preserving all five
+v2 named volumes.
 
 ### Dataset materialization
 
@@ -262,6 +265,21 @@ The `Scientific canary` GitHub workflow is manual-only, requires the exact
 `confirm_costs=APPROVED` input and uses the protected `scientific-canary`
 environment. Do not trigger it until the remaining revisions and cost envelope
 have been reviewed.
+
+## Historical v0.1.0
+
+The reproducible previous release is available from the immutable `v0.1.0`
+Git tag. Use a separate worktree so the historical checkout and its state stay
+independent from v2:
+
+```bash
+git worktree add ../dmf-benchmarks-v0.1.0 v0.1.0
+cd ../dmf-benchmarks-v0.1.0
+```
+
+No v0.1 run, volume or Qdrant collection is read or migrated by v2. Reproduce
+historical experiments from that checkout using the instructions stored in the
+tag.
 
 ## Legacy compatibility path
 

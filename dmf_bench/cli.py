@@ -14,14 +14,18 @@ from .adapters.longmemeval import LongMemEvalAdapter
 from .artifacts import LocalArtifactStore
 from .atomic_io import read_json
 from .config import ResolvedConfig, resolve_config, validate_config
-from .contracts import RUN_STATUS_SCHEMA_VERSION
 from .datasets import dataset_config_for_id, load_dataset_registry, materialize_dataset, registry_as_dict
 from .execution import CancellationController, RunInterrupted
 from .logging_config import JsonEventLogger, redact
 from .metrics import BenchmarkMetrics, MetricsServer, start_metrics_endpoint, stop_metrics_endpoint
 from .registry import BENCHMARKS, FRAMEWORKS, supported_combinations
 from .runtime import RuntimeApplication, assemble_application
-from .state import RunState, StateError, plan_resume
+from .state import (
+    StateError,
+    load_run_status,
+    plan_resume,
+    validate_run_state_version,
+)
 
 
 EXIT_SUCCESS = 0
@@ -154,7 +158,10 @@ def main(
 
     if args.command == "inspect":
         try:
-            result = LocalArtifactStore(args.runs_dir).inspect_committed(args.run_id)
+            store = LocalArtifactStore(args.runs_dir)
+            result = store.inspect(args.run_id)
+            if result["completed"] or result["final_manifest_path"] is not None:
+                result = store.inspect_committed(args.run_id)
         except (StateError, ValueError) as exc:
             parser.exit(3, f"dmf-bench inspect: error: {exc}\n")
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
@@ -399,6 +406,7 @@ def _execute(
 
 
 def _load_resume_config(run_dir: Path, *, runs_dir: Path) -> ResolvedConfig:
+    validate_run_state_version(run_dir)
     config_path = run_dir / "resolved-config.json"
     payload = read_json(config_path)
     if not isinstance(payload, dict):
@@ -421,17 +429,10 @@ def _status(runs_dir: str | Path, run_id: str) -> int:
     store = LocalArtifactStore(runs_dir)
     run_dir = store.run_dir(run_id)
     try:
-        payload = read_json(run_dir / "run-status.json")
-        if not isinstance(payload, dict):
-            raise StateError("run-status.json must contain a JSON object.")
-        if payload.get("schema_version") != RUN_STATUS_SCHEMA_VERSION:
-            raise StateError(
-                "run-status.json must declare "
-                f"schema_version={RUN_STATUS_SCHEMA_VERSION}."
-            )
+        validate_run_state_version(run_dir)
+        payload = load_run_status(run_dir)
+        assert payload is not None
         state = str(payload.get("state", ""))
-        if state not in {candidate.value for candidate in RunState}:
-            raise StateError(f"run-status.json contains an unsupported state: {state!r}.")
         if state == "COMPLETED":
             store.verify_committed(run_id)
             payload = {**payload, "verified": True}

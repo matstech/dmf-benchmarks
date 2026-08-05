@@ -7,6 +7,9 @@ from dmf_bench.adapters.dmf import DmfQdrantFrameworkAdapter
 from dmf_bench.adapters.mem0 import Mem0QdrantFrameworkAdapter
 from dmf_bench.adapters.qdrant_lifecycle import (
     CollectionRole,
+    CleanupManifest,
+    QDRANT_COLLECTION_NAMESPACE,
+    QdrantCollectionResource,
     QdrantLifecycleError,
     QdrantLifecycleManager,
     build_cleanup_manifest,
@@ -40,6 +43,25 @@ class FakeQdrantClient:
         return FakeCount(self.collections[collection_name])
 
 
+class RecordingQdrantClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def collection_exists(self, collection_name: str) -> bool:
+        self.calls.append(("collection_exists", collection_name))
+        return False
+
+    def create_collection(self, collection_name: str, vectors_config: object) -> None:
+        self.calls.append(("create_collection", collection_name))
+
+    def delete_collection(self, collection_name: str) -> None:
+        self.calls.append(("delete_collection", collection_name))
+
+    def count(self, collection_name: str, exact: bool = True) -> FakeCount:
+        self.calls.append(("count", collection_name))
+        return FakeCount(0)
+
+
 def test_collection_names_are_stable_bounded_and_role_specific() -> None:
     first = qdrant_collection_name(
         run_hash="a" * 64,
@@ -63,7 +85,7 @@ def test_collection_names_are_stable_bounded_and_role_specific() -> None:
     assert first == second
     assert first != cards
     assert len(first) <= 63
-    assert first.startswith("bench_aaaaaaaaaaaaaaaa_dmf_")
+    assert first.startswith(f"{QDRANT_COLLECTION_NAMESPACE}_aaaaaaaaaaaaaaaa_dmf_")
 
 
 def test_dmf_adapter_declares_qdrant_resources_and_restart_policy() -> None:
@@ -78,6 +100,10 @@ def test_dmf_adapter_declares_qdrant_resources_and_restart_policy() -> None:
         CollectionRole.CARDS,
     ]
     assert all(collection.vector_size == 768 for collection in manifest.collections)
+    assert all(
+        collection.name.startswith(f"{QDRANT_COLLECTION_NAMESPACE}_")
+        for collection in manifest.collections
+    )
 
 
 def test_mem0_adapter_declares_collections_and_sqlite_cleanup(tmp_path: Path) -> None:
@@ -95,6 +121,50 @@ def test_mem0_adapter_declares_collections_and_sqlite_cleanup(tmp_path: Path) ->
         f"{history_path}-wal",
         f"{history_path}-shm",
     )
+    assert all(
+        collection.name.startswith(f"{QDRANT_COLLECTION_NAMESPACE}_")
+        for collection in manifest.collections
+    )
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "assert_absent",
+        "create_collections",
+        "verify_counts",
+        "collection_counts",
+        "delete_and_wait",
+    ],
+)
+def test_qdrant_lifecycle_refuses_foreign_manifest_before_client_access(
+    operation: str,
+) -> None:
+    client = RecordingQdrantClient()
+    manager = QdrantLifecycleManager(client)
+    manifest = CleanupManifest(
+        run_hash="a" * 16,
+        framework="dmf",
+        unit_hash="b" * 16,
+        collections=(
+            QdrantCollectionResource(
+                name="bench_v1_foreign_primary",
+                role=CollectionRole.PRIMARY,
+                vector_size=4,
+            ),
+        ),
+    )
+
+    with pytest.raises(QdrantLifecycleError, match="outside the required v2 namespace"):
+        if operation == "verify_counts":
+            manager.verify_counts(
+                manifest,
+                minimum_count_by_role={CollectionRole.PRIMARY: 1},
+            )
+        else:
+            getattr(manager, operation)(manifest)
+
+    assert client.calls == []
 
 
 def test_qdrant_lifecycle_create_verify_and_cleanup() -> None:

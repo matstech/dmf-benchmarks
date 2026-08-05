@@ -5,6 +5,7 @@ import pytest
 
 from dmf_bench.adapters.qdrant_lifecycle import (
     CollectionRole,
+    QDRANT_COLLECTION_NAMESPACE,
     QdrantLifecycleManager,
     build_cleanup_manifest,
 )
@@ -27,6 +28,9 @@ def test_qdrant_server_lifecycle_roundtrip() -> None:
         unit_id=unit_id,
         roles=(CollectionRole.PRIMARY,),
         vector_size=4,
+    )
+    assert manifest.collections[0].name.startswith(
+        f"{QDRANT_COLLECTION_NAMESPACE}_"
     )
 
     try:

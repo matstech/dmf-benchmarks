@@ -1,4 +1,4 @@
-name: dmf-benchmarks
+name: dmf-benchmarks-v2
 
 x-benchmark-image: &benchmark_image
   image: dmf-benchmarks:local
@@ -6,7 +6,13 @@ x-benchmark-image: &benchmark_image
     context: ..
     dockerfile: Dockerfile
 
-x-run-volumes: &run_volumes
+x-api-volumes: &api_volumes
+  - type: volume
+    source: benchmark-runs-v2
+    target: /bench/runs
+    read_only: true
+
+x-job-volumes: &job_volumes
   - type: bind
     source: ../config
     target: /bench/config
@@ -16,23 +22,25 @@ x-run-volumes: &run_volumes
     target: /bench/datasets
     read_only: true
   - type: volume
-    source: benchmark-runs
+    source: benchmark-runs-v2
     target: /bench/runs
   - type: volume
-    source: benchmark-cache
+    source: benchmark-cache-v2
     target: /bench/cache
 
 services:
   qdrant:
     image: qdrant/qdrant:v1.18.2@sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c
     init: true
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
     ports:
       - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
     expose:
       - "6334"
     volumes:
       - type: volume
-        source: qdrant-storage
+        source: qdrant-storage-v2
         target: /qdrant/storage
     stop_grace_period: 30s
 
@@ -57,7 +65,7 @@ services:
       QDRANT_HTTP_PORT: ${QDRANT_HTTP_PORT:-6333}
     ports:
       - "127.0.0.1:${DMF_ARTIFACT_API_PORT:-8000}:8000"
-    volumes: *run_volumes
+    volumes: *api_volumes
     read_only: true
     tmpfs:
       - /tmp
@@ -99,7 +107,7 @@ services:
         target: /etc/prometheus/rules
         read_only: true
       - type: volume
-        source: prometheus-data
+        source: prometheus-data-v2
         target: /prometheus
     stop_grace_period: 30s
 
@@ -126,7 +134,7 @@ services:
         target: /etc/grafana/dashboards
         read_only: true
       - type: volume
-        source: grafana-data
+        source: grafana-data-v2
         target: /var/lib/grafana
     stop_grace_period: 30s
 
@@ -167,15 +175,20 @@ services:
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
     expose:
       - "9464"
-    volumes: *run_volumes
+    volumes: *job_volumes
     read_only: true
     tmpfs:
       - /tmp
     stop_grace_period: 30s
 
 volumes:
-  qdrant-storage:
-  benchmark-runs:
-  benchmark-cache:
-  prometheus-data:
-  grafana-data:
+  qdrant-storage-v2:
+    name: dmf-benchmarks-v2-qdrant
+  benchmark-runs-v2:
+    name: dmf-benchmarks-v2-runs
+  benchmark-cache-v2:
+    name: dmf-benchmarks-v2-cache
+  prometheus-data-v2:
+    name: dmf-benchmarks-v2-prometheus
+  grafana-data-v2:
+    name: dmf-benchmarks-v2-grafana

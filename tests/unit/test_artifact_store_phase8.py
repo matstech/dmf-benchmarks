@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from dmf_bench.api import create_app
 from dmf_bench.artifacts import LocalArtifactStore
-from dmf_bench.atomic_io import write_json_atomic
+from dmf_bench.atomic_io import read_json, write_json_atomic
 from dmf_bench.cli import main
 from dmf_bench.contracts import RunManifest
 from dmf_bench.state import StateError
@@ -36,6 +36,13 @@ def commit_fixture_run(store: LocalArtifactStore, run_id: str = "run-001") -> Pa
     receipt = store.verify(staged)
     store.commit(staged, receipt)
     return run_dir
+
+
+def set_schema_version(path: Path, version: int) -> None:
+    payload = read_json(path)
+    assert isinstance(payload, dict)
+    payload["schema_version"] = version
+    write_json_atomic(path, payload)
 
 
 def test_local_only_committed_verify_and_inspect_on_shared_volume(tmp_path: Path) -> None:
@@ -72,6 +79,9 @@ def test_local_only_verify_detects_missing_completion_marker(tmp_path: Path) -> 
 
     with pytest.raises(StateError, match="Missing completion marker"):
         store.verify_committed("run-001")
+
+    with pytest.raises(StateError, match="Missing completion marker"):
+        store.inspect_committed("run-001")
 
 
 def test_local_only_restore_copy_remains_verifiable_by_digest(tmp_path: Path) -> None:
@@ -159,6 +169,38 @@ def test_artifact_api_refuses_writes_and_does_not_mutate_shared_volume(tmp_path:
     assert sorted(path.relative_to(run_dir) for path in run_dir.rglob("*")) == before
 
 
+def test_artifact_api_does_not_expose_incomplete_run(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "shared-runs"
+    LocalArtifactStore(runs_dir).create_run(make_manifest())
+
+    response = TestClient(create_app(runs_dir)).get("/runs/run-001")
+
+    assert response.status_code == 404
+    assert "Missing completion marker" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "run-manifest.json",
+        "final/manifest.json",
+        "final/COMPLETED.json",
+    ],
+)
+def test_artifact_api_rejects_v1_run_contracts(
+    tmp_path: Path,
+    relative_path: str,
+) -> None:
+    runs_dir = tmp_path / "shared-runs"
+    run_dir = commit_fixture_run(LocalArtifactStore(runs_dir))
+    set_schema_version(run_dir / relative_path, 1)
+
+    response = TestClient(create_app(runs_dir)).get("/runs/run-001")
+
+    assert response.status_code == 404
+    assert "v1 state is not supported" in response.json()["detail"]
+
+
 def test_artifact_api_rejects_unlisted_or_unsafe_artifact_path(tmp_path: Path) -> None:
     store = LocalArtifactStore(tmp_path / "shared-runs")
     commit_fixture_run(store)
@@ -192,6 +234,97 @@ def test_cli_inspect_and_verify_committed_artifacts_are_read_only(
     verify_output = json.loads(capsys.readouterr().out)
     assert verify_output["status"] == "verified"
     assert sorted(path.relative_to(run_dir) for path in run_dir.rglob("*")) == before
+
+
+@pytest.mark.parametrize(
+    ("command", "relative_path"),
+    [
+        ("inspect", "final/manifest.json"),
+        ("verify", "final/COMPLETED.json"),
+    ],
+)
+def test_cli_inspect_and_verify_reject_v1_committed_state(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+    relative_path: str,
+) -> None:
+    runs_dir = tmp_path / "shared-runs"
+    run_dir = commit_fixture_run(LocalArtifactStore(runs_dir))
+    set_schema_version(run_dir / relative_path, 1)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main([command, "--runs-dir", str(runs_dir), "--run-id", "run-001"])
+
+    assert exc_info.value.code == 3
+    assert "v1 state is not supported" in capsys.readouterr().err
+
+
+def test_cli_resume_rejects_v1_run_manifest(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runs_dir = tmp_path / "shared-runs"
+    run_dir = commit_fixture_run(LocalArtifactStore(runs_dir))
+    set_schema_version(run_dir / "run-manifest.json", 1)
+
+    result = main(["resume", "--runs-dir", str(runs_dir), "--run-id", "run-001"])
+
+    assert result == 3
+    assert "v1 state is not supported" in capsys.readouterr().err
+
+
+def test_cli_status_rejects_v1_run_status(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runs_dir = tmp_path / "shared-runs"
+    run_dir = LocalArtifactStore(runs_dir).create_run(make_manifest())
+    write_json_atomic(
+        run_dir / "run-status.json",
+        {
+            "schema_version": 1,
+            "run_id": "run-001",
+            "state": "RUNNING",
+            "phase": "RUNNING",
+        },
+    )
+
+    result = main(["status", "--runs-dir", str(runs_dir), "--run-id", "run-001"])
+
+    assert result == 3
+    assert "v1 state is not supported" in capsys.readouterr().err
+
+
+def test_cli_resume_plan_rejects_v1_run_status(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runs_dir = tmp_path / "shared-runs"
+    run_dir = LocalArtifactStore(runs_dir).create_run(make_manifest())
+    write_json_atomic(
+        run_dir / "run-status.json",
+        {
+            "schema_version": 1,
+            "run_id": "run-001",
+            "state": "RUNNING",
+            "phase": "RUNNING",
+        },
+    )
+
+    result = main(
+        [
+            "resume",
+            "--runs-dir",
+            str(runs_dir),
+            "--run-id",
+            "run-001",
+            "--plan-only",
+        ]
+    )
+
+    assert result == 3
+    assert "v1 state is not supported" in capsys.readouterr().err
 
 
 def test_phase8_does_not_add_s3_backend_file() -> None:

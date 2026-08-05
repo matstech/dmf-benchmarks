@@ -18,7 +18,7 @@ from dmf_bench.contracts import (
     hash_canonical_json,
     sha256_file,
 )
-from dmf_bench.state import StateError, load_manifest
+from dmf_bench.state import StateError, load_manifest, validate_run_state_version
 
 
 @dataclass(frozen=True)
@@ -74,7 +74,7 @@ class LocalArtifactStore:
 
     def inspect(self, run_id: str) -> dict[str, Any]:
         run_dir = self.run_dir(run_id)
-        manifest = load_manifest(run_dir)
+        manifest = validate_run_state_version(run_dir)
         completion_path = run_dir / "final" / "COMPLETED.json"
         final_manifest_path = run_dir / "final" / "manifest.json"
         return {
@@ -88,6 +88,7 @@ class LocalArtifactStore:
 
     def inspect_committed(self, run_id: str) -> dict[str, Any]:
         run_dir = self.run_dir(run_id)
+        verification = self.verify_committed(run_id)
         base = self.inspect(run_id)
         final_dir = run_dir / "final"
         completion_path = final_dir / "COMPLETED.json"
@@ -107,11 +108,12 @@ class LocalArtifactStore:
             "completion": completion,
             "artifact_count": len(artifacts),
             "artifacts": artifacts,
+            "verification": verification,
         }
 
     def verify_committed(self, run_id: str) -> dict[str, Any]:
         run_dir = self.run_dir(run_id)
-        manifest = load_manifest(run_dir)
+        manifest = validate_run_state_version(run_dir)
         final_dir = run_dir / "final"
         completion_path = final_dir / "COMPLETED.json"
         final_manifest_path = final_dir / "manifest.json"
@@ -132,9 +134,11 @@ class LocalArtifactStore:
         if not isinstance(final_manifest, dict):
             raise StateError("Final manifest must be a JSON object.")
         if final_manifest.get("schema_version") != PUBLICATION_MANIFEST_SCHEMA_VERSION:
+            observed_version = final_manifest.get("schema_version")
             raise StateError(
                 "Final publication manifest must declare "
-                f"schema_version={PUBLICATION_MANIFEST_SCHEMA_VERSION}."
+                f"schema_version={PUBLICATION_MANIFEST_SCHEMA_VERSION}; "
+                f"v{observed_version} state is not supported."
             )
 
         if completion.get("run_id") != manifest.run_id:
@@ -352,9 +356,11 @@ class LocalArtifactStore:
             raise StateError("Publication manifest must be a JSON object.")
         run_manifest = load_manifest(run_dir)
         if manifest.get("schema_version") != PUBLICATION_MANIFEST_SCHEMA_VERSION:
+            observed_version = manifest.get("schema_version")
             raise StateError(
                 "Publication manifest must declare "
-                f"schema_version={PUBLICATION_MANIFEST_SCHEMA_VERSION}."
+                f"schema_version={PUBLICATION_MANIFEST_SCHEMA_VERSION}; "
+                f"v{observed_version} state is not supported."
             )
         if manifest.get("run_id") != staged.run_id:
             raise StateError("Publication manifest run_id mismatch.")

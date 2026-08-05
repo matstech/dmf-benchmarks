@@ -11,7 +11,7 @@ from typing import Any, Protocol
 
 
 MAX_COLLECTION_NAME_LENGTH = 63
-COLLECTION_PREFIX = "bench"
+QDRANT_COLLECTION_NAMESPACE = "dmf_bench_v2"
 
 
 class QdrantLifecycleError(RuntimeError):
@@ -81,7 +81,10 @@ def qdrant_collection_name(
 ) -> str:
     safe_framework = normalize_name_part(framework)
     unit_hash = stable_hash(unit_id)
-    raw = f"{COLLECTION_PREFIX}_{run_hash[:16]}_{safe_framework}_{unit_hash}_{role.value}"
+    raw = (
+        f"{QDRANT_COLLECTION_NAMESPACE}_{run_hash[:16]}_"
+        f"{safe_framework}_{unit_hash}_{role.value}"
+    )
     if len(raw) <= MAX_COLLECTION_NAME_LENGTH:
         return raw
     suffix = stable_hash(raw, length=12)
@@ -127,6 +130,20 @@ def build_cleanup_manifest(
     )
 
 
+def validate_cleanup_manifest_namespace(manifest: CleanupManifest) -> None:
+    invalid_names = [
+        collection.name
+        for collection in manifest.collections
+        if not collection.name.startswith(f"{QDRANT_COLLECTION_NAMESPACE}_")
+    ]
+    if invalid_names:
+        raise QdrantLifecycleError(
+            "Refusing to access Qdrant collections outside the required "
+            f"v2 namespace {QDRANT_COLLECTION_NAMESPACE!r}: "
+            f"{', '.join(invalid_names)}."
+        )
+
+
 class QdrantLifecycleManager:
     def __init__(self, client: QdrantClientProtocol) -> None:
         self.client = client
@@ -138,6 +155,7 @@ class QdrantLifecycleManager:
             raise QdrantLifecycleError(f"Qdrant is not ready: {exc}") from exc
 
     def assert_absent(self, manifest: CleanupManifest) -> None:
+        validate_cleanup_manifest_namespace(manifest)
         existing = [
             collection.name
             for collection in manifest.collections
@@ -149,6 +167,7 @@ class QdrantLifecycleManager:
             )
 
     def create_collections(self, manifest: CleanupManifest) -> None:
+        validate_cleanup_manifest_namespace(manifest)
         for collection in manifest.collections:
             self.client.create_collection(
                 collection_name=collection.name,
@@ -161,6 +180,7 @@ class QdrantLifecycleManager:
         *,
         minimum_count_by_role: dict[CollectionRole, int],
     ) -> None:
+        validate_cleanup_manifest_namespace(manifest)
         for collection in manifest.collections:
             minimum = minimum_count_by_role.get(collection.role, 0)
             observed = collection_count(self.client.count(collection.name, exact=True))
@@ -174,6 +194,7 @@ class QdrantLifecycleManager:
         manifest: CleanupManifest,
     ) -> dict[CollectionRole, int]:
         """Read an exact count barrier for every owned collection."""
+        validate_cleanup_manifest_namespace(manifest)
         counts: dict[CollectionRole, int] = {}
         for collection in manifest.collections:
             if not self.client.collection_exists(collection.name):
@@ -192,6 +213,7 @@ class QdrantLifecycleManager:
         max_attempts: int = 5,
         poll_interval_seconds: float = 0.0,
     ) -> None:
+        validate_cleanup_manifest_namespace(manifest)
         for collection in manifest.collections:
             if self.client.collection_exists(collection.name):
                 self.client.delete_collection(collection.name)

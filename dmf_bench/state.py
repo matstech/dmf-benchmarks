@@ -17,6 +17,7 @@ from .contracts import (
     Attempt,
     LifecycleCheckpoint,
     RunManifest,
+    RUN_STATUS_SCHEMA_VERSION,
     UnitCheckpoint,
     sha256_file,
 )
@@ -201,6 +202,38 @@ def load_manifest(run_dir: str | Path) -> RunManifest:
         return RunManifest.from_dict(data)
     except (KeyError, TypeError, ValueError) as exc:
         raise StateError(f"Invalid run manifest: {exc}") from exc
+
+
+def load_run_status(
+    run_dir: str | Path,
+    *,
+    required: bool = True,
+) -> dict[str, Any] | None:
+    path = Path(run_dir) / "run-status.json"
+    if not path.is_file():
+        if required:
+            raise StateError(f"Missing run status: {path}")
+        return None
+    payload = read_json(path)
+    if not isinstance(payload, dict):
+        raise StateError("run-status.json must contain a JSON object.")
+    if payload.get("schema_version") != RUN_STATUS_SCHEMA_VERSION:
+        observed_version = payload.get("schema_version")
+        raise StateError(
+            "run-status.json must declare "
+            f"schema_version={RUN_STATUS_SCHEMA_VERSION}; "
+            f"v{observed_version} state is not supported."
+        )
+    state = str(payload.get("state", ""))
+    if state not in {candidate.value for candidate in RunState}:
+        raise StateError(f"run-status.json contains an unsupported state: {state!r}.")
+    return payload
+
+
+def validate_run_state_version(run_dir: str | Path) -> RunManifest:
+    manifest = load_manifest(run_dir)
+    load_run_status(run_dir, required=False)
+    return manifest
 
 
 def load_unit_checkpoint(path: str | Path) -> UnitCheckpoint:
@@ -392,7 +425,7 @@ def _valid_phase_checkpoint(
 
 def plan_resume(run_dir: str | Path) -> ResumePlan:
     run_path = Path(run_dir)
-    manifest = load_manifest(run_path)
+    manifest = validate_run_state_version(run_path)
     completion_marker = run_path / "final" / "COMPLETED.json"
     if completion_marker.exists():
         from dmf_bench.artifacts.local import LocalArtifactStore
