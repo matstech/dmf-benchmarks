@@ -49,7 +49,7 @@ from dmf_bench.state import (
 )
 
 from dmf_bench.benchmarks.locomo import evaluation as locomo_evaluation
-from . import longmemeval as longmemeval_evaluation
+from dmf_bench.benchmarks.longmemeval import evaluation as longmemeval_evaluation
 
 
 PredictionLoader = Callable[[Path, RunManifest], list[dict[str, Any]]]

@@ -50,7 +50,7 @@ services:
     depends_on:
       qdrant:
         condition: service_started
-    entrypoint: ["python", "-m", "uvicorn"]
+    entrypoint: ["uvicorn"]
     command:
       - "dmf_bench.api:create_default_app"
       - "--factory"

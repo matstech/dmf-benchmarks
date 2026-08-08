@@ -20,17 +20,14 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""LongMemEval dataset loading, date parsing, and sampling utilities."""
+"""Pure LongMemEval dataset, normalization, and sampling utilities."""
 
 import json
 import random
 import re
 from collections import defaultdict
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TypedDict
-
-import requests
 
 QUESTION_TYPES = [
     "temporal-reasoning",
@@ -40,14 +37,6 @@ QUESTION_TYPES = [
     "single-session-assistant",
     "single-session-preference",
 ]
-
-DEFAULT_DATASET_DIR = "datasets/longmemeval"
-DEFAULT_DATASET_FILE = "longmemeval_s_cleaned.json"
-DEFAULT_DATASET_URL = (
-    "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/"
-    "resolve/main/longmemeval_s_cleaned.json"
-)
-
 
 class LongMemEvalNormalizedTurn(TypedDict):
     """Framework-agnostic representation of one LongMemEval turn."""
@@ -85,50 +74,6 @@ class LongMemEvalNormalizedSession(TypedDict):
     session_date_raw: str
     session_timestamp: int | None
     pairs: list[LongMemEvalNormalizedPair]
-
-
-def get_default_dataset_path() -> Path:
-    return Path(DEFAULT_DATASET_DIR) / DEFAULT_DATASET_FILE
-
-
-def download_longmemeval_dataset(
-    *,
-    url: str = DEFAULT_DATASET_URL,
-    dest_dir: str = DEFAULT_DATASET_DIR,
-    filename: str = DEFAULT_DATASET_FILE,
-) -> list[dict]:
-    """Download the official LongMemEval cleaned dataset and return it."""
-    dataset_path = Path(dest_dir) / filename
-    dataset_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if not dataset_path.exists():
-        print(f"Downloading LongMemEval dataset from {url}...")
-        response = requests.get(url, timeout=120)
-        response.raise_for_status()
-        dataset_path.write_text(response.text, encoding="utf-8")
-        print(f"Dataset saved to: {dataset_path}")
-    else:
-        print(f"Dataset already exists locally: {dataset_path}")
-
-    return load_dataset(str(dataset_path))
-
-
-def ensure_longmemeval_dataset(
-    path: str | None = None,
-) -> tuple[str, list[dict]]:
-    """Return a usable LongMemEval dataset path and contents, downloading if needed."""
-    dataset_path = Path(path) if path is not None else get_default_dataset_path()
-    if dataset_path.exists():
-        print(f"Dataset already exists locally: {dataset_path}")
-        return str(dataset_path), load_dataset(str(dataset_path))
-
-    if path is not None:
-        raise FileNotFoundError(
-            f"LongMemEval dataset file not found: {dataset_path}"
-        )
-
-    dataset = download_longmemeval_dataset()
-    return str(dataset_path), dataset
 
 
 def load_dataset(path: str) -> list[dict]:

@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b
 
 FROM ${PYTHON_IMAGE} AS base
@@ -23,21 +21,23 @@ ARG POETRY_VERSION=2.3.2
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential ca-certificates git \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install "poetry==${POETRY_VERSION}"
+    && python -m venv /opt/poetry \
+    && /opt/poetry/bin/pip install "poetry==${POETRY_VERSION}"
 
 COPY pyproject.toml poetry.lock ./
-RUN poetry install --only main --no-root --no-ansi
+RUN /opt/poetry/bin/poetry install --only main --no-root --no-ansi
 
 COPY LICENSE ./LICENSE
 COPY dmf_bench ./dmf_bench
-COPY longmemeval ./longmemeval
-RUN pip install --no-deps .
+RUN /opt/poetry/bin/poetry build --format wheel --no-ansi \
+    && pip install --no-deps --no-build-isolation dist/*.whl
 
 FROM base AS runtime
 
 LABEL org.opencontainers.image.title="dmf-benchmarks" \
       org.opencontainers.image.description="DMF benchmark runner with local artifact API support" \
       org.opencontainers.image.source="https://github.com/matstech/dmf-benchmarks" \
+      org.opencontainers.image.version="0.2.0" \
       org.opencontainers.image.licenses="MIT"
 
 RUN groupadd --system --gid 10001 dmfbench \
@@ -46,7 +46,6 @@ RUN groupadd --system --gid 10001 dmfbench \
     && chown -R dmfbench:dmfbench /bench /home/dmfbench
 
 COPY --from=builder --chown=dmfbench:dmfbench /opt/venv /opt/venv
-COPY --from=builder --chown=dmfbench:dmfbench /app /app
 
 USER dmfbench
 STOPSIGNAL SIGTERM

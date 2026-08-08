@@ -307,9 +307,8 @@ class LocalMem0BenchmarkItemBackend:
                 raise RuntimeError(
                     "The active Python interpreter is importing a Mem0 package "
                     "that does not support embedder.provider='fastembed'. "
-                    "This benchmark expects the repo Poetry environment with the "
-                    "pinned Mem0 fork. Re-run with `poetry run python -m "
-                    "longmemeval.native_pipeline ...`. "
+                    "This benchmark expects the pinned Mem0 fork included in the "
+                    "benchmark image. Re-run LongMemEval through `dmf-bench`. "
                     f"Interpreter: {sys.executable}. "
                     f"Imported mem0 module: {getattr(mem0, '__file__', '<unknown>')}."
                 ) from exc
@@ -409,24 +408,3 @@ def normalize_mem0_search_response(response: Any) -> list[dict[str, Any]]:
         reverse=True,
     )
     return normalized
-
-
-class LocalMem0ConversationBackend(LocalMem0BenchmarkItemBackend):
-    """Backward-compatible Mem0 backend isolated per LoCoMo conversation."""
-
-    def __init__(
-        self,
-        *,
-        project_name: str,
-        conversation_idx: int,
-        config: Mem0Config,
-    ):
-        self.conversation_idx = conversation_idx
-        super().__init__(
-            benchmark_name="locomo",
-            project_name=project_name,
-            item_kind="conv",
-            item_id=conversation_idx,
-            config=config,
-            storage_label=f"conv_{conversation_idx}",
-        )

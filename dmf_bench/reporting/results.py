@@ -55,7 +55,6 @@ METRIC_DESCRIPTIONS: dict[str, str] = {
     "median_search_latency_ms": "Median retrieval latency in milliseconds.",
     "min_search_latency_ms": "Minimum retrieval latency in milliseconds.",
     "max_search_latency_ms": "Maximum retrieval latency in milliseconds.",
-    "search_latency_ms": "Backward-compatible alias for end-to-end retrieval pipeline latency in milliseconds.",
     "retrieval_pipeline_latency_ms": "End-to-end retrieval pipeline latency in milliseconds, including result normalization and context assembly.",
     "backend_search_latency_ms": "Backend search latency in milliseconds, excluding benchmark-side context formatting.",
     "ingestion_ms": "End-to-end ingestion wall-clock time in milliseconds for the recorded scope.",
@@ -601,11 +600,6 @@ def build_native_evaluation_item(
         "retrieval_pipeline_latency_ms",
         normalized_latency["framework_retrieval_ms"],
     )
-    retrieval.setdefault(
-        "search_latency_ms",
-        normalized_latency["framework_retrieval_ms"],
-    )
-
     item = dict(base_result)
     item.update(
         {
@@ -741,18 +735,10 @@ def _iter_usage_entries(
     evaluation: dict[str, Any],
     usage_key: str,
 ) -> list[tuple[str | None, dict[str, int]]]:
-    cutoff_results = evaluation.get("cutoff_results")
-    if isinstance(cutoff_results, dict):
-        entries: list[tuple[str | None, dict[str, int]]] = []
-        for cutoff_label, cutoff in cutoff_results.items():
-            if not isinstance(cutoff, dict):
-                continue
-
-            usage = cutoff.get(usage_key)
-            if not isinstance(usage, dict):
-                continue
-            entries.append((str(cutoff_label), normalize_answerer_usage(usage)))
-        return entries
+    if "cutoff_results" in evaluation:
+        raise ValueError(
+            "Unsupported v1 cutoff_results payload: expected flat v2 evaluation items."
+        )
 
     usage = evaluation.get(usage_key)
     if not isinstance(usage, dict):
@@ -762,7 +748,7 @@ def _iter_usage_entries(
 
 
 def aggregate_answerer_usage(evaluations: list[dict[str, Any]]) -> dict[str, int]:
-    """Aggregate answerer usage across flat or cutoff-nested evaluations."""
+    """Aggregate answerer usage across flat v2 evaluations."""
     total = empty_answerer_usage()
     for evaluation in evaluations:
         for _, usage in _iter_usage_entries(evaluation, "answerer_usage"):

@@ -9,7 +9,7 @@ from typing import Any, Callable, Mapping
 from dmf_bench.adapters.base import AnswererAdapter, BenchmarkAdapter, JudgeAdapter
 from dmf_bench.adapters.dmf import dmf_framework_factories
 from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
-from dmf_bench.adapters.longmemeval import LongMemEvalAdapter
+from dmf_bench.benchmarks.longmemeval.adapter import LongMemEvalAdapter
 from dmf_bench.adapters.mem0 import mem0_framework_factories
 from dmf_bench.adapters.providers import answerer_factories, judge_factories
 from dmf_bench.artifacts import LocalArtifactStore

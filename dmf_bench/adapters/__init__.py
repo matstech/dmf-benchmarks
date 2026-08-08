@@ -15,7 +15,6 @@ from .base import (
     RetrievalResult,
 )
 from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
-from .longmemeval import LongMemEvalAdapter
 from .dmf import (
     DefaultDmfEngineBuilder,
     DmfEngineBundle,
@@ -59,7 +58,6 @@ __all__ = [
     "JudgeRequest",
     "LocalFileResource",
     "LoCoMoAdapter",
-    "LongMemEvalAdapter",
     "Mem0EngineBundle",
     "Mem0PreparedUnit",
     "Mem0QdrantFrameworkAdapter",

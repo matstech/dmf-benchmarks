@@ -24,7 +24,7 @@ from dmf_bench.adapters.base import (
     RetrievalResult,
 )
 from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter, LoCoMoQuestion
-from dmf_bench.adapters.longmemeval import LongMemEvalAdapter
+from dmf_bench.benchmarks.longmemeval.adapter import LongMemEvalAdapter
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import write_json_atomic
 from dmf_bench.contracts import (

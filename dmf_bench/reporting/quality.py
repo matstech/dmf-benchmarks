@@ -172,14 +172,14 @@ def build_native_secondary_rigorous_manifest(
     project_name: str | None = None,
     report_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Build launchable commands for rigorous secondary native reports."""
+    """Describe rigorous reports executed inside the v2 lifecycle."""
     input_path = Path(input_path)
     if project_name:
         stem = f"{benchmark_name}_native_{project_name}"
     else:
         stem = input_path.stem
     output_dir = Path(report_dir) if report_dir is not None else input_path.parent
-    rigorous_stdout = output_dir / f"{stem}.rigorous.txt"
+    rigorous_json = output_dir / f"{stem}.rigorous.json"
     ablation_json = output_dir / f"{stem}.ablation.json"
 
     return {
@@ -187,30 +187,14 @@ def build_native_secondary_rigorous_manifest(
         "benchmark": benchmark_name,
         "description": SECONDARY_RIGOROUS_DESCRIPTION,
         "input_path": str(input_path),
+        "execution": "built_in_lifecycle",
         "artifacts": {
-            "evaluate_rigorous_stdout": str(rigorous_stdout),
-            "evaluate_ablation_json": str(ablation_json),
+            "rigorous_report_json": str(rigorous_json),
+            "ablation_report_json": str(ablation_json),
         },
-        "commands": {
-            "evaluate_rigorous": [
-                "python",
-                "-m",
-                f"{benchmark_name}.evaluate_rigorous",
-                "--input",
-                str(input_path),
-            ],
-            "evaluate_ablation": [
-                "python",
-                "-m",
-                f"{benchmark_name}.evaluate_ablation",
-                "--input",
-                str(input_path),
-                "--json-output",
-                str(ablation_json),
-            ],
-        },
-        "stdout_capture": {
-            "evaluate_rigorous": str(rigorous_stdout),
+        "evaluators": {
+            "rigorous_report": f"dmf_bench.benchmarks.{benchmark_name}.evaluation:rigorous_report",
+            "ablation_report": f"dmf_bench.benchmarks.{benchmark_name}.evaluation:ablation_report",
         },
     }
 

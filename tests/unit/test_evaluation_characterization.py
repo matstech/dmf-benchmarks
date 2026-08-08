@@ -5,19 +5,25 @@ import pytest
 from dmf_bench.reporting.quality import (
     aggregate_native_primary_quality,
     apply_native_primary_judge_score,
+    build_native_secondary_rigorous_manifest,
 )
-from dmf_bench.benchmarks.locomo.evaluation import ensure_v2_evaluations
+from dmf_bench.reporting.results import aggregate_answerer_usage
+from dmf_bench.benchmarks.locomo.evaluation import (
+    ensure_v2_evaluations as ensure_locomo_v2_evaluations,
+)
 from dmf_bench.benchmarks.locomo.ablation import (
     evaluate_ablation as evaluate_locomo_ablation,
 )
 from dmf_bench.benchmarks.locomo.rigorous import (
     evaluate_flat as evaluate_locomo_flat,
 )
-from longmemeval.evaluate_ablation import (
+from dmf_bench.benchmarks.longmemeval.ablation import (
     evaluate_ablation as evaluate_longmemeval_ablation,
 )
-from longmemeval.evaluate_rigorous import ensure_uniform_schema as ensure_longmemeval_uniform_schema
-from longmemeval.evaluate_rigorous import evaluate_flat as evaluate_longmemeval_flat
+from dmf_bench.benchmarks.longmemeval.evaluation import (
+    ensure_v2_evaluations as ensure_longmemeval_v2_evaluations,
+)
+from dmf_bench.benchmarks.longmemeval.rigorous import evaluate_flat as evaluate_longmemeval_flat
 
 
 def test_primary_quality_reports_missing_unscored_items() -> None:
@@ -165,14 +171,37 @@ def test_ablation_distinguishes_available_empty_native_diagnostics(
     assert result["stages"]["final"]["overall"]["recall_at_k"] == 0.0
 
 
-def test_incomplete_or_mixed_result_schema_is_rejected() -> None:
+def test_incomplete_or_v1_result_schema_is_rejected() -> None:
     with pytest.raises(ValueError, match="Unsupported LOCOMO evaluation payload"):
-        ensure_v2_evaluations([{"question": "missing prediction"}])
+        ensure_locomo_v2_evaluations([{"question": "missing prediction"}])
 
-    with pytest.raises(ValueError, match="Mixed LongMemEval result schemas"):
-        ensure_longmemeval_uniform_schema(
+    with pytest.raises(ValueError, match="Unsupported LongMemEval evaluation payload"):
+        ensure_longmemeval_v2_evaluations(
             [
                 {"generated_answer": "flat"},
                 {"cutoff_results": {"top_1": {"generated_answer": "legacy"}}},
             ]
         )
+
+    with pytest.raises(ValueError, match="Unsupported v1 cutoff_results payload"):
+        aggregate_answerer_usage(
+            [{"cutoff_results": {"top_1": {"answerer_usage": {"total_tokens": 1}}}}]
+        )
+
+
+def test_secondary_evaluators_are_internal_lifecycle_steps(tmp_path) -> None:
+    manifest = build_native_secondary_rigorous_manifest(
+        benchmark_name="longmemeval",
+        input_path=tmp_path / "results.json",
+    )
+
+    assert manifest["execution"] == "built_in_lifecycle"
+    assert "commands" not in manifest
+    assert manifest["evaluators"] == {
+        "rigorous_report": (
+            "dmf_bench.benchmarks.longmemeval.evaluation:rigorous_report"
+        ),
+        "ablation_report": (
+            "dmf_bench.benchmarks.longmemeval.evaluation:ablation_report"
+        ),
+    }

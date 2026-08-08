@@ -14,10 +14,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      POETRY_NO_INTERACTION: "1"
-      POETRY_VIRTUALENVS_IN_PROJECT: "1"
-      PIP_DISABLE_PIP_VERSION_CHECK: "1"
-      DMF_BENCH_TEST_QDRANT_URL: http://127.0.0.1:6333
+      INTEGRATION_RUN_ID: scheduled-container-${{ github.run_id }}-${{ github.run_attempt }}
+      DMF_BENCH_FIXTURE_ANSWER_DELAY_SECONDS: "0"
     steps:
       - name: Checkout exact ref without external actions
         run: |
@@ -26,20 +24,27 @@ jobs:
           git fetch --depth 1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
 
-      - name: Install Poetry
-        run: python3 -m pip install "poetry==2.3.2"
-
-      - name: Install locked dependencies
-        run: poetry install --no-root --no-ansi
-
       - name: Build local image
         run: docker compose -f deploy/compose.yaml build artifact-api benchmark
 
       - name: Start local stack
-        run: docker compose -f deploy/compose.yaml up -d qdrant artifact-api prometheus grafana
+        run: docker compose -f deploy/compose.yaml up -d --wait qdrant artifact-api prometheus grafana
 
-      - name: Run integration tests
-        run: poetry run pytest tests/integration -q
+      - name: Run deterministic container integration
+        run: |
+          docker compose --profile job \
+            -f deploy/compose.yaml \
+            -f deploy/compose.fixture.yaml \
+            run --rm benchmark \
+            run --config /bench/fixtures/docker-locomo-execution.json \
+            --run-id "$INTEGRATION_RUN_ID"
+
+      - name: Verify artifacts with the runtime image
+        run: |
+          docker compose --profile job -f deploy/compose.yaml run --rm --no-deps \
+            benchmark verify --run-id "$INTEGRATION_RUN_ID"
+          curl --fail --silent --show-error \
+            "http://127.0.0.1:8000/runs/$INTEGRATION_RUN_ID/verify"
 
       - name: Verify observability endpoints
         run: |

@@ -20,4 +20,45 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""LongMemEval benchmark package for DMF."""
+"""LongMemEval answerer prompt surface."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+ANSWERER_SYSTEM_PROMPT = ""
+
+ANSWERER_USER_PROMPT_TEMPLATE = """
+Use the provided native memory context to answer the LongMemEval question.
+If the answer is not supported by the context, say you do not know.
+
+Native context:
+{native_context}
+
+Question date: {question_date}
+Question: {question}
+Answer:
+""".strip()
+
+
+def build_answerer_system_prompt() -> str:
+    return ANSWERER_SYSTEM_PROMPT
+
+
+def build_answerer_user_prompt(
+    native_context: Any,
+    question: str,
+    question_date: str = "",
+) -> str:
+    return ANSWERER_USER_PROMPT_TEMPLATE.format(
+        native_context=_serialize_native_context(native_context),
+        question_date=question_date or "(not specified)",
+        question=question,
+    )
+
+
+def _serialize_native_context(native_context: Any) -> str:
+    if isinstance(native_context, str):
+        return native_context
+    return json.dumps(native_context, ensure_ascii=False, indent=2)

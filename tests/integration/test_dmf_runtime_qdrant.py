@@ -19,7 +19,7 @@ from dmf_bench.adapters.dmf import (
     DmfQdrantFrameworkAdapter,
 )
 from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
-from dmf_bench.adapters.longmemeval import LongMemEvalAdapter
+from dmf_bench.benchmarks.longmemeval.adapter import LongMemEvalAdapter
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json
 from dmf_bench.contracts import sha256_file

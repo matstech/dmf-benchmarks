@@ -17,7 +17,7 @@ from dmf_bench.adapters.dmf import (
     dmf_framework_factories,
 )
 from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
-from dmf_bench.adapters.longmemeval import LongMemEvalAdapter
+from dmf_bench.benchmarks.longmemeval.adapter import LongMemEvalAdapter
 from dmf_bench.adapters.qdrant_lifecycle import CollectionRole
 from dmf.utils.config_loader import load_dmf_config
 

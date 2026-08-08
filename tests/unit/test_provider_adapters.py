@@ -132,7 +132,7 @@ def test_answerer_preserves_prompt_and_provider_response_metadata() -> None:
 
 
 @pytest.mark.parametrize("benchmark", ["locomo", "longmemeval"])
-def test_judge_reuses_legacy_prompt_surface_and_parser(benchmark: str) -> None:
+def test_judge_uses_canonical_prompt_surface_and_parser(benchmark: str) -> None:
     transport = FakeTransport(response('{"reasoning":"same fact","label":"CORRECT"}'))
     adapter = OpenAICompatibleJudgeAdapter(
         benchmark=benchmark,

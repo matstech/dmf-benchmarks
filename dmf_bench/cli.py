@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, TextIO
 
 from .benchmarks.locomo.adapter import LoCoMoAdapter
-from .adapters.longmemeval import LongMemEvalAdapter
+from .benchmarks.longmemeval.adapter import LongMemEvalAdapter
 from .artifacts import LocalArtifactStore
 from .atomic_io import read_json
 from .config import ResolvedConfig, resolve_config, validate_config

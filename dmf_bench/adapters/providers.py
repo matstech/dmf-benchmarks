@@ -341,7 +341,7 @@ def _parse_judge_response_strict(
     if benchmark == "locomo":
         from dmf_bench.benchmarks.locomo.judge import parse_judge_response
     else:
-        from longmemeval.judge import parse_judge_response
+        from dmf_bench.benchmarks.longmemeval.judge import parse_judge_response
     return parse_judge_response(normalized)
 
 

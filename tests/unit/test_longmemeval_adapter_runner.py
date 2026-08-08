@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from dmf_bench.adapters.base import AnswererRequest, BenchmarkUnit, FrameworkRunContext, RetrievalResult
-from dmf_bench.adapters.longmemeval import LongMemEvalAdapter
+from dmf_bench.benchmarks.longmemeval.adapter import LongMemEvalAdapter
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json
 from dmf_bench.cli import main

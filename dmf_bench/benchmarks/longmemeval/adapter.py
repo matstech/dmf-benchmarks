@@ -1,4 +1,4 @@
-"""LongMemEval benchmark adapter for the new local runner boundary."""
+"""LongMemEval benchmark adapter for the v2 lifecycle."""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from longmemeval import native_prompts
-from longmemeval.utils import (
+from dmf_bench.adapters.base import BenchmarkUnit
+from . import prompts
+from .dataset import (
     filter_questions_by_ids,
     load_dataset,
     sample_questions_stratified,
@@ -15,7 +16,6 @@ from longmemeval.utils import (
 
 from dmf_bench.contracts import PREDICTION_SCHEMA_VERSION, sha256_file
 
-from .base import BenchmarkUnit
 
 
 @dataclass(frozen=True)
@@ -156,7 +156,7 @@ class LongMemEvalAdapter:
         question_text = str(question["question"])
         question_date = str(question.get("question_date", ""))
         native_context = retrieval.get("native_context", "")
-        user_prompt = native_prompts.build_answerer_user_prompt(
+        user_prompt = prompts.build_answerer_user_prompt(
             native_context,
             question_text,
             question_date,
@@ -168,7 +168,7 @@ class LongMemEvalAdapter:
             "native_surface_diagnostics": retrieval.get("native_surface_diagnostics", {}),
         }
         return LongMemEvalAnswererInput(
-            native_prompts.build_answerer_system_prompt(),
+            prompts.build_answerer_system_prompt(),
             user_prompt,
             metadata,
         )

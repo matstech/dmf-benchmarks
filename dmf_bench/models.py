@@ -25,8 +25,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from dmf.memory.temporal_memory import TemporalMemory
-
 MemoryFramework = Literal["dmf", "mem0"]
 
 
@@ -39,19 +37,6 @@ class IngestedConversationBundle:
     backend_state: dict[str, Any]
     record_index: dict[str, dict[str, Any]]
 
-    @property
-    def memory_engine(self) -> TemporalMemory:
-        """Temporary DMF accessor kept for Phase 1 backward compatibility."""
-        if self.framework != "dmf":
-            raise RuntimeError(
-                "The current bundle does not expose a DMF TemporalMemory backend."
-            )
-
-        memory_engine = self.backend_state.get("memory_engine")
-        if not isinstance(memory_engine, TemporalMemory):
-            raise TypeError("Invalid DMF backend_state: missing TemporalMemory instance.")
-        return memory_engine
-
 
 @dataclass
 class IngestedQuestionBundle:
@@ -61,19 +46,6 @@ class IngestedQuestionBundle:
     framework: MemoryFramework
     backend_state: dict[str, Any]
     record_index: dict[str, dict[str, Any]]
-
-    @property
-    def memory_engine(self) -> TemporalMemory:
-        """Temporary DMF accessor kept for Phase 1 backward compatibility."""
-        if self.framework != "dmf":
-            raise RuntimeError(
-                "The current bundle does not expose a DMF TemporalMemory backend."
-            )
-
-        memory_engine = self.backend_state.get("memory_engine")
-        if not isinstance(memory_engine, TemporalMemory):
-            raise TypeError("Invalid DMF backend_state: missing TemporalMemory instance.")
-        return memory_engine
 
 
 @dataclass

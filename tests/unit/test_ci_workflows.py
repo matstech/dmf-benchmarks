@@ -77,10 +77,19 @@ def test_release_workflow_is_manual_and_does_not_publish() -> None:
     assert "docker push" not in serialized
     assert "docker login" not in serialized
     assert "packages: write" not in serialized
+    assert "docker build" in serialized
+    assert "docker run" in serialized
 
 
 def test_scheduled_integration_is_not_part_of_pr_fast_path() -> None:
     payload = load_workflow(WORKFLOW_DIR / "scheduled-integration.yml")
+    serialized = (WORKFLOW_DIR / "scheduled-integration.yml").read_text(
+        encoding="utf-8"
+    )
 
     assert set(payload["on"]) == {"schedule", "workflow_dispatch"}
     assert "pull_request" not in payload["on"]
+    assert "poetry install" not in serialized
+    assert "poetry run" not in serialized
+    assert "deploy/compose.fixture.yaml" in serialized
+    assert "benchmark verify" in serialized

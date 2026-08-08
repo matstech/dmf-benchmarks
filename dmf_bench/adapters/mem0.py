@@ -26,7 +26,7 @@ from dmf_bench.frameworks.mem0_context import build_mem0_native_context_surface
 from dmf_bench.metrics import BenchmarkMetrics
 from dmf_bench.benchmarks.locomo import dataset as locomo_utils
 from dmf_bench.benchmarks.locomo.adapter import LoCoMoQuestion
-from longmemeval.utils import (
+from dmf_bench.benchmarks.longmemeval.dataset import (
     normalize_longmemeval_haystack,
     render_longmemeval_pair_for_context,
     serialize_longmemeval_pair_for_mem0,

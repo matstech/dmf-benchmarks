@@ -13,7 +13,7 @@ from dmf_bench.frameworks.mem0_runtime import empty_memory_internal_usage
 from dmf_bench.metrics import BenchmarkMetrics
 from dmf_bench.benchmarks.locomo import dataset as locomo_utils
 from dmf_bench.benchmarks.locomo.adapter import LoCoMoQuestion
-from longmemeval.utils import (
+from dmf_bench.benchmarks.longmemeval.dataset import (
     pair_turns,
     parse_longmemeval_date,
     sort_sessions_chronologically,
@@ -392,8 +392,8 @@ class DmfQdrantFrameworkAdapter:
         raw_outputs = dict(surface.raw_retrieval_outputs)
         search_results = list(raw_outputs.get("search_results", []))
         # ``Memory.retrieve`` owns a distinct structured retrieval stack and
-        # does not populate TemporalMemory's legacy recall diagnostics. Reading
-        # them here would therefore expose empty or stale data.
+        # does not populate TemporalMemory recall diagnostics for this path.
+        # Reading them here would therefore expose empty or stale data.
         # The public native surface returns final, answerability-ranked
         # evidence. Project that auditable evidence into the canonical
         # ranked/final stages and state explicitly that the pre-rerank raw

@@ -35,6 +35,9 @@ jobs:
       - name: Inspect image metadata
         run: docker image inspect "${{ inputs.image_tag }}"
 
+      - name: Exercise the release image
+        run: docker run --rm --read-only --tmpfs /tmp "${{ inputs.image_tag }}" list
+
       - name: BuildKit SBOM and provenance dry run
         run: |
           docker buildx build \
