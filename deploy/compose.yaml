@@ -1,7 +1,7 @@
 name: dmf-benchmarks-v2
 
 x-benchmark-image: &benchmark_image
-  image: dmf-benchmarks:local
+  image: ${DMF_BENCH_IMAGE:-dmf-benchmarks:local}
   build:
     context: ..
     dockerfile: Dockerfile

@@ -104,6 +104,7 @@ def test_artifact_api_lists_verifies_and_downloads_json(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path / "shared-runs"))
 
     landing = client.get("/")
+    openapi = client.get("/openapi.json")
     health = client.get("/health")
     services = client.get("/services")
     run = client.get("/runs/run-001")
@@ -114,6 +115,7 @@ def test_artifact_api_lists_verifies_and_downloads_json(tmp_path: Path) -> None:
     assert landing.status_code == 200
     assert landing.headers["content-type"].startswith("text/html")
     assert "DMF Benchmarks" in landing.text
+    assert openapi.json()["info"]["version"] == "0.2.0"
     assert health.json() == {
         "status": "ok",
         "mode": "read-only",
@@ -327,7 +329,7 @@ def test_cli_resume_plan_rejects_v1_run_status(
     assert "v1 state is not supported" in capsys.readouterr().err
 
 
-def test_phase8_does_not_add_s3_backend_file() -> None:
+def test_artifact_store_does_not_add_s3_backend_file() -> None:
     assert not Path("dmf_bench/artifacts/s3.py").exists()
 
 

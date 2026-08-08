@@ -1,9 +1,7 @@
-"""Local benchmark runner primitives.
+"""Conversation- and question-atomic prediction runner primitives.
 
-Phase 5 introduced LongMemEval prediction-only execution. Phase 6 adds LoCoMo
-conversation-atomic prediction-only execution. These runners create
-authoritative run/checkpoint artifacts, but do not claim full
-judging/evaluation/report completion yet.
+The runners create authoritative prediction and checkpoint artifacts for the
+full lifecycle orchestrator.
 """
 
 from __future__ import annotations

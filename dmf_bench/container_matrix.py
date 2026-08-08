@@ -1,8 +1,8 @@
 """Deterministic 2-benchmark x 2-framework certification harness.
 
-This module is reachable only through an explicit ``python -m`` invocation in
-the Phase 21 container gate. Production experiment configs continue to use the
-normal ``dmf-bench`` entrypoint and cannot select fixture providers.
+This module is reachable only through an explicit ``python -m`` invocation.
+Production experiment configs use the normal ``dmf-bench`` entrypoint and
+cannot select fixture providers.
 """
 
 from __future__ import annotations

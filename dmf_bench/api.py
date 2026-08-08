@@ -10,6 +10,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 
+from dmf_bench import __version__
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.metrics import BenchmarkMetrics
 from dmf_bench.state import StateError
@@ -21,7 +22,7 @@ LANDING_PAGE_PATH = Path(__file__).with_name("static") / "index.html"
 def create_app(runs_dir: str | Path, metrics: BenchmarkMetrics | None = None) -> FastAPI:
     store = LocalArtifactStore(runs_dir)
     metrics_registry = metrics or BenchmarkMetrics()
-    app = FastAPI(title="DMF Benchmark Artifact API")
+    app = FastAPI(title="DMF Benchmark Artifact API", version=__version__)
 
     @app.get("/", include_in_schema=False)
     def landing_page() -> FileResponse:

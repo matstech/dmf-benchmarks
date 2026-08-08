@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from dmf_bench.frameworks.mem0_runtime import normalize_memory_internal_usage
-from dmf_bench.reporting.results import build_timing_report, normalize_answerer_usage
+from dmf_bench.reporting.reports import build_timing_report, normalize_answerer_usage
 from dmf_bench.adapters.base import JudgeAdapter, JudgeRequest
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json, write_json_atomic
