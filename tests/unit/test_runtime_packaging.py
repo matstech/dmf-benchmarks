@@ -138,6 +138,8 @@ def test_publish_image_workflow_pushes_rc_and_tagged_release_to_ghcr() -> None:
     assert "IMAGE_TAG=$GITHUB_REF_NAME" in workflow
     assert 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main' in workflow
     assert 'docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin' in workflow
+    assert workflow.count("--driver docker-container --use") == 2
+    assert workflow.count("docker buildx inspect --bootstrap") == 2
     assert 'make image-buildx-push GHCR_OWNER="$GHCR_OWNER" IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" PUBLISH_LATEST=0' in workflow
 
 

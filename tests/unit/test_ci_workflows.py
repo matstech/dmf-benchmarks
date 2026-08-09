@@ -94,6 +94,8 @@ def test_publish_image_workflow_publishes_only_on_main_or_tag() -> None:
     assert "publish-main-rc" in payload["jobs"]
     assert "publish-tagged-release" in payload["jobs"]
     assert "docker login ghcr.io" in serialized
+    assert serialized.count("--driver docker-container --use") == 2
+    assert serialized.count("docker buildx inspect --bootstrap") == 2
     assert "PUBLISH_LATEST=0" in serialized
     assert "merge-base --is-ancestor" in serialized
 
