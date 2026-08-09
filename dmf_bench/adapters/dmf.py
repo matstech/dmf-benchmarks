@@ -37,9 +37,6 @@ from .qdrant_lifecycle import (
 )
 
 
-REQUIRED_DMF_QDRANT_COMMIT = "5c4318e36120c60c1a4f4322b999f964cefa42d4"
-
-
 class DmfRuntimeError(RuntimeError):
     """Raised when the executable DMF runtime violates an invariant."""
 
@@ -236,8 +233,8 @@ class DmfQdrantFrameworkAdapter:
             from dmf.memory.ltm_hooks.qdrant_client import QdrantConnectionMode
         except ModuleNotFoundError as exc:
             raise RuntimeError(
-                "DMF Qdrant Server mode is unavailable. Pin dmf-memory[qdrant] "
-                f"to commit {REQUIRED_DMF_QDRANT_COMMIT} or a later approved release."
+                "DMF Qdrant Server mode is unavailable. Install dmf-memory with "
+                "qdrant-client available in the runtime environment."
             ) from exc
         if QdrantLTMHook is None or QdrantConnectionMode.SERVER.value != "server":
             raise RuntimeError("DMF Qdrant Server mode has an incompatible API.")

@@ -5,7 +5,7 @@ description = "Benchmark evaluation helpers for DMF."
 authors = [{ name = "matstech", email = "matteo.stabile2@gmail.com" }]
 requires-python = ">=3.12,<3.15"
 dependencies = [
-    "dmf-memory[qdrant] @ git+https://github.com/matstech/dmf.git@5c4318e36120c60c1a4f4322b999f964cefa42d4",
+    "dmf-memory (==0.3.0)",
     "mem0ai @ git+https://github.com/matstech/mem0.git@8db3430d20f8b76cb7f80fb30df048321863392f",
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "pyyaml (>=6,<7)",
