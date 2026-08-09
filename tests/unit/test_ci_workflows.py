@@ -111,4 +111,5 @@ def test_scheduled_integration_is_not_part_of_pr_fast_path() -> None:
     assert "poetry install" not in serialized
     assert "poetry run" not in serialized
     assert "deploy/compose.fixture.yaml" in serialized
-    assert "benchmark verify" in serialized
+    assert "dmf_benchctl verify" in serialized
+    assert "docker compose" not in serialized

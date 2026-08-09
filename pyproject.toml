@@ -19,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 dmf-bench = "dmf_bench.cli:main"
+dmf-benchctl = "dmf_benchctl.cli:main"
 
 [tool.poetry]
 package-mode = true
@@ -27,6 +28,7 @@ include = [
 ]
 packages = [
     { include = "dmf_bench" },
+    { include = "dmf_benchctl" },
 ]
 
 [build-system]

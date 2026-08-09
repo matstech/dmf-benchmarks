@@ -1,9 +1,5 @@
 services:
   benchmark:
-    entrypoint:
-      - "python"
-      - "-m"
-      - "dmf_bench.container_fixture"
     command:
       - "run"
       - "--config"
@@ -11,6 +7,7 @@ services:
       - "--run-id"
       - "${DMF_BENCH_FIXTURE_RUN_ID:-docker-stop-resume-fixture}"
     environment:
+      DMF_BENCH_INTERNAL_APPLICATION: "container-fixture"
       DMF_BENCH_FIXTURE_ANSWER_DELAY_SECONDS: "${DMF_BENCH_FIXTURE_ANSWER_DELAY_SECONDS:-15}"
     volumes:
       - type: bind

@@ -1,6 +1,6 @@
 ---
 title: "DMF Benchmarks - user manual"
-subtitle: "Configuring and running dmf-bench"
+subtitle: "Configuring experiments and operating dmf-benchctl"
 author: "DMF Benchmarks"
 date: "August 9, 2026"
 lang: en-US
@@ -13,16 +13,19 @@ urlcolor: blue
 
 # 1. Purpose
 
-This manual explains how to use `dmf-bench`: how to prepare a configuration, validate it, run a benchmark, and read the results.
+This manual explains how to configure and operate DMF Benchmarks: how to prepare a configuration, validate it, run a benchmark, read the results, and publish an official run bundle.
 
 The document is not tied to a single smoke dataset. Examples use concrete paths so they can be copied, but the flow is the same for LoCoMo, LongMemEval, DMF, and Mem0.
 
-`dmf-bench` runs native-only benchmarks inside Docker. The old protocol concept no longer exists: every run uses the native Docker pipeline.
+The system has two command-line surfaces with separate responsibilities. Users operate `dmf-benchctl` on the host. The controller manages the current orchestrator and explicitly starts `dmf-bench` inside the benchmark image. `dmf-bench` remains the scientific runtime; it does not start infrastructure itself.
+
+All benchmarks are native-only and run inside Docker. The old protocol concept no longer exists.
 
 # 2. Components
 
 A standard execution uses these components:
 
+- `dmf-benchctl`: the host-side control plane used by operators and automation.
 - `benchmark`: the container that runs `dmf-bench`.
 - `qdrant`: the local vector database used by the frameworks.
 - `artifact-api`: a read-only API for reading runs and artifacts.
@@ -34,10 +37,19 @@ Provider keys must never be written into JSON files. Pass them through environme
 
 # 3. Prerequisites
 
-You need an image or environment where the `dmf-bench` CLI is installed.
+You need Docker with the Compose plugin, Python 3.12 or newer, the repository files, and the `dmf-benchctl` command installed from this project.
+
+From the repository root, install the locked project package in your preferred Python environment:
 
 ```text
-dmf-bench --help
+python3 -m pip install .
+```
+
+Then check the two required host surfaces:
+
+```text
+docker version
+dmf-benchctl --help
 ```
 
 If you use an image published to GHCR:
@@ -57,6 +69,8 @@ HF_HUB_OFFLINE=1
 `HF_HUB_OFFLINE=1` prevents implicit Hugging Face model downloads during an official run. If the cache does not already contain the required models, the run may fail; prepare the cache before the run.
 
 No Qdrant API key is needed when Qdrant runs locally without authentication.
+
+The `.env` file is read by the current Docker Compose adapter. You can also export the same variables in the shell. Never commit the file.
 
 # 4. Configuration
 
@@ -100,6 +114,8 @@ When running inside the official Docker image, paths normally live under `/bench
 ```
 
 Paths used by the benchmark must be absolute inside the runtime environment and must stay under `runtime.root`, normally `/bench`. This prevents a config from accidentally reading or writing unrelated host files.
+
+In commands, `dmf-benchctl` accepts either a host path or an existing `/bench/...` path for the experiment config. Repository paths under `config/` and `smoke/` are translated automatically. A config elsewhere is mounted read-only at `/bench/operator/<filename>`. Paths written inside the JSON still describe the container runtime and therefore normally remain under `/bench`.
 
 For example:
 
@@ -224,13 +240,13 @@ A complete config has this shape:
 }
 ```
 
-Before running an experiment, validate the config:
+Before running an experiment, validate the config through the controller:
 
 ```text
-dmf-bench validate --materialize-datasets --config path/to/experiment.json
+dmf-benchctl validate --materialize-datasets --config path/to/experiment.json
 ```
 
-Validation checks the config schema, path boundaries, framework config hash, dataset declaration, and environment-dependent settings that can be checked without executing the benchmark lifecycle.
+The controller mounts or translates the host path and runs `dmf-bench validate` inside the same image used for execution. Validation checks the config schema, path boundaries, framework config hash, dataset declaration, and environment-dependent settings that can be checked without executing the benchmark lifecycle.
 
 # 5. Dataset
 
@@ -396,36 +412,42 @@ Do not add `api_key`, `token`, `secret`, or similar fields to JSON files: valida
 
 # 9. Main Commands
 
-All user commands go through the `dmf-bench` CLI. Paths declared in the config must be valid in the environment where the CLI is running. If the CLI runs inside the official image, typical paths are `/bench/config`, `/bench/cache`, and `/bench/runs`; if it runs on the host, use host-local paths.
+User operations go through `dmf-benchctl`. Its current orchestrator adapter uses Docker Compose, but this detail is not part of the user contract. The controller always invokes `dmf-bench` explicitly for scientific runtime operations.
+
+Show the controller commands:
+
+```text
+dmf-benchctl --help
+```
 
 List benchmarks and frameworks:
 
 ```text
-dmf-bench list
+dmf-benchctl runtime -- list
 ```
 
 List registered datasets:
 
 ```text
-dmf-bench list-datasets
+dmf-benchctl runtime -- list-datasets
 ```
 
 Validate an already materialized configuration:
 
 ```text
-dmf-bench validate --config config/experiment.json
+dmf-benchctl validate --config config/experiment.json
 ```
 
 Validate after materializing the dataset from the registry:
 
 ```text
-dmf-bench validate --materialize-datasets --config config/experiment.json
+dmf-benchctl validate --materialize-datasets --config config/experiment.json
 ```
 
 Manually materialize a dataset:
 
 ```text
-dmf-bench materialize-dataset \
+dmf-benchctl runtime -- materialize-dataset \
   --dataset-id locomo-official-unpinned \
   --allow-unpinned \
   --sample-fraction 0.05 \
@@ -433,24 +455,29 @@ dmf-bench materialize-dataset \
   --sample-stratify-by category \
   --sample-seed 7 \
   --sample-rounding ceil \
-  --output-dir .cache/datasets/manual-locomo-smoke
+  --output-dir /bench/cache/datasets/manual-locomo-smoke
 ```
 
 The command prints a `dataset` fragment usable in a configuration and the path to `manifest.json`.
 
+The `runtime -- ...` escape hatch forwards advanced arguments to `dmf-bench` inside the image. Normal run, validation, state, verification, and publication operations have dedicated controller commands and should use those commands.
+
 # 10. Execution
 
-Before launching the run, set the environment variables required by the config, for example:
+Before launching the run, set the image and provider variables required by the config, preferably in the repository `.env` file:
 
 ```text
-export OPENAI_API_KEY=...
-export QDRANT_URL=http://127.0.0.1:6333
+DMF_BENCH_IMAGE=ghcr.io/ORG/dmf-benchmarks:TAG
+OPENAI_API_KEY=...
+HF_HUB_OFFLINE=1
 ```
+
+Do not set `QDRANT_URL` for the standard local stack. The benchmark container receives the internal endpoint `http://qdrant:6333` automatically.
 
 Launch a run:
 
 ```text
-dmf-bench run --config config/experiment.json --run-id RUN_ID
+dmf-benchctl run --config config/experiment.json --run-id RUN_ID
 ```
 
 `RUN_ID` must be unique and readable, for example:
@@ -459,7 +486,13 @@ dmf-bench run --config config/experiment.json --run-id RUN_ID
 official-20260809-locomo-dmf
 ```
 
-During the run, JSON events are printed. A completed run exits with code `0` and prints a final `COMPLETED` state.
+The controller starts Qdrant and the read-only Artifact API, leaves them running for result inspection, and executes `dmf-bench run` in a one-shot container. Add `--observability` to start Prometheus and Grafana as well. Add `--allow-downloads` only during an intentional cache-preparation or online run.
+
+During the run, JSON events are printed. A completed run exits with code `0` and prints a final `COMPLETED` state. Stop services afterward without deleting run or cache volumes:
+
+```text
+dmf-benchctl stack down
+```
 
 # 11. Artifact API
 
@@ -507,19 +540,19 @@ curl --fail http://127.0.0.1:8000/runs/RUN_ID/artifacts/reports/timing.json
 Verify a published run:
 
 ```text
-dmf-bench verify --run-id RUN_ID --runs-dir runs
+dmf-benchctl verify --run-id RUN_ID
 ```
 
 Inspect state:
 
 ```text
-dmf-bench status --run-id RUN_ID --runs-dir runs
+dmf-benchctl status --run-id RUN_ID
 ```
 
 Resume an interrupted run:
 
 ```text
-dmf-bench resume --run-id RUN_ID --runs-dir runs
+dmf-benchctl resume --run-id RUN_ID
 ```
 
 Do not relaunch a run with the same `RUN_ID` before checking its state: you may duplicate provider calls.
@@ -549,7 +582,7 @@ To archive an official run, publish the run OCI bundle or keep at least the imag
 
 A completed run can be published to GHCR as an OCI artifact. The artifact is not an executable image: it is a complete snapshot of the run directory, meaning everything under `runs/RUN_ID/`.
 
-Before publication, `dmf-bench` adds these files to the run directory:
+Before publication, the controller asks `dmf-bench` to verify the committed run and add these files to the run directory:
 
 | File | Purpose |
 |---|---|
@@ -559,27 +592,27 @@ Before publication, `dmf-bench` adds these files to the run directory:
 Command:
 
 ```text
-dmf-bench publish-run-oci \
+dmf-benchctl publish-run \
   --run-id RUN_ID \
-  --runs-dir runs \
   --ref ghcr.io/ORG/dmf-benchmarks-runs:RUN_ID \
   --subject ghcr.io/ORG/dmf-benchmarks@sha256:IMAGE_DIGEST
 ```
 
 `--ref` is the GHCR destination for the run bundle. `--subject` links the bundle to the Docker image that produced the run.
 
+Packaging happens inside the benchmark image against the shared run volume. The resulting archive is retained on the host, under `bundles/` by default. The controller then calls the host `oras` executable to push that exact archive. Authenticate `oras` to GHCR before publication.
+
 To test packaging without publishing:
 
 ```text
-dmf-bench publish-run-oci \
+dmf-benchctl publish-run \
   --run-id RUN_ID \
-  --runs-dir runs \
   --ref ghcr.io/ORG/dmf-benchmarks-runs:RUN_ID \
   --output-dir bundles \
   --dry-run
 ```
 
-A real push requires `oras` installed and authenticated to GHCR.
+A real push requires `oras` installed and authenticated to GHCR. A dry run does not require `oras` because it only verifies and exports the bundle.
 
 # 15. Ready-To-Use Example
 
@@ -590,21 +623,23 @@ The `smoke/` directory contains ready-to-use configurations for a restricted but
 - LongMemEval with DMF: `smoke/config/experiment-longmemeval-dmf.json`
 - LongMemEval with Mem0: `smoke/config/experiment-longmemeval-mem0.json`
 
-If the CLI can see the `smoke/` directory, you can use the ready configs directly:
+Run a ready config directly from the repository root:
 
 ```text
-dmf-bench run \
+dmf-benchctl run \
   --config smoke/config/experiment-locomo-dmf.json \
   --run-id smoke-20260809-locomo-dmf
 ```
+
+The controller detects the `smoke/` path and automatically adds the required read-only mount. No orchestrator-specific option is needed.
 
 This is only an operational example. For a real experiment, create a dedicated configuration and treat dataset, selection, models, and costs as explicit decisions.
 
 # 16. Common Problems
 
-**Missing `OPENAI_API_KEY`.** Check the CLI environment. Do not print the key in logs.
+**Missing `OPENAI_API_KEY`.** Check the host environment or repository `.env` file. Do not print the key in logs.
 
-**Config not found.** Verify that the path used in the command exists in the environment where `dmf-bench` runs.
+**Config not found.** For `dmf-benchctl --config`, verify the host path. For paths inside the JSON file, verify the corresponding `/bench` mount.
 
 **Dataset not found.** If the config uses `registry_id`, use `run` or `validate --materialize-datasets`. If it uses `dataset.path`, check mounts and SHA-256.
 
@@ -612,25 +647,25 @@ This is only an operational example. For a real experiment, create a dedicated c
 
 **Read-only file system.** This is normal. Write only to `/bench/cache` and `/bench/runs`.
 
-**Qdrant not reachable.** Check that the `qdrant` service is running and that the run uses `QDRANT_URL=http://qdrant:6333`.
+**Qdrant not reachable.** Run `dmf-benchctl stack status`. The standard stack injects `QDRANT_URL=http://qdrant:6333` automatically.
 
 **Download blocked.** If `HF_HUB_OFFLINE=1`, Hugging Face downloads do not start. Prepare the cache before the run or change policy only for a controlled phase.
 
 **Provider rate limit or timeout.** Check `logs/events.jsonl`, `reports/usage.json`, and run state before retrying.
 
-**OCI publication failed.** Check that `oras` is installed, GHCR login is valid, and `dmf-bench verify --run-id RUN_ID --runs-dir runs` passes before pushing.
+**OCI publication failed.** Check that `oras` is installed, GHCR login is valid, and `dmf-benchctl verify --run-id RUN_ID` passes before pushing.
 
 # 17. Operator Or Agent Checklist
 
-1. Verify that `dmf-bench --help` responds.
+1. Verify that Docker, Docker Compose, and `dmf-benchctl --help` respond.
 2. Prepare `.env` without committing secrets.
 3. Prepare or choose the JSON config.
-4. Run `validate`; use `--materialize-datasets` if the config uses the registry.
+4. Run `dmf-benchctl validate`; use `--materialize-datasets` if the config uses the registry.
 5. Read the dataset `manifest.json` if the dataset was materialized.
-6. Start Qdrant and the Artifact API.
-7. Launch exactly one run with a unique `RUN_ID`.
+6. Launch exactly one `dmf-benchctl run` with a unique `RUN_ID`; the controller starts required services.
+7. Optionally request observability with `--observability`.
 8. Check exit code and `COMPLETED` state.
 9. Read artifacts from the Artifact API.
 10. Save usage, timing, resolved config, and dataset manifest.
-11. Publish the OCI bundle with `publish-run-oci` if the run is official.
-12. Stop services without deleting volumes, unless explicitly requested.
+11. Publish the OCI bundle with `dmf-benchctl publish-run` if the run is official.
+12. Stop services with `dmf-benchctl stack down`; named volumes are preserved.

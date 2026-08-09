@@ -6,11 +6,7 @@ POETRY ?= poetry
 DOCKER ?= docker
 GH ?= gh
 ORAS ?= oras
-
-COMPOSE_FILE ?= deploy/compose.yaml
-FIXTURE_COMPOSE_FILE ?= deploy/compose.fixture.yaml
-COMPOSE ?= $(DOCKER) compose -f $(COMPOSE_FILE)
-FIXTURE_COMPOSE ?= $(DOCKER) compose -f $(COMPOSE_FILE) -f $(FIXTURE_COMPOSE_FILE)
+PANDOC ?= pandoc
 
 VERSION := $(shell $(POETRY) version -s 2>/dev/null || printf "0.0.0")
 GIT_SHA := $(shell git rev-parse HEAD 2>/dev/null || printf "unknown")
@@ -42,6 +38,7 @@ CANARY_CONFIRM ?=
 .PHONY: \
 	help require-% \
 	install check compile test test-unit test-integration \
+	docs-build \
 	compose-config prometheus-check stack-up stack-down \
 	image-build image-build-ghcr image-inspect image-smoke image-push image-buildx-push ghcr-login \
 	run-oci-dry-run run-oci-push \
@@ -54,6 +51,8 @@ help:
 	@printf "  make check                           poetry check + compile + unit tests\n"
 	@printf "  make test                            Run unit tests\n"
 	@printf "  make test-integration                Run integration tests against local stack\n\n"
+	@printf "Documentation:\n"
+	@printf "  make docs-build                      Rebuild the PDF user manual\n\n"
 	@printf "Container and observability checks:\n"
 	@printf "  make compose-config                  Validate deploy compose config\n"
 	@printf "  make prometheus-check                Validate Prometheus config with promtool\n"
@@ -82,7 +81,7 @@ install:
 	$(POETRY) install --no-ansi
 
 compile:
-	$(POETRY) run $(PYTHON) -m compileall dmf_bench -q
+	$(POETRY) run $(PYTHON) -m compileall dmf_bench dmf_benchctl -q
 
 test: test-unit
 
@@ -94,11 +93,14 @@ check:
 	$(MAKE) compile
 	$(MAKE) test-unit
 
+docs-build:
+	$(PANDOC) manual/user-manual.md --pdf-engine=xelatex --output manual/user-manual.pdf
+
 test-integration: stack-up
 	$(POETRY) run pytest tests/integration -q
 
 compose-config:
-	$(COMPOSE) config --quiet
+	$(POETRY) run $(PYTHON) -m dmf_benchctl config
 
 prometheus-check:
 	$(DOCKER) run --rm --entrypoint /bin/promtool \
@@ -107,10 +109,10 @@ prometheus-check:
 		check config /etc/prometheus/prometheus.yml
 
 stack-up:
-	$(COMPOSE) up -d --wait qdrant artifact-api prometheus grafana
+	$(POETRY) run $(PYTHON) -m dmf_benchctl stack up --observability
 
 stack-down:
-	$(COMPOSE) down --remove-orphans
+	$(POETRY) run $(PYTHON) -m dmf_benchctl stack down
 
 image-build:
 	$(DOCKER) build \

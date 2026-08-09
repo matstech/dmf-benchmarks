@@ -4,15 +4,16 @@
 
 DMF Benchmarks compares [DMF](https://github.com/matstech/dmf) and
 [Mem0](https://github.com/mem0ai/mem0) on LoCoMo and LongMemEval. Version 0.2
-has one supported runtime: the native `dmf-bench` application, normally run
-inside the locked Docker image with Qdrant Server. It publishes verified JSON
-artifacts to a run volume and exposes committed results through a
-loopback-only, read-only FastAPI service.
+has one supported runtime: the native `dmf-bench` application inside the
+locked Docker image with Qdrant Server. Host-side operations go through
+`dmf-benchctl`, which owns orchestration and delegates scientific work to
+`dmf-bench`. Runs publish verified JSON artifacts to a shared volume and expose
+committed results through a loopback-only, read-only FastAPI service.
 
 The framework-owned retrieval path is product behavior, not a selectable
-protocol. DMF and Mem0 are installed from the exact Git commits recorded in
-`pyproject.toml` and `poetry.lock`; changing either commit is a scientific
-change and requires rerunning the certification gates.
+protocol. Framework dependency versions are locked by `pyproject.toml` and
+`poetry.lock`; changing them is a scientific change and requires rerunning the
+certification gates.
 
 ## Table of contents
 
@@ -39,16 +40,17 @@ and OCI publication of official run bundles.
 
 ## CLI quickstart
 
-All user commands go through `dmf-bench`. The paths in an experiment config must
-be valid in the environment where the CLI runs. In the official image, paths are
-typically under `/bench`; on the host, use host-local paths.
+User operations go through `dmf-benchctl`. It locates the repository Compose
+definition, starts the required services, translates known host paths to
+container paths, and invokes `dmf-bench` explicitly inside the locked image.
+Docker Compose is an implementation detail of the current orchestrator adapter.
 
 Check the CLI surface:
 
 ```bash
-dmf-bench --help
-dmf-bench list
-dmf-bench list-datasets
+dmf-benchctl --help
+dmf-benchctl runtime -- list
+dmf-benchctl runtime -- list-datasets
 ```
 
 Prepare provider and service endpoints through environment variables, never in
@@ -56,27 +58,28 @@ JSON config files:
 
 ```bash
 export OPENAI_API_KEY=your_openai_api_key_here
-export QDRANT_URL=http://127.0.0.1:6333
+export DMF_BENCH_IMAGE=ghcr.io/ORG/dmf-benchmarks:TAG
 ```
 
 Validate a config without calling the provider:
 
 ```bash
-dmf-bench validate --materialize-datasets --config config/experiment.json
+dmf-benchctl validate --materialize-datasets --config config/experiment.json
 ```
 
 Run a benchmark with a fresh run ID:
 
 ```bash
-dmf-bench run --config config/experiment.json --run-id local-locomo-dmf-001
+dmf-benchctl run --config config/experiment.json --run-id local-locomo-dmf-001
 ```
 
 Inspect, resume, and verify committed local state:
 
 ```bash
-dmf-bench status --run-id local-locomo-dmf-001 --runs-dir runs
-dmf-bench resume --run-id local-locomo-dmf-001 --runs-dir runs
-dmf-bench verify --run-id local-locomo-dmf-001 --runs-dir runs
+dmf-benchctl status --run-id local-locomo-dmf-001
+dmf-benchctl resume --run-id local-locomo-dmf-001
+dmf-benchctl verify --run-id local-locomo-dmf-001
+dmf-benchctl stack down
 ```
 
 The checked-in `smoke/` directory contains ready-to-use restricted configs for
@@ -143,15 +146,16 @@ A completed run can be packaged as a GHCR/OCI artifact containing the complete
 snapshot, and pushes it with ORAS:
 
 ```bash
-dmf-bench publish-run-oci \
+dmf-benchctl publish-run \
   --run-id "$RUN_ID" \
-  --runs-dir runs \
   --ref "ghcr.io/ORG/dmf-benchmarks-runs:$RUN_ID" \
   --subject "ghcr.io/ORG/dmf-benchmarks@sha256:IMAGE_DIGEST"
 ```
 
-Use `--dry-run --output-dir bundles` to create and inspect the local bundle
-without pushing. The OCI artifact type is:
+The controller first asks `dmf-bench` to verify and package the complete run
+volume, then invokes the host `oras` client. Use `--dry-run --output-dir
+bundles` to create and inspect the local bundle without pushing. The OCI
+artifact type is:
 
 ```text
 application/vnd.dmf-bench.run.v1+tar
@@ -184,13 +188,13 @@ Run `make help` for the full list.
 List registry entries:
 
 ```bash
-dmf-bench list-datasets
+dmf-benchctl runtime -- list-datasets
 ```
 
 Materialize a dataset manually:
 
 ```bash
-dmf-bench materialize-dataset \
+dmf-benchctl runtime -- materialize-dataset \
   --dataset-id locomo-official-unpinned \
   --allow-unpinned \
   --sample-fraction 0.05 \
@@ -198,7 +202,7 @@ dmf-bench materialize-dataset \
   --sample-stratify-by category \
   --sample-seed 7 \
   --sample-rounding ceil \
-  --output-dir .cache/datasets/manual-locomo-smoke
+  --output-dir /bench/cache/datasets/manual-locomo-smoke
 ```
 
 Materialization always writes `manifest.json`; when sampling options are

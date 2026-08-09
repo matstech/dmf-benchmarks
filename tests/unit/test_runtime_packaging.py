@@ -27,8 +27,14 @@ def test_distribution_contains_the_runtime_package_and_entrypoint() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert project["project"]["version"] == "0.2.0"
-    assert project["tool"]["poetry"]["packages"] == [{"include": "dmf_bench"}]
-    assert project["project"]["scripts"] == {"dmf-bench": "dmf_bench.cli:main"}
+    assert project["tool"]["poetry"]["packages"] == [
+        {"include": "dmf_bench"},
+        {"include": "dmf_benchctl"},
+    ]
+    assert project["project"]["scripts"] == {
+        "dmf-bench": "dmf_bench.cli:main",
+        "dmf-benchctl": "dmf_benchctl.cli:main",
+    }
 
 
 def test_config_directory_contains_the_supported_qdrant_surfaces() -> None:
@@ -65,6 +71,7 @@ def test_docker_context_and_runtime_exclude_repository_surfaces() -> None:
     compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
 
     assert "COPY dmf_bench ./dmf_bench" in dockerfile
+    assert "COPY dmf_benchctl ./dmf_benchctl" in dockerfile
     assert "COPY --from=builder --chown=dmfbench:dmfbench /opt/venv /opt/venv" in dockerfile
     assert "COPY --from=builder --chown=dmfbench:dmfbench /app /app" not in dockerfile
     assert "/opt/poetry /opt/poetry" not in dockerfile
@@ -78,6 +85,8 @@ def test_docker_context_and_runtime_exclude_repository_surfaces() -> None:
         "!LICENSE",
         "!dmf_bench/",
         "!dmf_bench/**",
+        "!dmf_benchctl/",
+        "!dmf_benchctl/**",
     ]
 
 
@@ -95,6 +104,7 @@ def test_makefile_exposes_maintainer_targets() -> None:
         "test",
         "check",
         "test-integration",
+        "docs-build",
         "compose-config",
         "prometheus-check",
         "stack-up",
@@ -116,7 +126,9 @@ def test_makefile_exposes_maintainer_targets() -> None:
         "gh-scientific-canary",
     }
     assert expected <= targets
-    assert "$(DOCKER) compose" in makefile
+    assert "-m dmf_benchctl config" in makefile
+    assert "-m dmf_benchctl stack up --observability" in makefile
+    assert "$(DOCKER) compose" not in makefile
     assert "poetry" in makefile.lower()
     assert "publish-run-oci" in makefile
     assert "$(GH) workflow run" in makefile
@@ -152,7 +164,16 @@ def test_readme_documents_cli_surface_and_user_manual() -> None:
     assert "## Maintainer Makefile" in readme
     assert "manual/user-manual.md" in readme
     assert "manual/user-manual.pdf" in readme
-    assert "All user commands go through `dmf-bench`." in readme
+    assert "User operations go through `dmf-benchctl`." in readme
     assert "poetry run" not in readme
     assert "The Makefile is a maintainer surface" in readme
     assert "The checked-in `smoke/` directory contains ready-to-use" in readme
+
+
+def test_container_fixture_still_enters_through_dmf_bench() -> None:
+    fixture = (ROOT / "deploy" / "compose.fixture.yaml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "entrypoint:" not in fixture
+    assert 'DMF_BENCH_INTERNAL_APPLICATION: "container-fixture"' in fixture

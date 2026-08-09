@@ -37,7 +37,7 @@ jobs:
         run: poetry check
 
       - name: Compile package
-        run: poetry run python -m compileall dmf_bench -q
+        run: poetry run python -m compileall dmf_bench dmf_benchctl -q
 
       - name: Run offline tests
         run: poetry run pytest tests/unit -q
@@ -46,3 +46,4 @@ jobs:
         run: |
           poetry run python -m dmf_bench list
           poetry run python -m dmf_bench list-datasets
+          poetry run python -m dmf_benchctl --help

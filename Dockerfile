@@ -29,6 +29,7 @@ RUN /opt/poetry/bin/poetry install --only main --no-root --no-ansi
 
 COPY LICENSE ./LICENSE
 COPY dmf_bench ./dmf_bench
+COPY dmf_benchctl ./dmf_benchctl
 RUN /opt/poetry/bin/poetry build --format wheel --no-ansi \
     && pip install --no-deps --no-build-isolation dist/*.whl
 
