@@ -1,0 +1,19 @@
+services:
+  benchmark:
+    entrypoint:
+      - "python"
+      - "-m"
+      - "dmf_bench.container_fixture"
+    command:
+      - "run"
+      - "--config"
+      - "/bench/fixtures/docker-locomo-execution.json"
+      - "--run-id"
+      - "${DMF_BENCH_FIXTURE_RUN_ID:-docker-stop-resume-fixture}"
+    environment:
+      DMF_BENCH_FIXTURE_ANSWER_DELAY_SECONDS: "${DMF_BENCH_FIXTURE_ANSWER_DELAY_SECONDS:-15}"
+    volumes:
+      - type: bind
+        source: ../tests/fixtures
+        target: /bench/fixtures
+        read_only: true

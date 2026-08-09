@@ -1,0 +1,40 @@
+{
+  "schema_version": 2,
+  "experiment_id": "fixture-invalid",
+  "benchmark": "locomo",
+  "framework": "dmf",
+  "runtime": {
+    "root": "relative",
+    "runs_dir": "/bench/runs",
+    "cache_dir": "/bench/cache"
+  },
+  "dataset": {
+    "name": "locomo",
+    "source": "fixture",
+    "revision": "fixture-revision",
+    "sha256": "not-a-sha",
+    "path": "/bench/datasets/locomo/fixture/locomo.json"
+  },
+  "selection": {
+    "ordered_item_ids": []
+  },
+  "models": {
+    "answerer": {
+      "provider": "openai",
+      "requested_model": "gpt-4.1-mini",
+      "parameters": {}
+    },
+    "judge": {
+      "provider": "openai",
+      "requested_model": "gpt-5-mini",
+      "parameters": {}
+    }
+  },
+  "evaluation": {
+    "required": [],
+    "optional": []
+  },
+  "artifact_store": {
+    "type": "local"
+  }
+}

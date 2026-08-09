@@ -1,0 +1,84 @@
+name: Scientific canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_costs:
+        description: Type APPROVED to acknowledge provider and runtime costs.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scientific-canary
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: manual cost gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require explicit cost approval
+        env:
+          CONFIRM_COSTS: ${{ inputs.confirm_costs }}
+        run: |
+          if [ "$CONFIRM_COSTS" != "APPROVED" ]; then
+            echo "Scientific canary is gated. Re-run with confirm_costs=APPROVED."
+            exit 1
+          fi
+
+  canary:
+    name: containerized provider canary
+    needs: gate
+    runs-on: ubuntu-24.04
+    environment: scientific-canary
+    timeout-minutes: 30
+    env:
+      CANARY_CONFIG: /bench/config/experiment-locomo-dmf.json
+      CANARY_RUN_ID: scientific-canary-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact ref without external actions
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - name: Validate container configuration
+        run: docker compose -f deploy/compose.yaml config --quiet
+
+      - name: Build the locked benchmark image
+        run: |
+          docker compose -f deploy/compose.yaml build artifact-api benchmark
+          echo "DMF_BENCH_HARNESS_COMMIT=$GITHUB_SHA" >> "$GITHUB_ENV"
+          echo "DMF_BENCH_IMAGE_DIGEST=$(docker image inspect --format '{{.Id}}' dmf-benchmarks:local)" >> "$GITHUB_ENV"
+
+      - name: Start Qdrant and the read-only artifact API
+        run: docker compose -f deploy/compose.yaml up -d --wait qdrant artifact-api
+
+      - name: Run the approved provider canary through dmf-bench
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "The protected scientific-canary environment must provide OPENAI_API_KEY."
+            exit 1
+          fi
+          docker compose --profile job -f deploy/compose.yaml run --rm --no-deps \
+            --entrypoint dmf-bench benchmark \
+            run --config "$CANARY_CONFIG" --run-id "$CANARY_RUN_ID"
+
+      - name: Verify the committed canary artifacts
+        run: |
+          docker compose --profile job -f deploy/compose.yaml run --rm --no-deps \
+            --entrypoint dmf-bench benchmark \
+            verify --run-id "$CANARY_RUN_ID"
+          curl --fail --silent --show-error \
+            "http://127.0.0.1:8000/runs/$CANARY_RUN_ID/verify"
+
+      - name: Stop the isolated canary stack
+        if: always()
+        run: docker compose -f deploy/compose.yaml down --remove-orphans

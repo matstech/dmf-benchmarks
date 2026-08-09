@@ -1,0 +1,57 @@
+name: Scheduled integration
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qdrant-observability:
+    name: qdrant and observability integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      INTEGRATION_RUN_ID: scheduled-container-${{ github.run_id }}-${{ github.run_attempt }}
+      DMF_BENCH_FIXTURE_ANSWER_DELAY_SECONDS: "0"
+    steps:
+      - name: Checkout exact ref without external actions
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - name: Build local image
+        run: docker compose -f deploy/compose.yaml build artifact-api benchmark
+
+      - name: Start local stack
+        run: docker compose -f deploy/compose.yaml up -d --wait qdrant artifact-api prometheus grafana
+
+      - name: Run deterministic container integration
+        run: |
+          docker compose --profile job \
+            -f deploy/compose.yaml \
+            -f deploy/compose.fixture.yaml \
+            run --rm benchmark \
+            run --config /bench/fixtures/docker-locomo-execution.json \
+            --run-id "$INTEGRATION_RUN_ID"
+
+      - name: Verify artifacts with the runtime image
+        run: |
+          docker compose --profile job -f deploy/compose.yaml run --rm --no-deps \
+            benchmark verify --run-id "$INTEGRATION_RUN_ID"
+          curl --fail --silent --show-error \
+            "http://127.0.0.1:8000/runs/$INTEGRATION_RUN_ID/verify"
+
+      - name: Verify observability endpoints
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8000/health
+          curl --fail --silent --show-error http://127.0.0.1:9090/-/ready
+          curl --fail --silent --show-error http://127.0.0.1:3000/api/health
+
+      - name: Stop local stack
+        if: always()
+        run: docker compose -f deploy/compose.yaml stop grafana prometheus artifact-api qdrant

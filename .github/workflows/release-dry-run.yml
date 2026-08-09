@@ -1,0 +1,51 @@
+name: Release dry run
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Local image tag to build and inspect. This workflow does not push.
+        required: true
+        default: dmf-benchmarks:release-dry-run
+
+permissions:
+  contents: read
+
+jobs:
+  release-dry-run:
+    name: build image metadata without publishing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact ref without external actions
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - name: Build image with OCI revision labels
+        run: |
+          docker build \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --label org.opencontainers.image.created="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --tag "${{ inputs.image_tag }}" \
+            .
+
+      - name: Inspect image metadata
+        run: docker image inspect "${{ inputs.image_tag }}"
+
+      - name: Exercise the release image
+        run: docker run --rm --read-only --tmpfs /tmp "${{ inputs.image_tag }}" list
+
+      - name: BuildKit SBOM and provenance dry run
+        run: |
+          docker buildx build \
+            --sbom=true \
+            --provenance=true \
+            --load \
+            --tag "${{ inputs.image_tag }}-attested" \
+            .
+
+      - name: Confirm no publish step ran
+        run: echo "Release dry run complete; no registry login or push was performed."

@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "experiment_id": "local-longmemeval-dmf",
+  "benchmark": "longmemeval",
+  "framework": "dmf",
+  "runtime": {
+    "root": "/bench",
+    "runs_dir": "/bench/runs",
+    "cache_dir": "/bench/cache",
+    "metrics_port": 9464,
+    "log_level": "INFO"
+  },
+  "framework_config": {
+    "path": "/bench/config/longmemeval_dmf_qdrant_settings.toml",
+    "sha256": "5ce36630b0d6d186efc2fdbc9d2e75af8f7c7de1789e23779c5216ef0192c637",
+    "format": "toml",
+    "profile": "local-mini-v2"
+  },
+  "qdrant": {
+    "endpoint_env": "QDRANT_URL",
+    "retention": "keep",
+    "request_timeout_seconds": 10
+  },
+  "dataset": {
+    "name": "longmemeval",
+    "source": "local-fixture",
+    "revision": "longmemeval-mini-v1",
+    "sha256": "e75e470f703b76bb3cb7cab9c5fa7701fd209c312f9fe16a150b8e5901388aa0",
+    "path": "/bench/datasets/longmemeval/longmemeval-mini.json"
+  },
+  "selection": {
+    "ordered_item_ids": ["lme-001", "lme-002"],
+    "filters": {},
+    "seed": 7
+  },
+  "models": {
+    "answerer": {
+      "provider": "openai",
+      "requested_model": "gpt-4.1-mini",
+      "parameters": {"temperature": 0, "max_tokens": 4096},
+      "runtime": {"timeout_seconds": 120, "rpm": 200, "max_retries": 5}
+    },
+    "judge": {
+      "provider": "openai",
+      "requested_model": "gpt-5-mini",
+      "parameters": {
+        "temperature": 0,
+        "max_tokens": 4096,
+        "reasoning_effort": "low"
+      },
+      "runtime": {"timeout_seconds": 120, "rpm": 200, "max_retries": 5}
+    }
+  },
+  "evaluation": {
+    "required": ["primary_judge_score", "rigorous_report"],
+    "optional": ["ablation_report"],
+    "ablation_required": false
+  },
+  "artifact_store": {"type": "local", "uri": "/bench/runs"}
+}

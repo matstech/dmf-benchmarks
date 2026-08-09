@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: DMF Benchmarks
+    orgId: 1
+    folder: DMF Benchmarks
+    type: file
+    disableDeletion: false
+    editable: false
+    options:
+      path: /etc/grafana/dashboards

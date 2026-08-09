@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>DMF Benchmarks</title>
+  <style>
+    :root {
+      --background: #0b0d10;
+      --surface: #12161c;
+      --surface-hover: #171c23;
+      --border: #2b323c;
+      --text: #e8edf2;
+      --muted: #929daa;
+      --ok: #58c99a;
+      --pending: #d5a95f;
+      --error: #e0737f;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: var(--background);
+      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(1040px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 24px 0;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-height: 42px;
+      padding: 0 12px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .system-name {
+      font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .mode {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .api-state {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .api-state::before,
+    .service-status::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--pending);
+      content: "";
+    }
+
+    .online::before { background: var(--ok); }
+    .offline::before { background: var(--error); }
+
+    button {
+      padding: 6px 9px;
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: transparent;
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    button:hover,
+    button:focus-visible {
+      border-color: var(--muted);
+      outline: none;
+    }
+
+    .services {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .service {
+      display: block;
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid var(--border);
+      color: inherit;
+      background: var(--surface);
+      text-decoration: none;
+    }
+
+    .service:hover,
+    .service:focus-visible {
+      border-color: var(--muted);
+      background: var(--surface-hover);
+      outline: none;
+    }
+
+    .service-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .service-name { font-weight: 650; }
+
+    .service-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .service-description {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .service-url {
+      display: block;
+      margin-top: 12px;
+      overflow: hidden;
+      color: #b8c2cd;
+      font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .run-panel {
+      margin-top: 16px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .run-input {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    input {
+      width: 100%;
+      min-width: 0;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      outline: none;
+      color: var(--text);
+      background: var(--background);
+      font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    input:focus { border-color: var(--muted); }
+
+    .run-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 12px;
+    }
+
+    .run-link {
+      padding: 7px 9px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      text-decoration: none;
+    }
+
+    .run-link.ready { color: var(--text); }
+    .run-link:not(.ready) { pointer-events: none; opacity: 0.45; }
+
+    .run-link.ready:hover,
+    .run-link.ready:focus-visible {
+      border-color: var(--muted);
+      background: var(--surface-hover);
+      outline: none;
+    }
+
+    @media (max-width: 680px) {
+      main { width: min(100% - 20px, 1040px); padding: 10px 0; }
+      .status-bar { flex-wrap: wrap; padding: 10px; }
+      .api-state { margin-left: 0; }
+      .services { grid-template-columns: 1fr; }
+      .run-input { grid-template-columns: 1fr; gap: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="status-bar">
+      <span class="system-name">dmf-benchmarks</span>
+      <span class="mode">local · read-only</span>
+      <span class="api-state" id="api-state" aria-live="polite">checking API</span>
+      <button id="refresh" type="button">Refresh</button>
+    </div>
+
+    <nav class="services" aria-label="Local services">
+      <a class="service" data-service="grafana" href="http://127.0.0.1:3000/d/dmf-benchmarks/dmf-benchmarks" target="_blank" rel="noopener">
+        <span class="service-row">
+          <span class="service-name">Grafana</span>
+          <span class="service-status">checking</span>
+        </span>
+        <span class="service-description">Benchmark progress and operational dashboards</span>
+        <code class="service-url">127.0.0.1:3000</code>
+      </a>
+
+      <a class="service" data-service="prometheus" href="http://127.0.0.1:9090" target="_blank" rel="noopener">
+        <span class="service-row">
+          <span class="service-name">Prometheus</span>
+          <span class="service-status">checking</span>
+        </span>
+        <span class="service-description">Metrics, targets and alerts</span>
+        <code class="service-url">127.0.0.1:9090</code>
+      </a>
+
+      <a class="service" data-service="qdrant" href="http://127.0.0.1:6333/dashboard" target="_blank" rel="noopener">
+        <span class="service-row">
+          <span class="service-name">Qdrant</span>
+          <span class="service-status">checking</span>
+        </span>
+        <span class="service-description">Collections and vector storage</span>
+        <code class="service-url">127.0.0.1:6333/dashboard</code>
+      </a>
+
+      <a class="service" data-service="artifact_api" href="/docs" target="_blank" rel="noopener">
+        <span class="service-row">
+          <span class="service-name">Artifact API</span>
+          <span class="service-status">checking</span>
+        </span>
+        <span class="service-description">Read-only API documentation</span>
+        <code class="service-url">/docs</code>
+      </a>
+    </nav>
+
+    <section class="run-panel" aria-label="Committed run artifacts">
+      <div class="run-input">
+        <label for="run-id">Run ID</label>
+        <input id="run-id" type="text" autocomplete="off" spellcheck="false" placeholder="local-locomo-dmf-001">
+      </div>
+      <nav class="run-links" aria-label="Run artifacts">
+        <a class="run-link" data-run-path="">Inspect</a>
+        <a class="run-link" data-run-path="/verify">Verify</a>
+        <a class="run-link" data-run-path="/artifacts/reports/summary.json">Summary</a>
+        <a class="run-link" data-run-path="/artifacts/reports/usage.json">Tokens</a>
+        <a class="run-link" data-run-path="/artifacts/reports/timing.json">Timing</a>
+        <a class="run-link" data-run-path="/artifacts/evaluations/rigorous_report.json">Rigorous</a>
+        <a class="run-link" data-run-path="/artifacts/evaluations/ablation_report.json">Ablation</a>
+      </nav>
+    </section>
+  </main>
+
+  <script>
+    const apiState = document.getElementById("api-state");
+    const refreshButton = document.getElementById("refresh");
+    const serviceCards = new Map(
+      [...document.querySelectorAll("[data-service]")].map((card) => [card.dataset.service, card])
+    );
+
+    function serviceUrl(service) {
+      if (service.same_origin) return service.path;
+      return `${window.location.protocol}//${window.location.hostname}:${service.port}${service.path}`;
+    }
+
+    function displayUrl(service) {
+      if (service.same_origin) return service.path;
+      return `${window.location.hostname}:${service.port}${service.path}`;
+    }
+
+    function setStatus(element, state) {
+      element.textContent = state;
+      element.classList.remove("online", "offline");
+      if (state === "online") element.classList.add("online");
+      if (state === "unavailable") element.classList.add("offline");
+    }
+
+    async function probeService(card, url, sameOrigin) {
+      const status = card.querySelector(".service-status");
+      setStatus(status, "checking");
+      try {
+        await fetch(url, {
+          cache: "no-store",
+          mode: sameOrigin ? "same-origin" : "no-cors",
+        });
+        setStatus(status, "online");
+      } catch (_error) {
+        setStatus(status, "unavailable");
+      }
+    }
+
+    async function loadServices() {
+      try {
+        const response = await fetch("/services", { cache: "no-store" });
+        if (!response.ok) throw new Error("service catalog unavailable");
+        const catalog = await response.json();
+        for (const [name, service] of Object.entries(catalog.services)) {
+          const card = serviceCards.get(name);
+          if (!card) continue;
+          const url = serviceUrl(service);
+          card.href = url;
+          card.querySelector(".service-url").textContent = displayUrl(service);
+          probeService(card, url, Boolean(service.same_origin));
+        }
+      } catch (_error) {
+        for (const card of serviceCards.values()) {
+          setStatus(card.querySelector(".service-status"), "unavailable");
+        }
+      }
+    }
+
+    async function loadApiHealth() {
+      setStatus(apiState, "checking API");
+      try {
+        const response = await fetch("/health", { cache: "no-store" });
+        const health = await response.json();
+        if (!response.ok || health.writable !== false) throw new Error("unexpected health response");
+        setStatus(apiState, "API online");
+      } catch (_error) {
+        setStatus(apiState, "unavailable");
+      }
+    }
+
+    async function refreshStatus() {
+      refreshButton.disabled = true;
+      await Promise.all([loadServices(), loadApiHealth()]);
+      refreshButton.disabled = false;
+    }
+
+    const runInput = document.getElementById("run-id");
+    const runLinks = [...document.querySelectorAll("[data-run-path]")];
+
+    function updateRunLinks() {
+      const runId = runInput.value.trim();
+      for (const link of runLinks) {
+        if (!runId) {
+          link.removeAttribute("href");
+          link.classList.remove("ready");
+          continue;
+        }
+        link.href = `/runs/${encodeURIComponent(runId)}${link.dataset.runPath}`;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.classList.add("ready");
+      }
+    }
+
+    runInput.addEventListener("input", updateRunLinks);
+    refreshButton.addEventListener("click", refreshStatus);
+    refreshStatus();
+  </script>
+</body>
+</html>

@@ -1,0 +1,194 @@
+name: dmf-benchmarks-v2
+
+x-benchmark-image: &benchmark_image
+  image: ${DMF_BENCH_IMAGE:-dmf-benchmarks:local}
+  build:
+    context: ..
+    dockerfile: Dockerfile
+
+x-api-volumes: &api_volumes
+  - type: volume
+    source: benchmark-runs-v2
+    target: /bench/runs
+    read_only: true
+
+x-job-volumes: &job_volumes
+  - type: bind
+    source: ../config
+    target: /bench/config
+    read_only: true
+  - type: bind
+    source: ../datasets
+    target: /bench/datasets
+    read_only: true
+  - type: volume
+    source: benchmark-runs-v2
+    target: /bench/runs
+  - type: volume
+    source: benchmark-cache-v2
+    target: /bench/cache
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.18.2@sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c
+    init: true
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
+    ports:
+      - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
+    expose:
+      - "6334"
+    volumes:
+      - type: volume
+        source: qdrant-storage-v2
+        target: /qdrant/storage
+    stop_grace_period: 30s
+
+  artifact-api:
+    <<: *benchmark_image
+    init: true
+    depends_on:
+      qdrant:
+        condition: service_started
+    entrypoint: ["uvicorn"]
+    command:
+      - "dmf_bench.api:create_default_app"
+      - "--factory"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+    environment:
+      DMF_BENCH_RUNS_DIR: /bench/runs
+      GRAFANA_PORT: ${GRAFANA_PORT:-3000}
+      PROMETHEUS_PORT: ${PROMETHEUS_PORT:-9090}
+      QDRANT_HTTP_PORT: ${QDRANT_HTTP_PORT:-6333}
+    ports:
+      - "127.0.0.1:${DMF_ARTIFACT_API_PORT:-8000}:8000"
+    volumes: *api_volumes
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    stop_grace_period: 30s
+
+  prometheus:
+    image: prom/prometheus:v2.55.1@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3
+    init: true
+    depends_on:
+      artifact-api:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - type: bind
+        source: ./prometheus/prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+        read_only: true
+      - type: bind
+        source: ./prometheus/rules
+        target: /etc/prometheus/rules
+        read_only: true
+      - type: volume
+        source: prometheus-data-v2
+        target: /prometheus
+    stop_grace_period: 30s
+
+  grafana:
+    image: grafana/grafana:11.3.1@sha256:fa801ab6e1ae035135309580891e09f7eb94d1abdbd2106bdc288030b028158c
+    init: true
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_DEFAULT_THEME: light
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - type: bind
+        source: ./grafana/provisioning
+        target: /etc/grafana/provisioning
+        read_only: true
+      - type: bind
+        source: ./grafana/dashboards
+        target: /etc/grafana/dashboards
+        read_only: true
+      - type: volume
+        source: grafana-data-v2
+        target: /var/lib/grafana
+    stop_grace_period: 30s
+
+  benchmark:
+    <<: *benchmark_image
+    profiles:
+      - job
+    init: true
+    depends_on:
+      qdrant:
+        condition: service_started
+      artifact-api:
+        condition: service_healthy
+    command:
+      - "run"
+      - "--config"
+      - "${DMF_BENCH_CONFIG:-/bench/config/experiment-locomo-dmf.json}"
+    environment:
+      DMF_BENCH_HARNESS_COMMIT: ${DMF_BENCH_HARNESS_COMMIT:-unknown}
+      DMF_BENCH_IMAGE_DIGEST: ${DMF_BENCH_IMAGE_DIGEST:-unknown}
+      DMF_BENCH_RUNS_DIR: /bench/runs
+      DMF_BENCH_METRICS_PORT: "9464"
+      FASTEMBED_CACHE_PATH: /bench/cache/models/embeddings
+      HF_HOME: /bench/cache/huggingface
+      HF_HUB_CACHE: /bench/cache/huggingface/hub
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-1}
+      HF_XET_CACHE: /bench/cache/huggingface/xet
+      MEM0_DIR: /bench/cache/mem0
+      MEM0_TELEMETRY: "false"
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_IMAGE_DIGEST: sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c
+      QDRANT_VERSION: 1.18.2
+      XDG_CACHE_HOME: /bench/cache/xdg
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+    expose:
+      - "9464"
+    volumes: *job_volumes
+    read_only: true
+    tmpfs:
+      - /tmp
+    stop_grace_period: 30s
+
+volumes:
+  qdrant-storage-v2:
+    name: dmf-benchmarks-v2-qdrant
+  benchmark-runs-v2:
+    name: dmf-benchmarks-v2-runs
+  benchmark-cache-v2:
+    name: dmf-benchmarks-v2-cache
+  prometheus-data-v2:
+    name: dmf-benchmarks-v2-prometheus
+  grafana-data-v2:
+    name: dmf-benchmarks-v2-grafana

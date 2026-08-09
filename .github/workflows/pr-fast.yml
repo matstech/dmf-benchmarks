@@ -1,0 +1,48 @@
+name: PR fast
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - bigrefactor
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    name: offline unit and contract checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      POETRY_NO_INTERACTION: "1"
+      POETRY_VIRTUALENVS_IN_PROJECT: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: Checkout exact ref without external actions
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - name: Install Poetry
+        run: python3 -m pip install "poetry==2.3.2"
+
+      - name: Install locked dependencies
+        run: poetry install --no-root --no-ansi
+
+      - name: Package metadata check
+        run: poetry check
+
+      - name: Compile package
+        run: poetry run python -m compileall dmf_bench -q
+
+      - name: Run offline tests
+        run: poetry run pytest tests/unit -q
+
+      - name: Validate CLI surfaces
+        run: |
+          poetry run python -m dmf_bench list
+          poetry run python -m dmf_bench list-datasets
