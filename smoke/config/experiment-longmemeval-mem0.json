@@ -1,0 +1,109 @@
+{
+  "schema_version": 2,
+  "experiment_id": "official-smoke-longmemeval-mem0",
+  "benchmark": "longmemeval",
+  "framework": "mem0",
+  "runtime": {
+    "root": "/bench",
+    "runs_dir": "/bench/runs",
+    "cache_dir": "/bench/cache",
+    "metrics_port": 9464,
+    "log_level": "INFO"
+  },
+  "framework_config": {
+    "path": "/bench/config/longmemeval_mem0_qdrant_settings.yaml",
+    "sha256": "4501ed36cacb140b7d9ab8d913ef1c12a3fadd8784b6ec7993809ad3f3ad11b4",
+    "format": "yaml",
+    "profile": "official-smoke-v1"
+  },
+  "qdrant": {
+    "endpoint_env": "QDRANT_URL",
+    "retention": "keep",
+    "request_timeout_seconds": 10
+  },
+  "dataset": {
+    "name": "longmemeval",
+    "registry_id": "longmemeval-s-official-unpinned",
+    "allow_unpinned": true,
+    "sampling": {
+      "fraction": 0.05,
+      "unit": "record",
+      "seed": 7,
+      "rounding": "ceil"
+    }
+  },
+  "selection": {
+    "ordered_item_ids": [
+      "118b2229",
+      "8550ddae",
+      "76d63226",
+      "gpt4_e05b82a6",
+      "10d9b85a",
+      "d3ab962e",
+      "a1cc6108",
+      "3fdac837",
+      "27016adc",
+      "bc149d6b",
+      "09ba9854",
+      "87f22b4a",
+      "71017276",
+      "gpt4_45189cb4",
+      "gpt4_98f46fc6",
+      "0bb5a684",
+      "b29f3365",
+      "18bc8abd",
+      "0ddfec37_abs",
+      "4c36ccef",
+      "1903aded",
+      "8464fc84",
+      "ac031881",
+      "16c90bf4",
+      "65240037"
+    ],
+    "seed": 7,
+    "filters": {}
+  },
+  "models": {
+    "answerer": {
+      "provider": "openai",
+      "requested_model": "gpt-4.1-mini",
+      "parameters": {
+        "temperature": 0,
+        "max_tokens": 4096
+      },
+      "runtime": {
+        "timeout_seconds": 120,
+        "rpm": 200,
+        "max_retries": 5
+      }
+    },
+    "judge": {
+      "provider": "openai",
+      "requested_model": "gpt-5-mini",
+      "parameters": {
+        "temperature": 0,
+        "max_tokens": 4096,
+        "reasoning_effort": "low"
+      },
+      "runtime": {
+        "timeout_seconds": 120,
+        "rpm": 200,
+        "max_retries": 5
+      }
+    }
+  },
+  "evaluation": {
+    "required": [
+      "primary_judge_score",
+      "rigorous_report"
+    ],
+    "optional": [
+      "ablation_report"
+    ],
+    "ablation_required": false
+  },
+  "artifact_store": {
+    "type": "local",
+    "uri": "/bench/runs"
+  }
+}

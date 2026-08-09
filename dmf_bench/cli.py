@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Callable, TextIO
@@ -14,10 +15,11 @@ from .benchmarks.longmemeval.adapter import LongMemEvalAdapter
 from .artifacts import LocalArtifactStore
 from .atomic_io import read_json
 from .config import ResolvedConfig, resolve_config, validate_config
-from .datasets import dataset_config_for_id, load_dataset_registry, materialize_dataset, registry_as_dict
+from .datasets import load_dataset_registry, materialize_dataset_record, registry_as_dict
 from .execution import CancellationController, RunInterrupted
 from .logging_config import JsonEventLogger, redact
 from .metrics import BenchmarkMetrics, MetricsServer, start_metrics_endpoint, stop_metrics_endpoint
+from .oci import OciPublishError, publish_run_oci
 from .registry import BENCHMARKS, FRAMEWORKS, supported_combinations
 from .runtime import RuntimeApplication, assemble_application
 from .state import (
@@ -53,6 +55,15 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--config", required=True, help="Path to experiment JSON config.")
     validate_parser.add_argument("--benchmark", choices=sorted(BENCHMARKS), help="Override benchmark.")
     validate_parser.add_argument("--framework", choices=sorted(FRAMEWORKS), help="Override framework.")
+    validate_parser.add_argument(
+        "--materialize-datasets",
+        action="store_true",
+        help="Materialize source-based dataset entries before validating.",
+    )
+    validate_parser.add_argument(
+        "--dataset-registry",
+        help="Optional dataset registry JSON. Defaults to the built-in registry.",
+    )
 
     run_parser = subparsers.add_parser(
         "run",
@@ -70,6 +81,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the lifecycle plan without mutating state.",
     )
+    run_parser.add_argument(
+        "--dataset-registry",
+        help="Optional dataset registry JSON. Defaults to the built-in registry.",
+    )
 
     verify_parser = subparsers.add_parser(
         "verify",
@@ -82,6 +97,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Shared volume directory containing run directories.",
     )
 
+    oci_parser = subparsers.add_parser(
+        "publish-run-oci",
+        help="Package a committed run directory and publish it as a GHCR/OCI artifact.",
+    )
+    oci_parser.add_argument("--run-id", required=True, help="Committed run id to publish.")
+    oci_parser.add_argument(
+        "--runs-dir",
+        default=os.getenv("DMF_BENCH_RUNS_DIR", "/bench/runs"),
+        help="Directory containing run directories.",
+    )
+    oci_parser.add_argument("--ref", required=True, help="OCI destination ref, e.g. ghcr.io/org/runs:RUN_ID.")
+    oci_parser.add_argument(
+        "--subject",
+        help="Optional OCI subject image digest, e.g. ghcr.io/org/dmf-benchmarks@sha256:...",
+    )
+    oci_parser.add_argument(
+        "--output-dir",
+        help="Optional directory where the generated tar.gz bundle is kept.",
+    )
+    oci_parser.add_argument(
+        "--oras-bin",
+        default="oras",
+        help="ORAS executable used for push.",
+    )
+    oci_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build and verify the bundle without pushing to the registry.",
+    )
+
     dataset_parser = subparsers.add_parser(
         "materialize-dataset",
         help="Explicitly materialize a pinned dataset from the versioned registry.",
@@ -92,6 +137,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--registry",
         help="Optional dataset registry JSON. Defaults to the built-in registry.",
     )
+    dataset_parser.add_argument(
+        "--allow-unpinned",
+        action="store_true",
+        help="Allow unpinned registry entries and record the observed source SHA-256 in manifest.json.",
+    )
+    dataset_parser.add_argument("--sample-fraction", type=float, help="Optional sample fraction in (0, 1].")
+    dataset_parser.add_argument("--sample-seed", type=int, default=42, help="Sampling seed.")
+    dataset_parser.add_argument(
+        "--sample-rounding",
+        choices=("ceil", "floor", "round"),
+        default="ceil",
+        help="How fractional sample counts are rounded.",
+    )
+    dataset_parser.add_argument("--sample-unit", help="Sampling unit, e.g. qa or record.")
+    dataset_parser.add_argument("--sample-stratify-by", help="Optional sampling stratum field.")
 
     subparsers.add_parser("list-datasets", help="List dataset registry entries.")
 
@@ -147,6 +207,8 @@ def main(
                 args.config,
                 benchmark=args.benchmark,
                 framework=args.framework,
+                materialize_datasets=bool(args.materialize_datasets),
+                dataset_registry_path=args.dataset_registry,
             )
         except ValueError as exc:
             parser.exit(2, f"dmf-bench validate: error: {exc}\n")
@@ -175,6 +237,22 @@ def main(
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
         return 0
 
+    if args.command == "publish-run-oci":
+        try:
+            result = publish_run_oci(
+                run_id=args.run_id,
+                runs_dir=args.runs_dir,
+                ref=args.ref,
+                subject=args.subject,
+                output_dir=args.output_dir,
+                oras_bin=args.oras_bin,
+                dry_run=bool(args.dry_run),
+            )
+        except (OciPublishError, OSError, StateError, ValueError) as exc:
+            parser.exit(3, f"dmf-bench publish-run-oci: error: {exc}\n")
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
+        return 0
+
     if args.command == "list-datasets":
         result = registry_as_dict(load_dataset_registry())
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
@@ -182,18 +260,28 @@ def main(
 
     if args.command == "materialize-dataset":
         try:
-            dataset_path = materialize_dataset(
+            sampling = None
+            if args.sample_fraction is not None:
+                sampling = {
+                    "fraction": args.sample_fraction,
+                    "seed": args.sample_seed,
+                    "rounding": args.sample_rounding,
+                }
+                if args.sample_unit:
+                    sampling["unit"] = args.sample_unit
+                if args.sample_stratify_by:
+                    sampling["stratify_by"] = args.sample_stratify_by
+            materialized = materialize_dataset_record(
                 dataset_id=args.dataset_id,
                 output_dir=args.output_dir,
                 registry_path=args.registry,
+                sampling=sampling,
+                allow_unpinned=bool(args.allow_unpinned),
             )
             result = {
                 "schema_version": 1,
-                "dataset": dataset_config_for_id(
-                    dataset_id=args.dataset_id,
-                    path=dataset_path,
-                    registry_path=args.registry,
-                ),
+                "dataset": materialized.dataset_config,
+                "manifest_path": str(materialized.manifest_path.resolve()),
             }
         except (OSError, ValueError) as exc:
             parser.exit(3, f"dmf-bench materialize-dataset: error: {exc}\n")
@@ -202,7 +290,11 @@ def main(
 
     if args.command == "run":
         try:
-            resolved = resolve_config(args.config)
+            resolved = resolve_config(
+                args.config,
+                materialize_datasets=not bool(args.plan_only),
+                dataset_registry_path=args.dataset_registry,
+            )
             if resolved.data["benchmark"] == "longmemeval":
                 units = LongMemEvalAdapter().enumerate_units(resolved.data)
                 expected_question_ids = [unit.unit_id for unit in units]
@@ -299,6 +391,7 @@ def _execute(
         active_run_dir = run_dir
         active_attempt_id = str(getattr(attempt, "attempt_id", "")) or None
         resolved.persist_redacted(run_dir)
+        _copy_dataset_materialization_manifest(config, run_dir)
         events.bind_file(run_dir / "logs" / "events.jsonl")
         events.event(
             "run.started",
@@ -403,6 +496,22 @@ def _execute(
         if metrics_server is not None:
             stop_metrics_endpoint(metrics_server)
         events.close()
+
+
+def _copy_dataset_materialization_manifest(config: dict[str, Any], run_dir: Path) -> Path | None:
+    dataset = config.get("dataset")
+    if not isinstance(dataset, dict):
+        return None
+    manifest = dataset.get("materialization_manifest")
+    if not isinstance(manifest, str) or not manifest.strip():
+        return None
+    source = Path(manifest)
+    if not source.is_file():
+        raise ValueError(f"Dataset materialization manifest not found: {source}")
+    target = run_dir / "datasets" / "materialization-manifest.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    return target
 
 
 def _load_resume_config(run_dir: Path, *, runs_dir: Path) -> ResolvedConfig:

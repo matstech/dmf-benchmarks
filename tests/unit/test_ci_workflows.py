@@ -12,6 +12,7 @@ EXPECTED_WORKFLOWS = {
     "container-smoke.yml",
     "scheduled-integration.yml",
     "release-dry-run.yml",
+    "publish-image.yml",
     "scientific-canary.yml",
 }
 
@@ -79,6 +80,22 @@ def test_release_workflow_is_manual_and_does_not_publish() -> None:
     assert "packages: write" not in serialized
     assert "docker build" in serialized
     assert "docker run" in serialized
+
+
+def test_publish_image_workflow_publishes_only_on_main_or_tag() -> None:
+    payload = load_workflow(WORKFLOW_DIR / "publish-image.yml")
+    serialized = (WORKFLOW_DIR / "publish-image.yml").read_text(encoding="utf-8")
+
+    assert payload["on"]["push"]["branches"] == ["main"]
+    assert payload["on"]["push"]["tags"] == ["*"]
+    assert payload["permissions"] == {"contents": "read", "packages": "write"}
+    assert "pull_request" not in payload["on"]
+    assert "workflow_dispatch" not in payload["on"]
+    assert "publish-main-rc" in payload["jobs"]
+    assert "publish-tagged-release" in payload["jobs"]
+    assert "docker login ghcr.io" in serialized
+    assert "PUBLISH_LATEST=0" in serialized
+    assert "merge-base --is-ancestor" in serialized
 
 
 def test_scheduled_integration_is_not_part_of_pr_fast_path() -> None:

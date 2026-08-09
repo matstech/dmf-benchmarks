@@ -1,43 +1,189 @@
-COMPOSE ?= docker compose -f deploy/compose.yaml
-CONFIG ?= /bench/config/experiment-locomo-dmf.json
+SHELL := /bin/bash
+
+PROJECT ?= dmf-benchmarks
+PYTHON ?= python3
+POETRY ?= poetry
+DOCKER ?= docker
+GH ?= gh
+ORAS ?= oras
+
+COMPOSE_FILE ?= deploy/compose.yaml
+FIXTURE_COMPOSE_FILE ?= deploy/compose.fixture.yaml
+COMPOSE ?= $(DOCKER) compose -f $(COMPOSE_FILE)
+FIXTURE_COMPOSE ?= $(DOCKER) compose -f $(COMPOSE_FILE) -f $(FIXTURE_COMPOSE_FILE)
+
+VERSION := $(shell $(POETRY) version -s 2>/dev/null || printf "0.0.0")
+GIT_SHA := $(shell git rev-parse HEAD 2>/dev/null || printf "unknown")
+CREATED := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+
+GHCR_OWNER ?=
+IMAGE_NAME ?= dmf-benchmarks
+RUNS_IMAGE_NAME ?= dmf-benchmarks-runs
+IMAGE_TAG ?= $(VERSION)
+LOCAL_IMAGE ?= dmf-benchmarks:local
+GHCR_IMAGE ?= ghcr.io/$(GHCR_OWNER)/$(IMAGE_NAME)
+GHCR_RUNS_IMAGE ?= ghcr.io/$(GHCR_OWNER)/$(RUNS_IMAGE_NAME)
+IMAGE_REF ?= $(GHCR_IMAGE):$(IMAGE_TAG)
+IMAGE_LATEST_REF ?= $(GHCR_IMAGE):latest
+IMAGE_EXTRA_REFS ?=
+PUBLISH_LATEST ?= 0
+
 RUN_ID ?=
+RUNS_DIR ?= runs
+RUN_BUNDLE_DIR ?= bundles
+RUN_REF ?= $(GHCR_RUNS_IMAGE):$(RUN_ID)
+RUN_SUBJECT ?=
+
+WORKFLOW ?=
+CANARY_CONFIRM ?=
 
 .DEFAULT_GOAL := help
 
-.PHONY: help stack-up stack-down run resume status verify
+.PHONY: \
+	help require-% \
+	install check compile test test-unit test-integration \
+	compose-config prometheus-check stack-up stack-down \
+	image-build image-build-ghcr image-inspect image-smoke image-push image-buildx-push ghcr-login \
+	run-oci-dry-run run-oci-push \
+	gh-workflows gh-workflow-run gh-workflow-watch gh-release-dry-run gh-container-smoke gh-scientific-canary
 
 help:
-	@printf "Docker-only operational commands:\n"
-	@printf "  make stack-up                         Start the durable service stack\n"
-	@printf "  make run CONFIG=<container-path> RUN_ID=<id>\n"
-	@printf "  make resume RUN_ID=<id>               Resume a persisted run\n"
-	@printf "  make status RUN_ID=<id>               Inspect persisted run state\n"
-	@printf "  make verify RUN_ID=<id>               Verify committed artifacts\n"
-	@printf "  make stack-down                       Stop services and preserve volumes\n"
+	@printf "Maintainer targets for $(PROJECT)\n\n"
+	@printf "Local quality:\n"
+	@printf "  make install                         Install Poetry dependencies\n"
+	@printf "  make check                           poetry check + compile + unit tests\n"
+	@printf "  make test                            Run unit tests\n"
+	@printf "  make test-integration                Run integration tests against local stack\n\n"
+	@printf "Container and observability checks:\n"
+	@printf "  make compose-config                  Validate deploy compose config\n"
+	@printf "  make prometheus-check                Validate Prometheus config with promtool\n"
+	@printf "  make stack-up / stack-down           Start/stop local integration stack\n\n"
+	@printf "Benchmark image:\n"
+	@printf "  make image-build                     Build local image $(LOCAL_IMAGE)\n"
+	@printf "  make image-build-ghcr GHCR_OWNER=org Build tagged GHCR image locally\n"
+	@printf "  make image-push GHCR_OWNER=org       Push ghcr.io/org/$(IMAGE_NAME):$(IMAGE_TAG)\n"
+	@printf "  make image-buildx-push GHCR_OWNER=org Push image with SBOM/provenance\n"
+	@printf "  Optional: PUBLISH_LATEST=1 also tags/pushes latest; IMAGE_EXTRA_REFS adds refs\n"
+	@printf "  make ghcr-login GHCR_OWNER=org       Login to ghcr.io with gh auth token\n\n"
+	@printf "Official run OCI artifacts:\n"
+	@printf "  make run-oci-dry-run RUN_ID=id GHCR_OWNER=org [RUN_SUBJECT=image@sha256:...]\n"
+	@printf "  make run-oci-push RUN_ID=id GHCR_OWNER=org RUN_SUBJECT=image@sha256:...\n\n"
+	@printf "GitHub Actions:\n"
+	@printf "  make gh-workflows                    List workflows\n"
+	@printf "  make gh-workflow-run WORKFLOW=file.yml\n"
+	@printf "  make gh-release-dry-run              Trigger release dry-run workflow\n"
+	@printf "  make gh-container-smoke              Trigger container smoke workflow\n"
+	@printf "  make gh-scientific-canary CANARY_CONFIRM=APPROVED\n"
+
+require-%:
+	@test -n "$($*)" || (printf "%s is required\n" "$*" >&2; exit 2)
+
+install:
+	$(POETRY) install --no-ansi
+
+compile:
+	$(POETRY) run $(PYTHON) -m compileall dmf_bench -q
+
+test: test-unit
+
+test-unit:
+	$(POETRY) run pytest tests/unit -q
+
+check:
+	$(POETRY) check
+	$(MAKE) compile
+	$(MAKE) test-unit
+
+test-integration: stack-up
+	$(POETRY) run pytest tests/integration -q
+
+compose-config:
+	$(COMPOSE) config --quiet
+
+prometheus-check:
+	$(DOCKER) run --rm --entrypoint /bin/promtool \
+		--mount type=bind,source="$$(pwd)/deploy/prometheus",target=/etc/prometheus,readonly \
+		prom/prometheus:v2.55.1@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3 \
+		check config /etc/prometheus/prometheus.yml
 
 stack-up:
 	$(COMPOSE) up -d --wait qdrant artifact-api prometheus grafana
 
 stack-down:
-	$(COMPOSE) down
+	$(COMPOSE) down --remove-orphans
 
-run:
-	@test -n "$(CONFIG)" || (printf "CONFIG is required\n" >&2; exit 2)
-	@test -n "$(RUN_ID)" || (printf "RUN_ID is required\n" >&2; exit 2)
-	$(COMPOSE) --profile job run --rm benchmark \
-		run --config $(CONFIG) --run-id $(RUN_ID)
+image-build:
+	$(DOCKER) build \
+		--label org.opencontainers.image.revision="$(GIT_SHA)" \
+		--label org.opencontainers.image.created="$(CREATED)" \
+		--tag "$(LOCAL_IMAGE)" \
+		.
 
-resume:
-	@test -n "$(RUN_ID)" || (printf "RUN_ID is required\n" >&2; exit 2)
-	$(COMPOSE) --profile job run --rm benchmark \
-		resume --runs-dir /bench/runs --run-id $(RUN_ID)
+image-build-ghcr: require-GHCR_OWNER
+	tags=(--tag "$(IMAGE_REF)"); \
+	if [ "$(PUBLISH_LATEST)" = "1" ]; then tags+=(--tag "$(IMAGE_LATEST_REF)"); fi; \
+	extra_refs="$(IMAGE_EXTRA_REFS)"; \
+	if [ -n "$$extra_refs" ]; then for ref in $$extra_refs; do tags+=(--tag "$$ref"); done; fi; \
+	$(DOCKER) build \
+		--label org.opencontainers.image.revision="$(GIT_SHA)" \
+		--label org.opencontainers.image.created="$(CREATED)" \
+		"$${tags[@]}" \
+		.
 
-status:
-	@test -n "$(RUN_ID)" || (printf "RUN_ID is required\n" >&2; exit 2)
-	$(COMPOSE) --profile job run --rm --no-deps benchmark \
-		status --runs-dir /bench/runs --run-id $(RUN_ID)
+image-inspect:
+	$(DOCKER) image inspect "$(LOCAL_IMAGE)"
 
-verify:
-	@test -n "$(RUN_ID)" || (printf "RUN_ID is required\n" >&2; exit 2)
-	$(COMPOSE) --profile job run --rm --no-deps benchmark \
-		verify --runs-dir /bench/runs --run-id $(RUN_ID)
+image-smoke:
+	$(DOCKER) run --rm --read-only --tmpfs /tmp "$(LOCAL_IMAGE)" list
+
+ghcr-login: require-GHCR_OWNER
+	$(GH) auth token | $(DOCKER) login ghcr.io -u "$(GHCR_OWNER)" --password-stdin
+
+image-push: require-GHCR_OWNER image-build-ghcr
+	$(DOCKER) push "$(IMAGE_REF)"
+	if [ "$(PUBLISH_LATEST)" = "1" ]; then $(DOCKER) push "$(IMAGE_LATEST_REF)"; fi
+	extra_refs="$(IMAGE_EXTRA_REFS)"; \
+	if [ -n "$$extra_refs" ]; then for ref in $$extra_refs; do $(DOCKER) push "$$ref"; done; fi
+
+image-buildx-push: require-GHCR_OWNER
+	tags=(--tag "$(IMAGE_REF)"); \
+	if [ "$(PUBLISH_LATEST)" = "1" ]; then tags+=(--tag "$(IMAGE_LATEST_REF)"); fi; \
+	extra_refs="$(IMAGE_EXTRA_REFS)"; \
+	if [ -n "$$extra_refs" ]; then for ref in $$extra_refs; do tags+=(--tag "$$ref"); done; fi; \
+	$(DOCKER) buildx build \
+		--sbom=true \
+		--provenance=true \
+		--label org.opencontainers.image.revision="$(GIT_SHA)" \
+		--label org.opencontainers.image.created="$(CREATED)" \
+		"$${tags[@]}" \
+		--push \
+		.
+
+run-oci-dry-run: require-RUN_ID require-GHCR_OWNER
+	args=(publish-run-oci --run-id "$(RUN_ID)" --runs-dir "$(RUNS_DIR)" --ref "$(RUN_REF)"); \
+	if [ -n "$(RUN_SUBJECT)" ]; then args+=(--subject "$(RUN_SUBJECT)"); fi; \
+	args+=(--output-dir "$(RUN_BUNDLE_DIR)" --oras-bin "$(ORAS)" --dry-run); \
+	$(POETRY) run dmf-bench "$${args[@]}"
+
+run-oci-push: require-RUN_ID require-GHCR_OWNER require-RUN_SUBJECT
+	args=(publish-run-oci --run-id "$(RUN_ID)" --runs-dir "$(RUNS_DIR)" --ref "$(RUN_REF)"); \
+	args+=(--subject "$(RUN_SUBJECT)" --oras-bin "$(ORAS)"); \
+	$(POETRY) run dmf-bench "$${args[@]}"
+
+gh-workflows:
+	$(GH) workflow list
+
+gh-workflow-run: require-WORKFLOW
+	$(GH) workflow run "$(WORKFLOW)"
+
+gh-workflow-watch:
+	$(GH) run watch
+
+gh-release-dry-run:
+	$(GH) workflow run release-dry-run.yml -f image_tag="$(LOCAL_IMAGE)-release-dry-run"
+
+gh-container-smoke:
+	$(GH) workflow run container-smoke.yml
+
+gh-scientific-canary: require-CANARY_CONFIRM
+	$(GH) workflow run scientific-canary.yml -f confirm_costs="$(CANARY_CONFIRM)"

@@ -99,12 +99,13 @@ def test_standard_commands_never_expose_volume_deletion() -> None:
         assert "down -v" not in text, path
 
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert "stack-down:\n\t$(COMPOSE) down\n" in makefile
+    assert "stack-down:\n\t$(COMPOSE) down --remove-orphans\n" in makefile
 
 
 def test_readme_points_to_historical_tag_without_migration_command() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "historical Git\ntag `v0.1.0`" in readme
+    assert "historical Git tag" in readme
+    assert "`v0.1.0`" in readme
     assert "does not provide compatibility commands" in readme
     assert "git worktree" not in readme

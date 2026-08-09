@@ -1,0 +1,103 @@
+{
+  "schema_version": 2,
+  "experiment_id": "official-smoke-locomo-mem0",
+  "benchmark": "locomo",
+  "framework": "mem0",
+  "runtime": {
+    "root": "/bench",
+    "runs_dir": "/bench/runs",
+    "cache_dir": "/bench/cache",
+    "metrics_port": 9464,
+    "log_level": "INFO"
+  },
+  "framework_config": {
+    "path": "/bench/config/locomo_mem0_qdrant_settings.yaml",
+    "sha256": "c1821a7a2fe8b3cbb9e775cb2726567a329fe030d6348ed192a0a511f7fb47bd",
+    "format": "yaml",
+    "profile": "official-smoke-v1"
+  },
+  "qdrant": {
+    "endpoint_env": "QDRANT_URL",
+    "retention": "keep",
+    "request_timeout_seconds": 10
+  },
+  "dataset": {
+    "name": "locomo",
+    "registry_id": "locomo-official-unpinned",
+    "allow_unpinned": true,
+    "sampling": {
+      "fraction": 0.05,
+      "unit": "qa",
+      "stratify_by": "category",
+      "seed": 7,
+      "rounding": "ceil"
+    }
+  },
+  "selection": {
+    "ordered_item_ids": [
+      "conversation-0001",
+      "conversation-0002",
+      "conversation-0003",
+      "conversation-0004",
+      "conversation-0005",
+      "conversation-0006",
+      "conversation-0007",
+      "conversation-0008",
+      "conversation-0009",
+      "conversation-0010"
+    ],
+    "filters": {
+      "categories": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "seed": 7
+  },
+  "models": {
+    "answerer": {
+      "provider": "openai",
+      "requested_model": "gpt-4.1-mini",
+      "parameters": {
+        "temperature": 0,
+        "max_tokens": 4096
+      },
+      "runtime": {
+        "timeout_seconds": 120,
+        "rpm": 200,
+        "max_retries": 5
+      }
+    },
+    "judge": {
+      "provider": "openai",
+      "requested_model": "gpt-5-mini",
+      "parameters": {
+        "temperature": 0,
+        "max_tokens": 4096,
+        "reasoning_effort": "low"
+      },
+      "runtime": {
+        "timeout_seconds": 120,
+        "rpm": 200,
+        "max_retries": 5
+      }
+    }
+  },
+  "evaluation": {
+    "required": [
+      "primary_judge_score",
+      "rigorous_report"
+    ],
+    "optional": [
+      "ablation_report"
+    ],
+    "ablation_required": false
+  },
+  "artifact_store": {
+    "type": "local",
+    "uri": "/bench/runs"
+  }
+}

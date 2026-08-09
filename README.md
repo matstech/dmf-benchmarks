@@ -4,114 +4,126 @@
 
 DMF Benchmarks compares [DMF](https://github.com/matstech/dmf) and
 [Mem0](https://github.com/mem0ai/mem0) on LoCoMo and LongMemEval. Version 0.2
-has one supported runtime: the `dmf-bench` application in Docker Compose,
-backed by Qdrant Server. It publishes verified JSON artifacts to a named volume
-and exposes committed results through a loopback-only, read-only FastAPI
-service.
+has one supported runtime: the native `dmf-bench` application, normally run
+inside the locked Docker image with Qdrant Server. It publishes verified JSON
+artifacts to a run volume and exposes committed results through a
+loopback-only, read-only FastAPI service.
 
 The framework-owned retrieval path is product behavior, not a selectable
 protocol. DMF and Mem0 are installed from the exact Git commits recorded in
 `pyproject.toml` and `poetry.lock`; changing either commit is a scientific
 change and requires rerunning the certification gates.
 
-## Docker quickstart
+## Table of contents
 
-Requirements: Docker with the Compose plugin and GNU Make. Create a root
-`.env` file for the provider selected by the experiment, for example:
+- [User manual](#user-manual)
+- [CLI quickstart](#cli-quickstart)
+- [Configuration model](#configuration-model)
+- [Results and observability](#results-and-observability)
+- [Official run OCI artifacts](#official-run-oci-artifacts)
+- [Maintainer Makefile](#maintainer-makefile)
+- [Dataset registry](#dataset-registry)
+- [Pipeline and artifacts](#pipeline-and-artifacts)
+- [Historical version](#historical-version)
 
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-# OPENAI_BASE_URL=https://api.openai.com/v1
-```
+## User manual
 
-OpenRouter credentials and an Ollama endpoint can instead be supplied through
-`OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, and `OLLAMA_BASE_URL`. Provider and
-model selection remain scientific inputs in the experiment JSON; environment
-variables supply only credentials and endpoints.
+The operational user guide is available in:
 
-Build the locked image and start the durable services:
+- [`manual/user-manual.md`](manual/user-manual.md)
+- [`manual/user-manual.pdf`](manual/user-manual.pdf)
 
-```bash
-docker compose -f deploy/compose.yaml build artifact-api benchmark
-make stack-up
-```
+The manual is the canonical user-facing documentation for `dmf-bench`
+configuration, dataset materialization, benchmark execution, result inspection,
+and OCI publication of official run bundles.
 
-Choose one of the four checked-in experiment configs:
+## CLI quickstart
 
-| Benchmark | Framework | Container config |
-|---|---|---|
-| LoCoMo | DMF | `/bench/config/experiment-locomo-dmf.json` |
-| LoCoMo | Mem0 | `/bench/config/experiment-locomo-mem0.json` |
-| LongMemEval | DMF | `/bench/config/experiment-longmemeval-dmf.json` |
-| LongMemEval | Mem0 | `/bench/config/experiment-longmemeval-mem0.json` |
+All user commands go through `dmf-bench`. The paths in an experiment config must
+be valid in the environment where the CLI runs. In the official image, paths are
+typically under `/bench`; on the host, use host-local paths.
 
-Run exactly one configuration with a fresh run ID:
+Check the CLI surface:
 
 ```bash
-make run \
-  CONFIG=/bench/config/experiment-locomo-dmf.json \
-  RUN_ID=local-locomo-dmf-001
+dmf-bench --help
+dmf-bench list
+dmf-bench list-datasets
 ```
 
-The same wrapper applies to every row in the table. The checked-in configs use
-pinned mini datasets for smoke and development runs; they are not paper-scale
-reproduction configs.
-
-The benchmark container has a read-only root filesystem. Run state, Qdrant
-data, model cache, Prometheus data, and Grafana data use isolated v2 named
-volumes. `HF_HUB_OFFLINE=1` is the default, so a missing or incomplete model
-cache fails closed instead of downloading material during a benchmark.
-
-## Operations
-
-Resume and inspect a persisted run through the same image:
+Prepare provider and service endpoints through environment variables, never in
+JSON config files:
 
 ```bash
-make resume RUN_ID=local-locomo-dmf-001
-make status RUN_ID=local-locomo-dmf-001
-make verify RUN_ID=local-locomo-dmf-001
+export OPENAI_API_KEY=your_openai_api_key_here
+export QDRANT_URL=http://127.0.0.1:6333
 ```
 
-Stop services without deleting named volumes:
+Validate a config without calling the provider:
 
 ```bash
-make stack-down
+dmf-bench validate --materialize-datasets --config config/experiment.json
 ```
 
-The supported Make surface is deliberately small:
+Run a benchmark with a fresh run ID:
 
-| Command | Container operation |
-|---|---|
-| `make stack-up` | Start Qdrant, Artifact API, Prometheus, and Grafana |
-| `make run CONFIG=… RUN_ID=…` | Execute one benchmark lifecycle |
-| `make resume RUN_ID=…` | Continue from persisted state |
-| `make status RUN_ID=…` | Read persisted lifecycle state |
-| `make verify RUN_ID=…` | Verify committed artifact digests |
-| `make stack-down` | Stop containers while preserving volumes |
+```bash
+dmf-bench run --config config/experiment.json --run-id local-locomo-dmf-001
+```
 
-No host-side benchmark execution is supported.
+Inspect, resume, and verify committed local state:
+
+```bash
+dmf-bench status --run-id local-locomo-dmf-001 --runs-dir runs
+dmf-bench resume --run-id local-locomo-dmf-001 --runs-dir runs
+dmf-bench verify --run-id local-locomo-dmf-001 --runs-dir runs
+```
+
+The checked-in `smoke/` directory contains ready-to-use restricted configs for
+LoCoMo and LongMemEval across DMF and Mem0. They are substantial smoke checks,
+not paper-scale reproduction configs.
+
+## Configuration model
+
+Experiment configs use `schema_version: 2` and define benchmark, framework,
+runtime paths, framework config, Qdrant settings, dataset, selection, models,
+evaluation reports, and artifact store.
+
+Two dataset modes are supported:
+
+- already materialized datasets with explicit `dataset.path` and
+  `dataset.sha256`;
+- registry-backed datasets with `dataset.registry_id`, optionally with
+  `dataset.sampling`.
+
+When registry materialization is used, `dmf-bench` writes a dataset
+`manifest.json` next to the materialized file and copies it into the run
+directory as:
+
+```text
+datasets/materialization-manifest.json
+```
+
+Unpinned official registry entries fail closed unless the config or command
+explicitly sets `allow_unpinned`.
 
 ## Results and observability
 
-Open <http://127.0.0.1:8000> for the operational landing page. It links all
-local service interfaces and the main reports for an exact run ID:
+The Artifact API is read-only and intended for loopback/local use. When running
+locally, the standard endpoint is:
 
-- Artifact API and landing page: <http://127.0.0.1:8000>
-- Artifact API documentation: <http://127.0.0.1:8000/docs>
-- Qdrant dashboard: <http://127.0.0.1:6333/dashboard>
-- Prometheus: <http://127.0.0.1:9090>
-- Grafana: <http://127.0.0.1:3000>
+```text
+http://127.0.0.1:8000
+```
 
-Committed JSON artifacts are available through the read-only API:
+Useful endpoints:
 
 ```bash
 RUN_ID=local-locomo-dmf-001
 curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID" | jq
-curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/artifacts/reports/summary.json" | jq
+curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/artifacts" | jq
 curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/artifacts/reports/usage.json" | jq
 curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/artifacts/reports/timing.json" | jq
-curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/artifacts/evaluations/rigorous_report.json" | jq
-curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/artifacts/evaluations/ablation_report.json" | jq
 curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/verify" | jq
 ```
 
@@ -123,38 +135,85 @@ attempt. Scientific quality remains in `rigorous_report.json` and
 The Artifact API is unauthenticated only because it is read-only and bound to
 loopback. Do not expose it directly to an untrusted network.
 
+## Official run OCI artifacts
+
+A completed run can be packaged as a GHCR/OCI artifact containing the complete
+`runs/<RUN_ID>/` directory. The command verifies the committed run, writes
+`OFFICIAL-RUN.json` and `SHA256SUMS` into the run directory, creates a tar.gz
+snapshot, and pushes it with ORAS:
+
+```bash
+dmf-bench publish-run-oci \
+  --run-id "$RUN_ID" \
+  --runs-dir runs \
+  --ref "ghcr.io/ORG/dmf-benchmarks-runs:$RUN_ID" \
+  --subject "ghcr.io/ORG/dmf-benchmarks@sha256:IMAGE_DIGEST"
+```
+
+Use `--dry-run --output-dir bundles` to create and inspect the local bundle
+without pushing. The OCI artifact type is:
+
+```text
+application/vnd.dmf-bench.run.v1+tar
+```
+
+## Maintainer Makefile
+
+The Makefile is a maintainer surface for repository management, CI parity,
+Docker image publication, GitHub Actions, and official run OCI artifacts. It is
+not the user-facing benchmark interface.
+
+Common maintainer targets:
+
+| Target | Purpose |
+|---|---|
+| `make check` | Run package checks, compile, and unit tests. |
+| `make compose-config` | Validate the Docker Compose configuration. |
+| `make prometheus-check` | Validate Prometheus configuration with `promtool`. |
+| `make image-build` | Build the local benchmark image. |
+| `make image-buildx-push GHCR_OWNER=org` | Publish the benchmark image to GHCR with SBOM/provenance. |
+| `make run-oci-dry-run RUN_ID=id GHCR_OWNER=org` | Build a local official run bundle without pushing. |
+| `make run-oci-push RUN_ID=id GHCR_OWNER=org RUN_SUBJECT=image@sha256:...` | Publish an official run OCI artifact to GHCR. |
+| `make gh-container-smoke` | Trigger the container smoke GitHub Actions workflow. |
+| `make gh-scientific-canary CANARY_CONFIRM=APPROVED` | Trigger the protected provider-backed canary. |
+
+Run `make help` for the full list.
+
 ## Dataset registry
 
-Dataset registry operations also run in the image:
+List registry entries:
 
 ```bash
-docker compose --profile job -f deploy/compose.yaml run --rm --no-deps \
-  benchmark list-datasets
+dmf-bench list-datasets
 ```
 
-Materialization is explicit. The output bind is made writable only for this
-operation:
+Materialize a dataset manually:
 
 ```bash
-docker compose --profile job -f deploy/compose.yaml run --rm --no-deps \
-  --volume "$PWD/datasets:/bench/datasets" \
-  benchmark materialize-dataset \
-  --dataset-id <pinned-dataset-id> \
-  --output-dir /bench/datasets/<benchmark>
+dmf-bench materialize-dataset \
+  --dataset-id locomo-official-unpinned \
+  --allow-unpinned \
+  --sample-fraction 0.05 \
+  --sample-unit qa \
+  --sample-stratify-by category \
+  --sample-seed 7 \
+  --sample-rounding ceil \
+  --output-dir .cache/datasets/manual-locomo-smoke
 ```
 
-Unpinned official registry entries fail closed. Dataset pinning, embedding
-model materialization, provider-backed canaries, and paper-scale runs require
-separate review because they can introduce downloads or cost.
+Materialization always writes `manifest.json`; when sampling options are
+provided, the manifest records the sample policy and resulting counts.
+
+Dataset pinning, embedding model materialization, provider-backed canaries, and
+paper-scale runs require separate review because they can introduce downloads
+or cost.
 
 ## Pipeline and artifacts
 
 Each run performs sequential ingestion, framework-owned retrieval, answer
 generation, LLM judging, deterministic rigorous/ablation evaluation, atomic
 JSON publication, and digest verification. Prompt/completion token usage and
-wall-clock timings are first-class reports. The Artifact API sees only the
-runs volume; it does not share benchmark cache, Qdrant, Prometheus, or Grafana
-state.
+wall-clock timings are first-class reports.
 
 The manual `Scientific canary` workflow is cost-gated by the protected
 `scientific-canary` environment and requires the exact
@@ -163,6 +222,6 @@ model scope, call/token estimate, and maximum cost.
 
 ## Historical version
 
-The previous architecture is available exclusively from the historical Git
-tag `v0.1.0`. Version 0.2 does not provide compatibility commands, state or
+The previous architecture is available exclusively from the historical Git tag
+`v0.1.0`. Version 0.2 does not provide compatibility commands, state or
 artifact migration, or fallback execution paths.

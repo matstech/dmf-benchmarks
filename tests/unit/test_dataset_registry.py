@@ -15,7 +15,13 @@ from dmf_bench.provenance import build_run_provenance
 FIXTURE_DIR = Path(__file__).parents[1] / "fixtures"
 
 
-def write_registry(tmp_path: Path, *, source_path: Path | None = None, sha256: str | None = None) -> Path:
+def write_registry(
+    tmp_path: Path,
+    *,
+    source_path: Path | None = None,
+    sha256: str | None = None,
+    pinned: bool = True,
+) -> Path:
     dataset_source = source_path or (FIXTURE_DIR / "locomo-mini.json")
     registry = {
         "schema_version": 1,
@@ -29,6 +35,7 @@ def write_registry(tmp_path: Path, *, source_path: Path | None = None, sha256: s
                 "sha256": sha256 or sha256_file(dataset_source),
                 "filename": "locomo-mini.json",
                 "expected_schema": "locomo-mini-json-array-v1",
+                "pinned": pinned,
             }
         ],
     }
@@ -96,6 +103,11 @@ def test_materialize_dataset_from_local_source_verifies_hash_and_publishes_atomi
 
     assert materialized.read_bytes() == (FIXTURE_DIR / "locomo-mini.json").read_bytes()
     assert sha256_file(materialized) == sha256_file(FIXTURE_DIR / "locomo-mini.json")
+    manifest = json.loads((tmp_path / "datasets" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["kind"] == "dataset-materialization"
+    assert manifest["source"]["sha256"] == sha256_file(FIXTURE_DIR / "locomo-mini.json")
+    assert manifest["materialized"]["sha256"] == sha256_file(FIXTURE_DIR / "locomo-mini.json")
+    assert "sampling" not in manifest
     assert not list((tmp_path / "datasets").glob("*.tmp"))
 
 
@@ -113,6 +125,27 @@ def test_materialize_dataset_refuses_download_hash_mismatch_without_publish(
 
     assert not (tmp_path / "datasets" / "locomo-mini.json").exists()
     assert not list((tmp_path / "datasets").glob("*.tmp"))
+
+
+def test_materialize_dataset_refuses_unpinned_without_explicit_allow(tmp_path: Path) -> None:
+    registry_path = write_registry(tmp_path, sha256="0" * 64, pinned=False)
+
+    with pytest.raises(ValueError, match="allow_unpinned"):
+        materialize_dataset(
+            dataset_id="fixture-locomo",
+            output_dir=tmp_path / "datasets",
+            registry_path=registry_path,
+        )
+
+    materialized = materialize_dataset(
+        dataset_id="fixture-locomo",
+        output_dir=tmp_path / "datasets",
+        registry_path=registry_path,
+        allow_unpinned=True,
+    )
+    manifest = json.loads((tmp_path / "datasets" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["dataset"]["pinned"] is False
+    assert manifest["source"]["sha256"] == sha256_file(materialized)
 
 
 def test_materialized_dataset_mutation_blocks_validate(tmp_path: Path) -> None:
@@ -146,6 +179,74 @@ def test_cli_materialize_dataset_prints_config_fragment(
     payload = json.loads(capsys.readouterr().out)
     assert payload["dataset"]["name"] == "locomo"
     assert payload["dataset"]["sha256"] == sha256_file(FIXTURE_DIR / "locomo-mini.json")
+    assert Path(payload["manifest_path"]).name == "manifest.json"
+
+
+def test_materialize_dataset_can_sample_locomo_and_documents_sampling(tmp_path: Path) -> None:
+    source_path = tmp_path / "locomo-source.json"
+    source_path.write_text(
+        json.dumps(
+            [
+                {
+                    "conversation": {"speaker_a": "A", "speaker_b": "B", "session_1": []},
+                    "qa": [
+                        {"question": "q1", "answer": "a1", "category": 1},
+                        {"question": "q2", "answer": "a2", "category": 1},
+                        {"question": "q3", "answer": "a3", "category": 2},
+                        {"question": "q4", "answer": "a4", "category": 2},
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    registry_path = write_registry(tmp_path, source_path=source_path)
+
+    materialized = materialize_dataset(
+        dataset_id="fixture-locomo",
+        output_dir=tmp_path / "datasets",
+        registry_path=registry_path,
+        sampling={"fraction": 0.5, "seed": 7, "rounding": "ceil", "stratify_by": "category"},
+    )
+
+    sampled = json.loads(materialized.read_text(encoding="utf-8"))
+    manifest = json.loads((tmp_path / "datasets" / "manifest.json").read_text(encoding="utf-8"))
+    assert len(sampled[0]["qa"]) == 2
+    assert manifest["sampling"]["population_by_group"] == {"1": 2, "2": 2}
+    assert manifest["sampling"]["sample_by_group"] == {"1": 1, "2": 1}
+    assert manifest["materialized"]["sha256"] == sha256_file(materialized)
+
+
+def test_resolve_config_materializes_source_based_dataset(tmp_path: Path) -> None:
+    registry_path = write_registry(tmp_path)
+    config_path = write_config(tmp_path, dataset_path=FIXTURE_DIR / "locomo-mini.json")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["dataset"] = {
+        "name": "locomo",
+        "source": "fixture",
+        "revision": "fixture-revision",
+        "registry_id": "fixture-locomo",
+        "expected_schema": "locomo-mini-json-array-v1",
+        "sampling": {
+            "fraction": 1.0,
+            "seed": 7,
+            "rounding": "ceil",
+            "stratify_by": "category",
+        },
+    }
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    resolved = resolve_config(
+        config_path,
+        materialize_datasets=True,
+        dataset_registry_path=registry_path,
+    )
+
+    dataset = resolved.data["dataset"]
+    assert Path(dataset["path"]).is_file()
+    assert dataset["sha256"] == sha256_file(dataset["path"])
+    manifest = json.loads(Path(dataset["materialization_manifest"]).read_text(encoding="utf-8"))
+    assert manifest["sampling"]["sample_count"] == 2
 
 
 def test_preset_fingerprint_and_resolution_are_stable(tmp_path: Path) -> None:

@@ -81,30 +81,76 @@ def test_docker_context_and_runtime_exclude_repository_surfaces() -> None:
     ]
 
 
-def test_makefile_exposes_only_docker_operational_targets() -> None:
+def test_makefile_exposes_maintainer_targets() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     targets = {
         match.group(1)
         for match in re.finditer(r"^([a-z][a-z0-9-]*):", makefile, re.MULTILINE)
     }
 
-    assert targets == {"help", "stack-up", "stack-down", "run", "resume", "status", "verify"}
-    assert "docker compose" in makefile
-    assert "poetry" not in makefile.lower()
-    assert "python -m" not in makefile
-
-
-def test_readme_has_one_docker_surface_and_four_official_configs() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    configs = {
-        "experiment-locomo-dmf.json",
-        "experiment-locomo-mem0.json",
-        "experiment-longmemeval-dmf.json",
-        "experiment-longmemeval-mem0.json",
+    expected = {
+        "help",
+        "install",
+        "compile",
+        "test",
+        "check",
+        "test-integration",
+        "compose-config",
+        "prometheus-check",
+        "stack-up",
+        "stack-down",
+        "image-build",
+        "image-build-ghcr",
+        "image-inspect",
+        "image-smoke",
+        "ghcr-login",
+        "image-push",
+        "image-buildx-push",
+        "run-oci-dry-run",
+        "run-oci-push",
+        "gh-workflows",
+        "gh-workflow-run",
+        "gh-workflow-watch",
+        "gh-release-dry-run",
+        "gh-container-smoke",
+        "gh-scientific-canary",
     }
+    assert expected <= targets
+    assert "$(DOCKER) compose" in makefile
+    assert "poetry" in makefile.lower()
+    assert "publish-run-oci" in makefile
+    assert "$(GH) workflow run" in makefile
+    assert "PUBLISH_LATEST ?= 0" in makefile
+    assert "run-oci-push: require-RUN_ID require-GHCR_OWNER require-RUN_SUBJECT" in makefile
 
-    assert readme.count("## Docker quickstart") == 1
-    assert "No host-side benchmark execution is supported." in readme
+
+def test_publish_image_workflow_pushes_rc_and_tagged_release_to_ghcr() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "publish-image.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "packages: write" in workflow
+    assert "branches:\n      - main" in workflow
+    assert 'tags:\n      - "*"' in workflow
+    assert "publish-main-rc:" in workflow
+    assert "publish-tagged-release:" in workflow
+    assert "date -u +%Y%m%dT%H%M%SZ)-RC" in workflow
+    assert "IMAGE_TAG=$GITHUB_REF_NAME" in workflow
+    assert 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main' in workflow
+    assert 'docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin' in workflow
+    assert 'make image-buildx-push GHCR_OWNER="$GHCR_OWNER" IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" PUBLISH_LATEST=0' in workflow
+
+
+def test_readme_documents_cli_surface_and_user_manual() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert readme.count("## Table of contents") == 1
+    assert "## User manual" in readme
+    assert "## CLI quickstart" in readme
+    assert "## Maintainer Makefile" in readme
+    assert "manual/user-manual.md" in readme
+    assert "manual/user-manual.pdf" in readme
+    assert "All user commands go through `dmf-bench`." in readme
     assert "poetry run" not in readme
-    for config in configs:
-        assert f"/bench/config/{config}" in readme
+    assert "The Makefile is a maintainer surface" in readme
+    assert "The checked-in `smoke/` directory contains ready-to-use" in readme

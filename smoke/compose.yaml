@@ -1,0 +1,9 @@
+# Optional override for the official restricted smoke resources.
+# Use together with ../deploy/compose.yaml.
+services:
+  benchmark:
+    volumes:
+      - type: bind
+        source: ../smoke
+        target: /bench/smoke
+        read_only: true

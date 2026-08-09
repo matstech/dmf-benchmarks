@@ -109,6 +109,8 @@ def resolve_config(
     *,
     benchmark: str | None = None,
     framework: str | None = None,
+    materialize_datasets: bool = False,
+    dataset_registry_path: str | Path | None = None,
 ) -> ResolvedConfig:
     source_path = Path(path).resolve()
     data = load_experiment_config(source_path)
@@ -117,6 +119,13 @@ def resolve_config(
         data["benchmark"] = benchmark
     if framework is not None:
         data["framework"] = framework
+    if materialize_datasets:
+        from .datasets import materialize_dataset_for_config
+
+        data = materialize_dataset_for_config(
+            data,
+            registry_path=dataset_registry_path,
+        )
     validate_config(data, source_path=source_path)
     data["source_path"] = str(source_path)
     return ResolvedConfig(source_path=source_path, data=data)
