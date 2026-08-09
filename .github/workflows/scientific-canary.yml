@@ -48,16 +48,16 @@ jobs:
           git checkout --detach FETCH_HEAD
 
       - name: Validate container configuration
-        run: docker compose -f deploy/compose.yaml config --quiet
+        run: python3 -m dmf_benchctl config
 
       - name: Build the locked benchmark image
         run: |
-          docker compose -f deploy/compose.yaml build artifact-api benchmark
+          python3 -m dmf_benchctl image build
           echo "DMF_BENCH_HARNESS_COMMIT=$GITHUB_SHA" >> "$GITHUB_ENV"
           echo "DMF_BENCH_IMAGE_DIGEST=$(docker image inspect --format '{{.Id}}' dmf-benchmarks:local)" >> "$GITHUB_ENV"
 
       - name: Start Qdrant and the read-only artifact API
-        run: docker compose -f deploy/compose.yaml up -d --wait qdrant artifact-api
+        run: python3 -m dmf_benchctl stack up
 
       - name: Run the approved provider canary through dmf-bench
         env:
@@ -67,18 +67,15 @@ jobs:
             echo "The protected scientific-canary environment must provide OPENAI_API_KEY."
             exit 1
           fi
-          docker compose --profile job -f deploy/compose.yaml run --rm --no-deps \
-            --entrypoint dmf-bench benchmark \
-            run --config "$CANARY_CONFIG" --run-id "$CANARY_RUN_ID"
+          python3 -m dmf_benchctl run --no-stack-up \
+            --config "$CANARY_CONFIG" --run-id "$CANARY_RUN_ID"
 
       - name: Verify the committed canary artifacts
         run: |
-          docker compose --profile job -f deploy/compose.yaml run --rm --no-deps \
-            --entrypoint dmf-bench benchmark \
-            verify --run-id "$CANARY_RUN_ID"
+          python3 -m dmf_benchctl verify --run-id "$CANARY_RUN_ID"
           curl --fail --silent --show-error \
             "http://127.0.0.1:8000/runs/$CANARY_RUN_ID/verify"
 
       - name: Stop the isolated canary stack
         if: always()
-        run: docker compose -f deploy/compose.yaml down --remove-orphans
+        run: python3 -m dmf_benchctl stack down

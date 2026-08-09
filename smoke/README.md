@@ -25,11 +25,17 @@ the smoke configs explicitly set `allow_unpinned: true`; the generated
 `manifest.json` records the observed source SHA-256 and, when sampling is
 configured, the sample policy and sample counts.
 
-The compose file is an override, not a standalone stack:
+Run any configuration through the host-side control plane, for example:
 
 ```text
-docker compose -f deploy/compose.yaml -f smoke/compose.yaml ...
+dmf-benchctl run \
+  --config smoke/config/experiment-locomo-dmf.json \
+  --run-id smoke-locomo-dmf
 ```
+
+`dmf-benchctl` detects that the configuration is under `smoke/` and applies the
+required read-only resource mount automatically. The local Compose override is
+an orchestrator implementation detail and is not part of the user command.
 
 The configs use the OpenAI provider. A run requires `OPENAI_API_KEY` in the
 operator's environment; no key is stored in this directory.

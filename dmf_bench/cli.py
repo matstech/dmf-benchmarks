@@ -197,6 +197,17 @@ def main(
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    internal_application = os.getenv("DMF_BENCH_INTERNAL_APPLICATION", "")
+    if application_builder is None and internal_application:
+        if internal_application != "container-fixture":
+            parser.exit(
+                2,
+                "dmf-bench: error: unsupported internal application profile\n",
+            )
+        from .container_fixture import fixture_application_builder
+
+        application_builder = fixture_application_builder
+
     if args.command == "list":
         print_list(sys.stdout)
         return 0

@@ -7,6 +7,7 @@ on:
       - .dockerignore
       - deploy/**
       - dmf_bench/**
+      - dmf_benchctl/**
       - pyproject.toml
       - poetry.lock
       - .github/workflows/container-smoke.yml
@@ -29,7 +30,7 @@ jobs:
           git checkout --detach FETCH_HEAD
 
       - name: Validate Compose config
-        run: docker compose -f deploy/compose.yaml config
+        run: python3 -m dmf_benchctl config
 
       - name: Validate Prometheus config
         run: |

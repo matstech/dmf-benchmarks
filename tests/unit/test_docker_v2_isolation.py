@@ -99,7 +99,10 @@ def test_standard_commands_never_expose_volume_deletion() -> None:
         assert "down -v" not in text, path
 
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert "stack-down:\n\t$(COMPOSE) down --remove-orphans\n" in makefile
+    assert (
+        "stack-down:\n\t$(POETRY) run $(PYTHON) -m dmf_benchctl stack down\n"
+        in makefile
+    )
 
 
 def test_readme_points_to_historical_tag_without_migration_command() -> None:

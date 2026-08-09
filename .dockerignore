@@ -4,3 +4,5 @@
 !LICENSE
 !dmf_bench/
 !dmf_bench/**
+!dmf_benchctl/
+!dmf_benchctl/**

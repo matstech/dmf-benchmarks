@@ -25,24 +25,22 @@ jobs:
           git checkout --detach FETCH_HEAD
 
       - name: Build local image
-        run: docker compose -f deploy/compose.yaml build artifact-api benchmark
+        run: python3 -m dmf_benchctl image build
 
       - name: Start local stack
-        run: docker compose -f deploy/compose.yaml up -d --wait qdrant artifact-api prometheus grafana
+        run: python3 -m dmf_benchctl stack up --observability
 
       - name: Run deterministic container integration
         run: |
-          docker compose --profile job \
-            -f deploy/compose.yaml \
-            -f deploy/compose.fixture.yaml \
-            run --rm benchmark \
-            run --config /bench/fixtures/docker-locomo-execution.json \
+          python3 -m dmf_benchctl \
+            --compose-override deploy/compose.fixture.yaml \
+            run --no-stack-up \
+            --config /bench/fixtures/docker-locomo-execution.json \
             --run-id "$INTEGRATION_RUN_ID"
 
       - name: Verify artifacts with the runtime image
         run: |
-          docker compose --profile job -f deploy/compose.yaml run --rm --no-deps \
-            benchmark verify --run-id "$INTEGRATION_RUN_ID"
+          python3 -m dmf_benchctl verify --run-id "$INTEGRATION_RUN_ID"
           curl --fail --silent --show-error \
             "http://127.0.0.1:8000/runs/$INTEGRATION_RUN_ID/verify"
 
@@ -54,4 +52,4 @@ jobs:
 
       - name: Stop local stack
         if: always()
-        run: docker compose -f deploy/compose.yaml stop grafana prometheus artifact-api qdrant
+        run: python3 -m dmf_benchctl stack down

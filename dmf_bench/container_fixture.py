@@ -1,8 +1,9 @@
 """Explicit deterministic container harness for lifecycle certification.
 
-This module is never selected by the production CLI.  The dedicated Compose
-override invokes it directly so Docker stop/resume can be certified without a
-remote provider or implicit model download while still using Qdrant Server.
+This module is selected only by the dedicated internal application environment
+used by the Compose fixture. It certifies Docker stop/resume without a remote
+provider or implicit model download while still entering through ``dmf-bench``
+and using Qdrant Server.
 """
 
 from __future__ import annotations
