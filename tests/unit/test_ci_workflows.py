@@ -91,11 +91,18 @@ def test_publish_image_workflow_publishes_only_on_main_or_tag() -> None:
     assert payload["permissions"] == {"contents": "read", "packages": "write"}
     assert "pull_request" not in payload["on"]
     assert "workflow_dispatch" not in payload["on"]
-    assert "publish-main-rc" in payload["jobs"]
-    assert "publish-tagged-release" in payload["jobs"]
+    assert set(payload["jobs"]) == {
+        "prepare",
+        "build-platform",
+        "publish-manifest",
+    }
     assert "docker login ghcr.io" in serialized
-    assert serialized.count("--driver docker-container --use") == 2
-    assert serialized.count("docker buildx inspect --bootstrap") == 2
+    assert "ubuntu-24.04-arm" in serialized
+    assert "linux/amd64" in serialized
+    assert "linux/arm64" in serialized
+    assert "IMAGE_PLATFORMS" in serialized
+    assert "image-manifest-create" in serialized
+    assert "imagetools inspect --raw" in serialized
     assert "PUBLISH_LATEST=0" in serialized
     assert "merge-base --is-ancestor" in serialized
 

@@ -10,6 +10,10 @@ locked Docker image with Qdrant Server. Host-side operations go through
 `dmf-bench`. Runs publish verified JSON artifacts to a shared volume and expose
 committed results through a loopback-only, read-only FastAPI service.
 
+Official RC and tagged images are published as a single multi-platform GHCR
+reference containing native `linux/amd64` and `linux/arm64` variants. Docker
+selects the matching variant automatically.
+
 The framework-owned retrieval path is product behavior, not a selectable
 protocol. Framework dependency versions are locked by `pyproject.toml` and
 `poetry.lock`; changing them is a scientific change and requires rerunning the
@@ -175,7 +179,8 @@ Common maintainer targets:
 | `make compose-config` | Validate the Docker Compose configuration. |
 | `make prometheus-check` | Validate Prometheus configuration with `promtool`. |
 | `make image-build` | Build the local benchmark image. |
-| `make image-buildx-push GHCR_OWNER=org` | Publish the benchmark image to GHCR with SBOM/provenance. |
+| `make image-buildx-push GHCR_OWNER=org IMAGE_PLATFORMS=linux/arm64` | Publish one native platform image with SBOM/provenance. |
+| `make image-manifest-create GHCR_OWNER=org IMAGE_SOURCE_REFS="..."` | Combine native platform images under one multi-platform tag. |
 | `make run-oci-dry-run RUN_ID=id GHCR_OWNER=org` | Build a local official run bundle without pushing. |
 | `make run-oci-push RUN_ID=id GHCR_OWNER=org RUN_SUBJECT=image@sha256:...` | Publish an official run OCI artifact to GHCR. |
 | `make gh-container-smoke` | Trigger the container smoke GitHub Actions workflow. |

@@ -15,11 +15,60 @@ env:
   IMAGE_NAME: dmf-benchmarks
 
 jobs:
-  publish-main-rc:
-    name: publish release candidate image
-    if: github.ref == 'refs/heads/main'
+  prepare:
+    name: prepare publication metadata
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
+    outputs:
+      ghcr_owner: ${{ steps.metadata.outputs.ghcr_owner }}
+      image_tag: ${{ steps.metadata.outputs.image_tag }}
+      image_ref: ${{ steps.metadata.outputs.image_ref }}
+    steps:
+      - name: Checkout and validate exact publication ref
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+            git fetch --force origin "refs/heads/main:refs/remotes/origin/main"
+            git checkout --detach "$GITHUB_SHA"
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "Refusing to publish: tag $GITHUB_REF_NAME is not reachable from main."
+              exit 1
+            fi
+          else
+            git fetch --depth 1 origin "$GITHUB_SHA"
+            git checkout --detach FETCH_HEAD
+          fi
+
+      - name: Compute image metadata
+        id: metadata
+        run: |
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$(date -u +%Y%m%dT%H%M%SZ)-RC"
+          fi
+          echo "ghcr_owner=$owner" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image_ref=ghcr.io/$owner/$IMAGE_NAME:$tag" >> "$GITHUB_OUTPUT"
+
+  build-platform:
+    name: build ${{ matrix.platform }} image
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout exact ref without external actions
         run: |
@@ -28,14 +77,6 @@ jobs:
           git fetch --depth 1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
 
-      - name: Compute RC image tag
-        run: |
-          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-          tag="$(date -u +%Y%m%dT%H%M%SZ)-RC"
-          echo "GHCR_OWNER=$owner" >> "$GITHUB_ENV"
-          echo "IMAGE_TAG=$tag" >> "$GITHUB_ENV"
-          echo "IMAGE_REF=ghcr.io/$owner/$IMAGE_NAME:$tag" >> "$GITHUB_ENV"
-
       - name: Login to GHCR
         run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
         env:
@@ -43,55 +84,66 @@ jobs:
 
       - name: Use docker-container Buildx driver
         run: |
-          docker buildx create --name dmf-bench-builder --driver docker-container --use
+          docker buildx create \
+            --name "dmf-bench-builder-${{ matrix.arch }}" \
+            --driver docker-container \
+            --use
           docker buildx inspect --bootstrap
 
-      - name: Build and publish RC image
-        run: make image-buildx-push GHCR_OWNER="$GHCR_OWNER" IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" PUBLISH_LATEST=0
+      - name: Build and publish native platform image
+        env:
+          GHCR_OWNER: ${{ needs.prepare.outputs.ghcr_owner }}
+          IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}-${{ matrix.arch }}
+          IMAGE_PLATFORMS: ${{ matrix.platform }}
+        run: |
+          make image-buildx-push \
+            GHCR_OWNER="$GHCR_OWNER" \
+            IMAGE_NAME="$IMAGE_NAME" \
+            IMAGE_TAG="$IMAGE_TAG" \
+            IMAGE_PLATFORMS="$IMAGE_PLATFORMS" \
+            PUBLISH_LATEST=0
 
-      - name: Report published RC image
-        run: echo "Published $IMAGE_REF"
-
-  publish-tagged-release:
-    name: publish tagged release image
-    if: startsWith(github.ref, 'refs/tags/')
+  publish-manifest:
+    name: publish multi-platform image manifest
+    needs:
+      - prepare
+      - build-platform
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
+    env:
+      GHCR_OWNER: ${{ needs.prepare.outputs.ghcr_owner }}
+      IMAGE_TAG: ${{ needs.prepare.outputs.image_tag }}
+      IMAGE_REF: ${{ needs.prepare.outputs.image_ref }}
     steps:
-      - name: Checkout tag and main without external actions
+      - name: Checkout exact ref without external actions
         run: |
           git init .
           git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
-          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          git fetch --force origin "refs/heads/main:refs/remotes/origin/main"
-          git checkout --detach "$GITHUB_SHA"
-
-      - name: Require tag commit to be on main
-        run: |
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "Refusing to publish: tag $GITHUB_REF_NAME does not point to a commit reachable from main."
-            exit 1
-          fi
-
-      - name: Compute release image tag
-        run: |
-          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-          echo "GHCR_OWNER=$owner" >> "$GITHUB_ENV"
-          echo "IMAGE_TAG=$GITHUB_REF_NAME" >> "$GITHUB_ENV"
-          echo "IMAGE_REF=ghcr.io/$owner/$IMAGE_NAME:$GITHUB_REF_NAME" >> "$GITHUB_ENV"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
 
       - name: Login to GHCR
         run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Use docker-container Buildx driver
+      - name: Publish final amd64 and arm64 manifest
         run: |
-          docker buildx create --name dmf-bench-builder --driver docker-container --use
-          docker buildx inspect --bootstrap
+          source_refs="ghcr.io/$GHCR_OWNER/$IMAGE_NAME:$IMAGE_TAG-amd64 ghcr.io/$GHCR_OWNER/$IMAGE_NAME:$IMAGE_TAG-arm64"
+          make image-manifest-create \
+            GHCR_OWNER="$GHCR_OWNER" \
+            IMAGE_NAME="$IMAGE_NAME" \
+            IMAGE_TAG="$IMAGE_TAG" \
+            IMAGE_SOURCE_REFS="$source_refs" \
+            PUBLISH_LATEST=0
 
-      - name: Build and publish tagged release image
-        run: make image-buildx-push GHCR_OWNER="$GHCR_OWNER" IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" PUBLISH_LATEST=0
+      - name: Require both published platforms
+        run: |
+          docker buildx imagetools inspect --raw "$IMAGE_REF" | jq -e '
+            [.manifests[].platform | "\(.os)/\(.architecture)"] as $platforms
+            | ($platforms | index("linux/amd64")) != null
+              and ($platforms | index("linux/arm64")) != null
+          '
 
-      - name: Report published release image
-        run: echo "Published $IMAGE_REF"
+      - name: Report published image
+        run: echo "Published multi-platform image $IMAGE_REF"

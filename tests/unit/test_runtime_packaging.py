@@ -116,6 +116,7 @@ def test_makefile_exposes_maintainer_targets() -> None:
         "ghcr-login",
         "image-push",
         "image-buildx-push",
+        "image-manifest-create",
         "run-oci-dry-run",
         "run-oci-push",
         "gh-workflows",
@@ -133,6 +134,9 @@ def test_makefile_exposes_maintainer_targets() -> None:
     assert "publish-run-oci" in makefile
     assert "$(GH) workflow run" in makefile
     assert "PUBLISH_LATEST ?= 0" in makefile
+    assert "IMAGE_PLATFORMS ?=" in makefile
+    assert '--platform "$(IMAGE_PLATFORMS)"' in makefile
+    assert "$(DOCKER) buildx imagetools create" in makefile
     assert "run-oci-push: require-RUN_ID require-GHCR_OWNER require-RUN_SUBJECT" in makefile
 
 
@@ -144,15 +148,20 @@ def test_publish_image_workflow_pushes_rc_and_tagged_release_to_ghcr() -> None:
     assert "packages: write" in workflow
     assert "branches:\n      - main" in workflow
     assert 'tags:\n      - "*"' in workflow
-    assert "publish-main-rc:" in workflow
-    assert "publish-tagged-release:" in workflow
+    assert "prepare:" in workflow
+    assert "build-platform:" in workflow
+    assert "publish-manifest:" in workflow
     assert "date -u +%Y%m%dT%H%M%SZ)-RC" in workflow
-    assert "IMAGE_TAG=$GITHUB_REF_NAME" in workflow
+    assert 'tag="$GITHUB_REF_NAME"' in workflow
     assert 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main' in workflow
     assert 'docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin' in workflow
-    assert workflow.count("--driver docker-container --use") == 2
-    assert workflow.count("docker buildx inspect --bootstrap") == 2
-    assert 'make image-buildx-push GHCR_OWNER="$GHCR_OWNER" IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG="$IMAGE_TAG" PUBLISH_LATEST=0' in workflow
+    assert "runner: ubuntu-24.04-arm" in workflow
+    assert "platform: linux/amd64" in workflow
+    assert "platform: linux/arm64" in workflow
+    assert "IMAGE_PLATFORMS=\"$IMAGE_PLATFORMS\"" in workflow
+    assert "make image-manifest-create" in workflow
+    assert "Require both published platforms" in workflow
+    assert "tonistiigi/binfmt" not in workflow
 
 
 def test_readme_documents_cli_surface_and_user_manual() -> None:
