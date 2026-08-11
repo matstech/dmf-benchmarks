@@ -80,28 +80,30 @@ class MaterializedDataset:
 
 
 BUILTIN_DATASETS: dict[str, DatasetRecord] = {
-    "locomo-official-unpinned": DatasetRecord(
-        dataset_id="locomo-official-unpinned",
+    "locomo-official-v1": DatasetRecord(
+        dataset_id="locomo-official-v1",
         benchmark="locomo",
-        source_url="https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json",
-        revision="main",
-        sha256="0" * 64,
+        source_url=(
+            "https://raw.githubusercontent.com/snap-research/locomo/"
+            "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376/data/locomo10.json"
+        ),
+        revision="3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376",
+        sha256="79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
         filename="locomo10.json",
         expected_schema="locomo10-json-array-v1",
-        pinned=False,
     ),
-    "longmemeval-s-official-unpinned": DatasetRecord(
-        dataset_id="longmemeval-s-official-unpinned",
+    "longmemeval-s-official-v1": DatasetRecord(
+        dataset_id="longmemeval-s-official-v1",
         benchmark="longmemeval",
         source_url=(
             "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/"
-            "resolve/main/longmemeval_s_cleaned.json"
+            "resolve/98d7416c24c778c2fee6e6f3006e7a073259d48f/"
+            "longmemeval_s_cleaned.json"
         ),
-        revision="main",
-        sha256="0" * 64,
+        revision="98d7416c24c778c2fee6e6f3006e7a073259d48f",
+        sha256="d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
         filename="longmemeval_s_cleaned.json",
         expected_schema="longmemeval-cleaned-json-array-v1",
-        pinned=False,
     ),
 }
 

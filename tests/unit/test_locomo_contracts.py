@@ -6,6 +6,8 @@ from dmf_bench.benchmarks.locomo.dataset import (
     serialize_locomo_turn_for_dmf,
     serialize_locomo_turn_for_mem0,
 )
+from dmf_bench.benchmarks.locomo.evaluation import EVALUATOR_VERSION
+from dmf_bench.benchmarks.locomo.rigorous import evaluate_flat, ndcg_at_k
 from dmf_bench.benchmarks.locomo.prompts import official_ground_truth_answer
 from dmf_bench.benchmarks.locomo.questions import (
     category_name,
@@ -63,3 +65,39 @@ def test_locomo_categories_one_through_five_and_adversarial_target_are_stable() 
         generated_answer="(b)",
         ground_truth_answer="private answer",
     ) == "Not mentioned in the conversation"
+
+
+def test_locomo_retrieval_metrics_deduplicate_source_aliases() -> None:
+    evaluations = [
+        {
+            "generated_answer": "Pixel",
+            "ground_truth_answer": "Pixel",
+            "category_name": "single-hop",
+            "cutoff_label": "native",
+            "evidence": ["D1:1"],
+            "retrieval": {
+                "memories_evaluated": 2,
+                "search_results": [
+                    {
+                        "metadata": {
+                            "source_unit_id": "D1:1",
+                            "source_unit_ids": ["D1:1", "D1:2"],
+                        }
+                    },
+                    {
+                        "metadata": {
+                            "source_unit_id": "D1:2",
+                            "source_unit_ids": ["D1:2", "D1:3"],
+                        }
+                    },
+                ],
+            },
+        }
+    ]
+
+    _, metrics = evaluate_flat(evaluations, {"top_k": 2})
+
+    assert EVALUATOR_VERSION == "locomo-evaluator-v2"
+    assert metrics["overall"]["ndcg_at_k"] == 1.0
+    assert metrics["overall"]["precision_at_k"] == 1 / 3
+    assert ndcg_at_k(["D1:1", "D1:2", "D1:3"], {"D1:1"}) == 1.0

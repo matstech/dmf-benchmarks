@@ -218,6 +218,9 @@ __marimo__/
 .streamlit/secrets.toml
 benchmarks/.DS_Store
 .DS_Store
+
+# Local dmf-benchctl preparation state
+.dmf-bench/
 docs/adding-a-benchmark.md
 docs/adding-a-framework.md
 docs/adding-an-evaluator.md

@@ -29,12 +29,12 @@
       "id": 1,
       "targets": [
         {
-          "expr": "dmf_bench_run_progress_ratio",
-          "legendFormat": "{{benchmark}}/{{framework}} units"
+          "expr": "dmf_bench_persisted_run_completed_input_records / clamp_min(dmf_bench_persisted_run_expected_input_records, 1)",
+          "legendFormat": "{{benchmark}}/{{framework}} input records"
         },
         {
-          "expr": "dmf_bench_run_item_progress_ratio",
-          "legendFormat": "{{benchmark}}/{{framework}} items"
+          "expr": "dmf_bench_persisted_run_progress_ratio",
+          "legendFormat": "{{benchmark}}/{{framework}} evaluation items"
         }
       ],
       "title": "Run progress",
@@ -54,15 +54,11 @@
       "id": 2,
       "targets": [
         {
-          "expr": "dmf_bench_run_phase_active == 1",
-          "legendFormat": "{{phase}}"
-        },
-        {
-          "expr": "dmf_bench_run_state_active == 1",
+          "expr": "dmf_bench_persisted_run_state == 1",
           "legendFormat": "state={{state}}"
         }
       ],
-      "title": "Active phase",
+      "title": "Run state",
       "type": "timeseries"
     },
     {
@@ -79,15 +75,15 @@
       "id": 3,
       "targets": [
         {
-          "expr": "rate(dmf_bench_llm_requests_total[5m])",
-          "legendFormat": "{{role}}/{{provider}}/{{outcome}}"
+          "expr": "dmf_bench_persisted_run_llm_tokens",
+          "legendFormat": "persisted {{benchmark}}/{{framework}} {{role}} {{token_type}}"
         },
         {
-          "expr": "rate(dmf_bench_llm_tokens_total[5m])",
-          "legendFormat": "{{role}}/{{provider}}/{{token_type}} tokens"
+          "expr": "dmf_bench_llm_tokens_total{job=\"benchmark\"}",
+          "legendFormat": "live {{role}}/{{provider}} {{token_type}}"
         }
       ],
-      "title": "LLM requests and tokens",
+      "title": "LLM token usage",
       "type": "timeseries"
     },
     {
@@ -104,7 +100,7 @@
       "id": 4,
       "targets": [
         {
-          "expr": "rate(dmf_bench_qdrant_client_operations_total[5m])",
+          "expr": "rate(dmf_bench_qdrant_client_operations_total{job=\"benchmark\"}[$__rate_interval])",
           "legendFormat": "{{operation}}/{{outcome}}"
         },
         {
@@ -129,11 +125,11 @@
       "id": 5,
       "targets": [
         {
-          "expr": "rate(dmf_bench_artifact_publish_total[5m])",
-          "legendFormat": "{{backend}}/{{outcome}}"
+          "expr": "dmf_bench_persisted_run_result",
+          "legendFormat": "{{benchmark}}/{{framework}} {{evaluator}} {{metric}}"
         }
       ],
-      "title": "Artifact publish",
+      "title": "Evaluation results",
       "type": "timeseries"
     },
     {
@@ -150,15 +146,15 @@
       "id": 6,
       "targets": [
         {
-          "expr": "rate(dmf_bench_attempts_total[5m])",
-          "legendFormat": "{{outcome}}"
+          "expr": "dmf_bench_persisted_run_execution_seconds",
+          "legendFormat": "{{benchmark}}/{{framework}} execution"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(dmf_bench_phase_duration_seconds_bucket[5m]))",
-          "legendFormat": "phase p95"
+          "expr": "dmf_bench_persisted_run_pipeline_duration_seconds",
+          "legendFormat": "{{benchmark}}/{{framework}} {{stage}}"
         }
       ],
-      "title": "Attempts and durations",
+      "title": "Execution and pipeline time",
       "type": "timeseries"
     }
   ],
@@ -172,12 +168,12 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-6h",
     "to": "now"
   },
   "timezone": "browser",
   "title": "DMF Benchmarks",
   "uid": "dmf-benchmarks",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

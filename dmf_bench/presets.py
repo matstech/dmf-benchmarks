@@ -72,7 +72,7 @@ BUILTIN_PRESETS: dict[str, PresetRecord] = {
         profile="paper",
         benchmark="locomo",
         framework="dmf",
-        dataset_id="locomo-official-unpinned",
+        dataset_id="locomo-official-v1",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
             "answerer": _model("openai", "gpt-4.1-mini"),
@@ -85,7 +85,7 @@ BUILTIN_PRESETS: dict[str, PresetRecord] = {
         profile="default",
         benchmark="locomo",
         framework="dmf",
-        dataset_id="locomo-official-unpinned",
+        dataset_id="locomo-official-v1",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
             "answerer": _model("openai", "gpt-4.1-mini"),
@@ -98,7 +98,7 @@ BUILTIN_PRESETS: dict[str, PresetRecord] = {
         profile="paper",
         benchmark="longmemeval",
         framework="dmf",
-        dataset_id="longmemeval-s-official-unpinned",
+        dataset_id="longmemeval-s-official-v1",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
             "answerer": _model("openai", "gpt-4.1-mini"),
@@ -111,7 +111,7 @@ BUILTIN_PRESETS: dict[str, PresetRecord] = {
         profile="default",
         benchmark="longmemeval",
         framework="dmf",
-        dataset_id="longmemeval-s-official-unpinned",
+        dataset_id="longmemeval-s-official-v1",
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
             "answerer": _model("openai", "gpt-4.1-mini"),

@@ -19,13 +19,27 @@ writes the materialized file under `/bench/cache/datasets/...`, and generates
 - LongMemEval samples 5% of the 500 real records, rounded up: 25 records.
 
 They validate a substantial end-to-end lifecycle, but they are not paper-scale
-reproduction datasets. The source URLs are the official sources registered in
-`dmf_bench/datasets.py`. The built-in official entries are marked unpinned, so
-the smoke configs explicitly set `allow_unpinned: true`; the generated
-`manifest.json` records the observed source SHA-256 and, when sampling is
-configured, the sample policy and sample counts.
+reproduction datasets. The official source revisions and SHA-256 digests are
+pinned in `dmf_bench/datasets.py`. Materialization refuses changed bytes, and
+the generated `manifest.json` records the verified source, materialized sample,
+sample policy, and sample counts.
 
-Run any configuration through the host-side control plane, for example:
+Prepare all four configurations through the host-side control plane without
+making provider calls:
+
+```text
+dmf-benchctl --image ghcr.io/ORG/dmf-benchmarks:TAG prepare \
+  --suite smoke \
+  --allow-downloads
+```
+
+Then execute the locked batch sequentially:
+
+```text
+dmf-benchctl run --prepared
+```
+
+You can still run one configuration directly, for example:
 
 ```text
 dmf-benchctl run \

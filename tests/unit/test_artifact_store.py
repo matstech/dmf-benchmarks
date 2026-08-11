@@ -115,6 +115,10 @@ def test_artifact_api_lists_verifies_and_downloads_json(tmp_path: Path) -> None:
     assert landing.status_code == 200
     assert landing.headers["content-type"].startswith("text/html")
     assert "DMF Benchmarks" in landing.text
+    assert 'id="run-result"' in landing.text
+    assert 'async function loadRunResource' in landing.text
+    assert '<button class="run-link"' in landing.text
+    assert '<a class="run-link"' not in landing.text
     assert openapi.json()["info"]["version"] == "0.2.0"
     assert health.json() == {
         "status": "ok",

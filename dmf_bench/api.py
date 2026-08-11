@@ -12,7 +12,9 @@ from fastapi.responses import FileResponse, Response
 
 from dmf_bench import __version__
 from dmf_bench.artifacts import LocalArtifactStore
+from dmf_bench.derived_evaluation import derived_evaluation_dir
 from dmf_bench.metrics import BenchmarkMetrics
+from dmf_bench.persisted_metrics import render_persisted_run_metrics
 from dmf_bench.state import StateError
 
 
@@ -20,7 +22,8 @@ LANDING_PAGE_PATH = Path(__file__).with_name("static") / "index.html"
 
 
 def create_app(runs_dir: str | Path, metrics: BenchmarkMetrics | None = None) -> FastAPI:
-    store = LocalArtifactStore(runs_dir)
+    runs_path = Path(runs_dir)
+    store = LocalArtifactStore(runs_path)
     metrics_registry = metrics or BenchmarkMetrics()
     app = FastAPI(title="DMF Benchmark Artifact API", version=__version__)
 
@@ -39,7 +42,7 @@ def create_app(runs_dir: str | Path, metrics: BenchmarkMetrics | None = None) ->
     @app.get("/metrics")
     def metrics_endpoint() -> Response:
         return Response(
-            content=metrics_registry.render(),
+            content=metrics_registry.render() + render_persisted_run_metrics(runs_path),
             media_type=metrics_registry.content_type(),
         )
 
@@ -76,6 +79,38 @@ def create_app(runs_dir: str | Path, metrics: BenchmarkMetrics | None = None) ->
         except (StateError, ValueError, FileNotFoundError) as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return FileResponse(file_path, media_type=content_type_for(file_path))
+
+    @app.get("/runs/{run_id}/derived-evaluations")
+    def list_derived_evaluations(run_id: str) -> dict[str, Any]:
+        try:
+            root = derived_evaluation_dir(runs_path, run_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        versions = []
+        if root.is_dir():
+            versions = sorted(
+                path.name
+                for path in root.iterdir()
+                if path.is_dir() and (path / "derivation.json").is_file()
+            )
+        return {"run_id": run_id, "evaluator_versions": versions}
+
+    @app.get("/runs/{run_id}/derived-evaluations/{version}/{artifact_name}")
+    def download_derived_evaluation(
+        run_id: str,
+        version: str,
+        artifact_name: str,
+    ) -> FileResponse:
+        allowed = {"derivation.json", "rigorous_report.json", "ablation_report.json"}
+        if Path(version).name != version or artifact_name not in allowed:
+            raise HTTPException(status_code=404, detail="derived evaluation artifact not found")
+        try:
+            path = derived_evaluation_dir(runs_path, run_id) / version / artifact_name
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="derived evaluation artifact not found")
+        return FileResponse(path, media_type=content_type_for(path))
 
     return app
 

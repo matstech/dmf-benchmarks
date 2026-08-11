@@ -254,6 +254,36 @@ def test_transport_does_not_retry_non_retryable_failures() -> None:
     assert sleeps == []
 
 
+def test_transport_failure_reports_redacted_root_cause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "sensitive-provider-key"
+    monkeypatch.setenv("OPENAI_API_KEY", secret)
+    client = OpenAIClient(
+        model="test-model",
+        api_key=secret,
+        max_retries=0,
+        rpm=0,
+    )
+
+    def create(**_kwargs: Any) -> Any:
+        try:
+            raise OSError(f"TLS certificate rejected while using {secret}")
+        except OSError as cause:
+            raise ConnectionError("connection failed") from cause
+
+    client.client.chat.completions.create = create
+
+    with pytest.raises(ProviderRequestError) as failure:
+        client.generate_with_usage("system", "user")
+
+    message = str(failure.value)
+    assert "ConnectionError: connection failed" in message
+    assert "OSError: TLS certificate rejected" in message
+    assert "<redacted>" in message
+    assert secret not in message
+
+
 @pytest.mark.parametrize("provider", ["openai", "openrouter", "ollama"])
 def test_provider_factories_cover_supported_provider_without_network(provider: str) -> None:
     answer_response = response("answer")

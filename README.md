@@ -49,6 +49,17 @@ definition, starts the required services, translates known host paths to
 container paths, and invokes `dmf-bench` explicitly inside the locked image.
 Docker Compose is an implementation detail of the current orchestrator adapter.
 
+Install the lightweight host controller in an isolated environment; Poetry is
+not required for user operations:
+
+```bash
+pipx install .
+dmf-benchctl --help
+```
+
+The default install has no scientific runtime dependencies. Maintainers and the
+Docker image install the explicit `runtime` extra.
+
 Check the CLI surface:
 
 ```bash
@@ -65,13 +76,45 @@ export OPENAI_API_KEY=your_openai_api_key_here
 export DMF_BENCH_IMAGE=ghcr.io/ORG/dmf-benchmarks:TAG
 ```
 
-Validate a config without calling the provider:
+Prepare the complete checked-in smoke suite without calling the provider:
 
 ```bash
-dmf-benchctl validate --materialize-datasets --config config/experiment.json
+dmf-benchctl --image "$DMF_BENCH_IMAGE" prepare \
+  --suite smoke \
+  --allow-downloads \
+  --observability
 ```
 
-Run a benchmark with a fresh run ID:
+`prepare` checks Docker and Compose, pulls and locks the native image by digest,
+checks required provider credentials, starts the services, materializes and
+validates every dataset, and writes `.dmf-bench/prepared.json`. The local state
+contains no secret and is ignored by Git. Version 2 contexts also lock every
+configuration SHA-256 and the pinned dataset identity embedded in the selected
+image; execution fails before starting services if a configuration changes.
+
+Execute the prepared experiments sequentially:
+
+```bash
+dmf-benchctl run --prepared
+```
+
+The controller launches a detached host worker and returns immediately with the
+job PID, run IDs, worker log, and exact `status`/`verify` commands. Benchmark
+output is retained under `.dmf-bench/logs/<RUN_ID>.log`; orchestration output is
+retained in the reported worker log. Add `--follow` only to run in the
+foreground and stream container logs for interactive diagnostics.
+
+Rerunning `dmf-benchctl run --prepared` is safe after an interruption: the
+controller inspects each run ID, resumes existing incomplete/failed runs, and
+starts only runs whose state does not exist yet.
+
+Resume a failed member with the same locked image and quiet logging:
+
+```bash
+dmf-benchctl resume --prepared --run-id RUN_ID
+```
+
+For a single unprepared experiment, pass its config and a fresh run ID:
 
 ```bash
 dmf-benchctl run --config config/experiment.json --run-id local-locomo-dmf-001
@@ -85,6 +128,18 @@ dmf-benchctl resume --run-id local-locomo-dmf-001
 dmf-benchctl verify --run-id local-locomo-dmf-001
 dmf-benchctl stack down
 ```
+
+`status` is human-oriented by default. It shows the current lifecycle phase, an
+ASCII progress bar, completed evaluation items (questions or scored records),
+and processed input records (source conversations or records). Automation can
+request the stable renamed schema with:
+
+```bash
+dmf-benchctl status --run-id local-locomo-dmf-001 --json
+```
+
+The controller status schema exposes `evaluation_items` and `input_records`;
+the internal checkpoint term `units` is not part of this user-facing format.
 
 The checked-in `smoke/` directory contains ready-to-use restricted configs for
 LoCoMo and LongMemEval across DMF and Mem0. They are substantial smoke checks,
@@ -111,8 +166,9 @@ directory as:
 datasets/materialization-manifest.json
 ```
 
-Unpinned official registry entries fail closed unless the config or command
-explicitly sets `allow_unpinned`.
+Official registry entries use immutable upstream revisions and verified
+SHA-256 digests. Unpinned custom entries remain available for explicitly
+exploratory direct runs and are rejected by `dmf-benchctl prepare`.
 
 ## Results and observability
 
@@ -138,6 +194,22 @@ curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/verify" | jq
 tokens. `timing.json` aggregates measured lifecycle work for the active
 attempt. Scientific quality remains in `rigorous_report.json` and
 `ablation_report.json`.
+
+When observability is enabled, Grafana is available at
+`http://127.0.0.1:3000/d/dmf-benchmarks/dmf-benchmarks`. The Artifact API
+projects the latest persisted run per benchmark/framework into Prometheus, so
+progress, state, token usage, timings, and evaluation results remain visible
+after the one-shot benchmark container exits.
+
+Deterministic LoCoMo reports can be re-derived from an immutable committed run
+without provider calls:
+
+```bash
+dmf-benchctl evaluate --run-id "$RUN_ID"
+```
+
+The source run remains unchanged. A provenance-linked bundle is written under
+`.derived-evaluations/<RUN_ID>/<EVALUATOR_VERSION>/` in the shared run volume.
 
 The Artifact API is unauthenticated only because it is read-only and bound to
 loopback. Do not expose it directly to an untrusted network.
@@ -200,8 +272,7 @@ Materialize a dataset manually:
 
 ```bash
 dmf-benchctl runtime -- materialize-dataset \
-  --dataset-id locomo-official-unpinned \
-  --allow-unpinned \
+  --dataset-id locomo-official-v1 \
   --sample-fraction 0.05 \
   --sample-unit qa \
   --sample-stratify-by category \
