@@ -58,6 +58,12 @@ If you use an image published to GHCR:
 docker login ghcr.io
 ```
 
+Official RC and tagged image references contain both `linux/amd64` and
+`linux/arm64`. Docker selects the native variant automatically. On an Apple
+Silicon Mac, verify that the pulled image reports `linux/arm64` before recording
+official timing measurements; an emulated `linux/amd64` image can produce
+misleading timings.
+
 Create a local `.env` file in the repository root:
 
 ```dotenv

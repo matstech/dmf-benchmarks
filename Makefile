@@ -22,6 +22,8 @@ GHCR_RUNS_IMAGE ?= ghcr.io/$(GHCR_OWNER)/$(RUNS_IMAGE_NAME)
 IMAGE_REF ?= $(GHCR_IMAGE):$(IMAGE_TAG)
 IMAGE_LATEST_REF ?= $(GHCR_IMAGE):latest
 IMAGE_EXTRA_REFS ?=
+IMAGE_PLATFORMS ?=
+IMAGE_SOURCE_REFS ?=
 PUBLISH_LATEST ?= 0
 
 RUN_ID ?=
@@ -40,7 +42,7 @@ CANARY_CONFIRM ?=
 	install check compile test test-unit test-integration \
 	docs-build \
 	compose-config prometheus-check stack-up stack-down \
-	image-build image-build-ghcr image-inspect image-smoke image-push image-buildx-push ghcr-login \
+	image-build image-build-ghcr image-inspect image-smoke image-push image-buildx-push image-manifest-create ghcr-login \
 	run-oci-dry-run run-oci-push \
 	gh-workflows gh-workflow-run gh-workflow-watch gh-release-dry-run gh-container-smoke gh-scientific-canary
 
@@ -62,6 +64,8 @@ help:
 	@printf "  make image-build-ghcr GHCR_OWNER=org Build tagged GHCR image locally\n"
 	@printf "  make image-push GHCR_OWNER=org       Push ghcr.io/org/$(IMAGE_NAME):$(IMAGE_TAG)\n"
 	@printf "  make image-buildx-push GHCR_OWNER=org Push image with SBOM/provenance\n"
+	@printf "  Optional: IMAGE_PLATFORMS=linux/arm64 selects an explicit build platform\n"
+	@printf "  make image-manifest-create GHCR_OWNER=org IMAGE_SOURCE_REFS='ref-amd64 ref-arm64'\n"
 	@printf "  Optional: PUBLISH_LATEST=1 also tags/pushes latest; IMAGE_EXTRA_REFS adds refs\n"
 	@printf "  make ghcr-login GHCR_OWNER=org       Login to ghcr.io with gh auth token\n\n"
 	@printf "Official run OCI artifacts:\n"
@@ -149,6 +153,8 @@ image-push: require-GHCR_OWNER image-build-ghcr
 
 image-buildx-push: require-GHCR_OWNER
 	tags=(--tag "$(IMAGE_REF)"); \
+	platforms=(); \
+	if [ -n "$(IMAGE_PLATFORMS)" ]; then platforms+=(--platform "$(IMAGE_PLATFORMS)"); fi; \
 	if [ "$(PUBLISH_LATEST)" = "1" ]; then tags+=(--tag "$(IMAGE_LATEST_REF)"); fi; \
 	extra_refs="$(IMAGE_EXTRA_REFS)"; \
 	if [ -n "$$extra_refs" ]; then for ref in $$extra_refs; do tags+=(--tag "$$ref"); done; fi; \
@@ -157,9 +163,20 @@ image-buildx-push: require-GHCR_OWNER
 		--provenance=true \
 		--label org.opencontainers.image.revision="$(GIT_SHA)" \
 		--label org.opencontainers.image.created="$(CREATED)" \
+		"$${platforms[@]}" \
 		"$${tags[@]}" \
 		--push \
 		.
+
+image-manifest-create: require-GHCR_OWNER require-IMAGE_SOURCE_REFS
+	tags=(--tag "$(IMAGE_REF)"); \
+	if [ "$(PUBLISH_LATEST)" = "1" ]; then tags+=(--tag "$(IMAGE_LATEST_REF)"); fi; \
+	extra_refs="$(IMAGE_EXTRA_REFS)"; \
+	if [ -n "$$extra_refs" ]; then for ref in $$extra_refs; do tags+=(--tag "$$ref"); done; fi; \
+	$(DOCKER) buildx imagetools create \
+		"$${tags[@]}" \
+		$(IMAGE_SOURCE_REFS); \
+	$(DOCKER) buildx imagetools inspect "$(IMAGE_REF)"
 
 run-oci-dry-run: require-RUN_ID require-GHCR_OWNER
 	args=(publish-run-oci --run-id "$(RUN_ID)" --runs-dir "$(RUNS_DIR)" --ref "$(RUN_REF)"); \
