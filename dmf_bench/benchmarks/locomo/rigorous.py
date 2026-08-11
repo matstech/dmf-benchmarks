@@ -97,7 +97,24 @@ def retrieved_source_ids(search_results: list[dict[str, Any]], k: int) -> list[s
                 for value in multiple_ids
                 if isinstance(value, str) and value
             )
-    return ids
+    return dedupe_preserve_order(ids)
+
+
+def dedupe_preserve_order(ids: list[str]) -> list[str]:
+    """Keep the first ranked occurrence of each source unit.
+
+    A canonical memory may expose the same source through both
+    ``source_unit_id`` and ``source_unit_ids``. Counting those aliases more
+    than once inflates binary-gain DCG and can produce NDCG values above one.
+    """
+
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in ids:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
 
 
 def recall_at_k(retrieved_ids: list[str], gold_ids: set[str]) -> float:

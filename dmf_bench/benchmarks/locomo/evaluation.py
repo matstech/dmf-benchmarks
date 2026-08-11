@@ -9,7 +9,7 @@ from .ablation import evaluate_ablation
 from .rigorous import evaluate_flat
 
 
-EVALUATOR_VERSION = "locomo-evaluator-v1"
+EVALUATOR_VERSION = "locomo-evaluator-v2"
 
 
 def ensure_v2_evaluations(evaluations: list[dict[str, Any]]) -> None:

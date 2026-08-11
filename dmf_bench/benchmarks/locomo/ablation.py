@@ -48,6 +48,16 @@ def average(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def dedupe_preserve_order(ids: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in ids:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
 def _extract_source_ids_from_canonical(
     candidates: list[dict[str, Any]],
 ) -> list[str]:
@@ -66,7 +76,7 @@ def _extract_source_ids_from_canonical(
                 for value in multiple_ids
                 if isinstance(value, str) and value
             )
-    return ids
+    return dedupe_preserve_order(ids)
 
 
 def _extract_source_ids_from_raw(
@@ -80,7 +90,7 @@ def _extract_source_ids_from_raw(
         source_id = record_id_to_source.get(record_id)
         if source_id:
             ids.append(source_id)
-    return ids
+    return dedupe_preserve_order(ids)
 
 
 def _build_record_id_to_source_mapping(item: dict[str, Any]) -> dict[str, str]:

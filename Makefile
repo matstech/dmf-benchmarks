@@ -82,7 +82,7 @@ require-%:
 	@test -n "$($*)" || (printf "%s is required\n" "$*" >&2; exit 2)
 
 install:
-	$(POETRY) install --no-ansi
+	$(POETRY) install --all-extras --no-ansi
 
 compile:
 	$(POETRY) run $(PYTHON) -m compileall dmf_bench dmf_benchctl -q

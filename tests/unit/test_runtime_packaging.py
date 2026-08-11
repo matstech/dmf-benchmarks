@@ -27,6 +27,8 @@ def test_distribution_contains_the_runtime_package_and_entrypoint() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert project["project"]["version"] == "0.2.0"
+    assert project["project"]["dependencies"] == []
+    assert "runtime" in project["project"]["optional-dependencies"]
     assert project["tool"]["poetry"]["packages"] == [
         {"include": "dmf_bench"},
         {"include": "dmf_benchctl"},
@@ -35,6 +37,20 @@ def test_distribution_contains_the_runtime_package_and_entrypoint() -> None:
         "dmf-bench": "dmf_bench.cli:main",
         "dmf-benchctl": "dmf_benchctl.cli:main",
     }
+
+
+def test_controller_install_is_lightweight_and_runtime_extra_is_explicit() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    runtime_dependencies = project["project"]["optional-dependencies"]["runtime"]
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "pr-fast.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert any(dependency.startswith("dmf-memory") for dependency in runtime_dependencies)
+    assert any(dependency.startswith("mem0ai") for dependency in runtime_dependencies)
+    assert "--extras runtime" in dockerfile
+    assert "poetry install --all-extras" in workflow
 
 
 def test_config_directory_contains_the_supported_qdrant_surfaces() -> None:
@@ -77,6 +93,9 @@ def test_docker_context_and_runtime_exclude_repository_surfaces() -> None:
     assert "/opt/poetry /opt/poetry" not in dockerfile
     assert 'org.opencontainers.image.version="0.2.0"' in dockerfile
     assert "image: ${DMF_BENCH_IMAGE:-dmf-benchmarks:local}" in compose
+    assert "OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}" not in compose
+    assert "OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}" not in compose
+    assert "OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}" not in compose
 
     assert dockerignore.splitlines() == [
         "**",

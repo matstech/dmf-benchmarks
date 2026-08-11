@@ -25,7 +25,7 @@ RUN apt-get update \
     && /opt/poetry/bin/pip install "poetry==${POETRY_VERSION}"
 
 COPY pyproject.toml poetry.lock ./
-RUN /opt/poetry/bin/poetry install --only main --no-root --no-ansi
+RUN /opt/poetry/bin/poetry install --only main --extras runtime --no-root --no-ansi
 
 COPY LICENSE ./LICENSE
 COPY dmf_bench ./dmf_bench

@@ -16,6 +16,7 @@ from .artifacts import LocalArtifactStore
 from .atomic_io import read_json
 from .config import ResolvedConfig, resolve_config, validate_config
 from .datasets import load_dataset_registry, materialize_dataset_record, registry_as_dict
+from .derived_evaluation import derive_locomo_evaluation
 from .execution import CancellationController, RunInterrupted
 from .logging_config import JsonEventLogger, redact
 from .metrics import BenchmarkMetrics, MetricsServer, start_metrics_endpoint, stop_metrics_endpoint
@@ -155,12 +156,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("list-datasets", help="List dataset registry entries.")
 
+    evaluate_parser = subparsers.add_parser(
+        "evaluate",
+        help="Derive corrected deterministic reports from a committed run.",
+    )
+    evaluate_parser.add_argument("--run-id", required=True, help="Committed source run id.")
+    evaluate_parser.add_argument(
+        "--runs-dir",
+        default=os.getenv("DMF_BENCH_RUNS_DIR", "/bench/runs"),
+        help="Directory containing committed runs and derived reports.",
+    )
+
     future_commands = {
         "resume": "Resume an existing run from its persisted resolved config.",
         "status": "Inspect persisted run status without mutating it.",
         "health": "Check the local runner volume without mutating it.",
         "inspect": "Inspect manifest and local artifact state.",
-        "evaluate": "Run evaluation maintenance flow (not implemented yet).",
         "report": "Run report maintenance flow (not implemented yet).",
         "publish": "Run publish maintenance flow (not implemented yet).",
     }
@@ -296,6 +307,17 @@ def main(
             }
         except (OSError, ValueError) as exc:
             parser.exit(3, f"dmf-bench materialize-dataset: error: {exc}\n")
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
+        return 0
+
+    if args.command == "evaluate":
+        try:
+            result = derive_locomo_evaluation(
+                run_id=args.run_id,
+                runs_dir=args.runs_dir,
+            )
+        except (OSError, StateError, ValueError) as exc:
+            parser.exit(3, f"dmf-bench evaluate: error: {exc}\n")
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
         return 0
 

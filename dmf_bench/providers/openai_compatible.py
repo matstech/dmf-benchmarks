@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_PROVIDERS = frozenset({"openai", "openrouter", "ollama"})
 REASONING_EFFORT_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+PROVIDER_SECRET_ENV_KEYS = ("OPENAI_API_KEY", "OPENROUTER_API_KEY")
 
 
 class ProviderRequestError(RuntimeError):
@@ -93,6 +94,27 @@ def is_retryable_provider_error(exc: BaseException) -> bool:
         return status_code in {408, 409, 425, 429} or status_code >= 500
 
     return False
+
+
+def provider_error_detail(exc: BaseException) -> str:
+    """Render a bounded, secret-redacted exception chain for diagnostics."""
+
+    parts: list[str] = []
+    current: BaseException | None = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited and len(parts) < 4:
+        visited.add(id(current))
+        message = " ".join(str(current).split())
+        for environment_key in PROVIDER_SECRET_ENV_KEYS:
+            secret = os.getenv(environment_key)
+            if secret:
+                message = message.replace(secret, "<redacted>")
+        part = type(current).__name__
+        if message and message != part:
+            part = f"{part}: {message[:300]}"
+        parts.append(part)
+        current = current.__cause__ or current.__context__
+    return " caused by ".join(parts)
 
 
 def normalize_provider_name(provider: str) -> str:
@@ -304,16 +326,16 @@ class OpenAIClient:
                 attempts = attempt + 1
                 logger.warning(
                     "Provider generation attempt %d/%d failed "
-                    "(retryable=%s, error_type=%s)",
+                    "(retryable=%s, error=%s)",
                     attempts,
                     total_attempts,
                     retryable,
-                    type(exc).__name__,
+                    provider_error_detail(exc),
                 )
                 if not retryable or attempts >= total_attempts:
                     raise ProviderRequestError(
                         "Provider generation failed "
-                        f"after {attempts} attempt(s): {type(exc).__name__}.",
+                        f"after {attempts} attempt(s): {provider_error_detail(exc)}.",
                         retryable=retryable,
                         attempts=attempts,
                     ) from exc

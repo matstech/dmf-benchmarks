@@ -190,13 +190,13 @@
     .run-link {
       padding: 7px 9px;
       border: 1px solid var(--border);
+      background: transparent;
       color: var(--muted);
       font-size: 12px;
-      text-decoration: none;
     }
 
     .run-link.ready { color: var(--text); }
-    .run-link:not(.ready) { pointer-events: none; opacity: 0.45; }
+    .run-link:disabled { cursor: default; opacity: 0.45; }
 
     .run-link.ready:hover,
     .run-link.ready:focus-visible {
@@ -205,12 +205,65 @@
       outline: none;
     }
 
+    .run-link.active {
+      border-color: var(--muted);
+      background: var(--surface-hover);
+    }
+
+    .run-result {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      background: var(--background);
+    }
+
+    .result-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 36px;
+      padding: 6px 8px 6px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .result-endpoint {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--muted);
+      font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .result-status {
+      margin-left: auto;
+      color: var(--muted);
+      font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: nowrap;
+    }
+
+    .result-status.success { color: var(--ok); }
+    .result-status.error { color: var(--error); }
+
+    .result-body {
+      max-height: 560px;
+      min-height: 72px;
+      margin: 0;
+      padding: 12px;
+      overflow: auto;
+      color: var(--text);
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      tab-size: 2;
+    }
+
     @media (max-width: 680px) {
       main { width: min(100% - 20px, 1040px); padding: 10px 0; }
       .status-bar { flex-wrap: wrap; padding: 10px; }
       .api-state { margin-left: 0; }
       .services { grid-template-columns: 1fr; }
       .run-input { grid-template-columns: 1fr; gap: 6px; }
+      .result-bar { flex-wrap: wrap; }
+      .result-status { margin-left: 0; }
+      .result-endpoint { flex-basis: 100%; }
     }
   </style>
 </head>
@@ -267,14 +320,22 @@
         <input id="run-id" type="text" autocomplete="off" spellcheck="false" placeholder="local-locomo-dmf-001">
       </div>
       <nav class="run-links" aria-label="Run artifacts">
-        <a class="run-link" data-run-path="">Inspect</a>
-        <a class="run-link" data-run-path="/verify">Verify</a>
-        <a class="run-link" data-run-path="/artifacts/reports/summary.json">Summary</a>
-        <a class="run-link" data-run-path="/artifacts/reports/usage.json">Tokens</a>
-        <a class="run-link" data-run-path="/artifacts/reports/timing.json">Timing</a>
-        <a class="run-link" data-run-path="/artifacts/evaluations/rigorous_report.json">Rigorous</a>
-        <a class="run-link" data-run-path="/artifacts/evaluations/ablation_report.json">Ablation</a>
+        <button class="run-link" type="button" data-run-path="" disabled>Inspect</button>
+        <button class="run-link" type="button" data-run-path="/verify" disabled>Verify</button>
+        <button class="run-link" type="button" data-run-path="/artifacts/reports/summary.json" disabled>Summary</button>
+        <button class="run-link" type="button" data-run-path="/artifacts/reports/usage.json" disabled>Tokens</button>
+        <button class="run-link" type="button" data-run-path="/artifacts/reports/timing.json" disabled>Timing</button>
+        <button class="run-link" type="button" data-run-path="/artifacts/evaluations/rigorous_report.json" disabled>Rigorous</button>
+        <button class="run-link" type="button" data-run-path="/artifacts/evaluations/ablation_report.json" disabled>Ablation</button>
       </nav>
+      <section class="run-result" id="run-result" aria-label="API response" aria-live="polite" hidden>
+        <div class="result-bar">
+          <code class="result-endpoint" id="result-endpoint"></code>
+          <span class="result-status" id="result-status"></span>
+          <button id="clear-result" type="button">Clear</button>
+        </div>
+        <pre class="result-body" id="result-body" tabindex="0"></pre>
+      </section>
     </section>
   </main>
 
@@ -356,23 +417,95 @@
 
     const runInput = document.getElementById("run-id");
     const runLinks = [...document.querySelectorAll("[data-run-path]")];
+    const runResult = document.getElementById("run-result");
+    const resultEndpoint = document.getElementById("result-endpoint");
+    const resultStatus = document.getElementById("result-status");
+    const resultBody = document.getElementById("result-body");
+    const clearResultButton = document.getElementById("clear-result");
+    let activeRequest = null;
+
+    function clearRunResult() {
+      if (activeRequest) activeRequest.abort();
+      activeRequest = null;
+      runResult.hidden = true;
+      runResult.removeAttribute("aria-busy");
+      resultEndpoint.textContent = "";
+      resultStatus.textContent = "";
+      resultStatus.classList.remove("success", "error");
+      resultBody.textContent = "";
+      for (const link of runLinks) link.classList.remove("active");
+    }
+
+    function formatResponseBody(rawBody) {
+      if (!rawBody) return "(empty response)";
+      try {
+        return JSON.stringify(JSON.parse(rawBody), null, 2);
+      } catch (_error) {
+        return rawBody;
+      }
+    }
+
+    async function loadRunResource(link) {
+      const runId = runInput.value.trim();
+      if (!runId) return;
+
+      if (activeRequest) activeRequest.abort();
+      activeRequest = new AbortController();
+      const request = activeRequest;
+      const endpoint = `/runs/${encodeURIComponent(runId)}${link.dataset.runPath}`;
+
+      for (const item of runLinks) item.classList.toggle("active", item === link);
+      runResult.hidden = false;
+      runResult.setAttribute("aria-busy", "true");
+      resultEndpoint.textContent = endpoint;
+      resultStatus.textContent = "loading";
+      resultStatus.classList.remove("success", "error");
+      resultBody.textContent = "Loading…";
+
+      try {
+        const response = await fetch(endpoint, {
+          cache: "no-store",
+          headers: { Accept: "application/json" },
+          signal: request.signal,
+        });
+        const rawBody = await response.text();
+        if (request !== activeRequest) return;
+        resultStatus.textContent = `${response.status} ${response.statusText}`.trim();
+        resultStatus.classList.add(response.ok ? "success" : "error");
+        resultBody.textContent = formatResponseBody(rawBody);
+      } catch (error) {
+        if (error.name === "AbortError" || request !== activeRequest) return;
+        resultStatus.textContent = "request failed";
+        resultStatus.classList.add("error");
+        resultBody.textContent = error instanceof Error ? error.message : String(error);
+      } finally {
+        if (request === activeRequest) {
+          activeRequest = null;
+          runResult.removeAttribute("aria-busy");
+        }
+      }
+    }
 
     function updateRunLinks() {
       const runId = runInput.value.trim();
       for (const link of runLinks) {
-        if (!runId) {
-          link.removeAttribute("href");
-          link.classList.remove("ready");
-          continue;
-        }
-        link.href = `/runs/${encodeURIComponent(runId)}${link.dataset.runPath}`;
-        link.target = "_blank";
-        link.rel = "noopener";
-        link.classList.add("ready");
+        link.disabled = !runId;
+        link.classList.toggle("ready", Boolean(runId));
       }
+      clearRunResult();
     }
 
     runInput.addEventListener("input", updateRunLinks);
+    runInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !runLinks[0].disabled) {
+        event.preventDefault();
+        loadRunResource(runLinks[0]);
+      }
+    });
+    for (const link of runLinks) {
+      link.addEventListener("click", () => loadRunResource(link));
+    }
+    clearResultButton.addEventListener("click", clearRunResult);
     refreshButton.addEventListener("click", refreshStatus);
     refreshStatus();
   </script>

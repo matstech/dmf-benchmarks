@@ -80,13 +80,16 @@ def write_config(tmp_path: Path, *, dataset_path: Path, sha256: str | None = Non
     return config_path
 
 
-def test_dataset_registry_parses_offline_and_declares_unpinned_official_limits() -> None:
+def test_dataset_registry_declares_immutable_official_sources() -> None:
     registry = load_dataset_registry()
     payload = registry_as_dict(registry)
 
-    assert "locomo-official-unpinned" in registry
-    assert "longmemeval-s-official-unpinned" in registry
-    assert registry["locomo-official-unpinned"].pinned is False
+    assert "locomo-official-v1" in registry
+    assert "longmemeval-s-official-v1" in registry
+    assert registry["locomo-official-v1"].pinned is True
+    assert registry["longmemeval-s-official-v1"].pinned is True
+    assert registry["locomo-official-v1"].revision != "main"
+    assert registry["longmemeval-s-official-v1"].revision != "main"
     assert payload["schema_version"] == 1
 
 
