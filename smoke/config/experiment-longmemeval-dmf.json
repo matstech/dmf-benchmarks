@@ -18,7 +18,7 @@
   },
   "qdrant": {
     "endpoint_env": "QDRANT_URL",
-    "retention": "keep",
+    "retention": "delete-on-success",
     "request_timeout_seconds": 10
   },
   "dataset": {
@@ -87,7 +87,8 @@
       "runtime": {
         "timeout_seconds": 120,
         "rpm": 200,
-        "max_retries": 5
+        "max_retries": 5,
+        "response_max_retries": 1
       }
     }
   },

@@ -262,7 +262,12 @@ def scientific_artifact_snapshot(run_dir: Path) -> dict[str, bytes]:
             if path.is_file():
                 relative = path.relative_to(run_dir).as_posix()
                 if (
-                    relative in {"reports/timing.json", "reports/summary.md"}
+                    relative
+                    in {
+                        "reports/timing.json",
+                        "reports/resources.json",
+                        "reports/summary.md",
+                    }
                     or relative.endswith("/timing.json")
                     or "/timing/" in relative
                 ):
@@ -317,6 +322,12 @@ def test_full_lifecycle_offline_longmemeval_completes_and_publishes(tmp_path: Pa
     summary = read_json(run_dir / "reports" / "summary.json")
     assert summary["counts"] == {"expected": 2, "evaluated": 2, "excluded": 0, "failed": 0}
     assert summary["evaluator_versions"]["primary_judge_score"] == "primary-judge-v1"
+    assert summary["report_artifacts"]["resources"] == "reports/resources.json"
+    resources = read_json(run_dir / "reports" / "resources.json")
+    assert resources["attempt"]["attempt_id"]
+    assert resources["process"]["cpu_total_seconds"] >= 0
+    assert resources["process"]["peak_rss_bytes"] > 0
+    assert (run_dir / "final" / "reports" / "resources.json").is_file()
     rigorous = read_json(run_dir / "evaluations" / "rigorous_report.json")
     assert rigorous["status"] == "COMPLETED"
     assert rigorous["metrics"]["overall"]["exact_match"] == 1.0

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from fastapi.responses import FileResponse, Response
 
 from dmf_bench import __version__
 from dmf_bench.artifacts import LocalArtifactStore
+from dmf_bench.atomic_io import read_json
 from dmf_bench.derived_evaluation import derived_evaluation_dir
 from dmf_bench.metrics import BenchmarkMetrics
 from dmf_bench.persisted_metrics import render_persisted_run_metrics
@@ -46,6 +48,13 @@ def create_app(runs_dir: str | Path, metrics: BenchmarkMetrics | None = None) ->
             media_type=metrics_registry.content_type(),
         )
 
+    @app.get("/runs")
+    def list_runs() -> dict[str, Any]:
+        return {
+            "runs": list_committed_runs(runs_path),
+            "mode": "read-only",
+        }
+
     @app.get("/runs/{run_id}")
     def inspect_run(run_id: str) -> dict[str, Any]:
         try:
@@ -73,12 +82,20 @@ def create_app(runs_dir: str | Path, metrics: BenchmarkMetrics | None = None) ->
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/runs/{run_id}/artifacts/{artifact_path:path}")
-    def download_artifact(run_id: str, artifact_path: str) -> FileResponse:
+    def download_artifact(
+        run_id: str,
+        artifact_path: str,
+        download: bool = False,
+    ) -> FileResponse:
         try:
             file_path = store.committed_artifact_path(run_id, artifact_path)
         except (StateError, ValueError, FileNotFoundError) as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return FileResponse(file_path, media_type=content_type_for(file_path))
+        return FileResponse(
+            file_path,
+            media_type=content_type_for(file_path),
+            filename=file_path.name if download else None,
+        )
 
     @app.get("/runs/{run_id}/derived-evaluations")
     def list_derived_evaluations(run_id: str) -> dict[str, Any]:
@@ -117,6 +134,49 @@ def create_app(runs_dir: str | Path, metrics: BenchmarkMetrics | None = None) ->
 
 def create_default_app() -> FastAPI:
     return create_app(os.getenv("DMF_BENCH_RUNS_DIR", "/bench/runs"))
+
+
+def list_committed_runs(runs_path: Path) -> list[dict[str, Any]]:
+    """Return lightweight metadata for committed runs without rehashing artifacts."""
+
+    if not runs_path.is_dir():
+        return []
+    runs: list[tuple[float, dict[str, Any]]] = []
+    for run_path in runs_path.iterdir():
+        if not run_path.is_dir() or run_path.name.startswith("."):
+            continue
+        completion_path = run_path / "final" / "COMPLETED.json"
+        manifest_path = run_path / "run-manifest.json"
+        if not completion_path.is_file() or not manifest_path.is_file():
+            continue
+        try:
+            manifest = read_json(manifest_path)
+            completion = read_json(completion_path)
+            if not isinstance(manifest, dict) or not isinstance(completion, dict):
+                continue
+            inputs = manifest.get("fingerprint_inputs") or {}
+            if not isinstance(inputs, dict):
+                inputs = {}
+            modified = completion_path.stat().st_mtime
+        except (OSError, TypeError, ValueError):
+            continue
+        runs.append(
+            (
+                modified,
+                {
+                    "run_id": run_path.name,
+                    "benchmark": str(inputs.get("benchmark", "unknown")),
+                    "framework": str(inputs.get("framework", "unknown")),
+                    "completed_at": datetime.fromtimestamp(modified, UTC)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                    "artifact_count": int(
+                        ((completion.get("verification") or {}).get("verified_artifact_count") or 0)
+                    ),
+                },
+            )
+        )
+    return [payload for _modified, payload in sorted(runs, key=lambda item: item[0], reverse=True)]
 
 
 def serve_artifact_api(
@@ -158,9 +218,14 @@ def service_catalog() -> dict[str, Any]:
                 "path": "/",
             },
             "grafana": {
-                "label": "Grafana",
+                "label": "Grafana Operations",
                 "port": _environment_port("GRAFANA_PORT", 3000),
                 "path": "/d/dmf-benchmarks/dmf-benchmarks",
+            },
+            "grafana_evaluation": {
+                "label": "Grafana Evaluation",
+                "port": _environment_port("GRAFANA_PORT", 3000),
+                "path": "/d/dmf-benchmarks-evaluation/dmf-benchmarks-evaluation",
             },
         },
     }

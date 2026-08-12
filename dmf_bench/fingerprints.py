@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from dmf_bench.providers.judge_prompts import JUDGE_SYSTEM_PROMPT, JUDGE_USER_PROMPT_TEMPLATE
+from dmf_bench.providers.judge_prompts import (
+    JUDGE_RETRY_INSTRUCTION,
+    JUDGE_SYSTEM_PROMPT,
+    JUDGE_USER_PROMPT_TEMPLATE,
+)
 from dmf_bench.contracts import SCIENTIFIC_FINGERPRINT_SCHEMA_VERSION, hash_canonical_json
 
 
-JUDGE_ADAPTER_VERSION = 1
+JUDGE_ADAPTER_VERSION = 2
 JUDGE_PARSER_VERSIONS = {
     "locomo": "locomo-judge-parser-v1",
     "longmemeval": "longmemeval-judge-parser-v1",
@@ -90,6 +94,7 @@ def judge_contract_identity(benchmark: str) -> dict[str, Any]:
         "benchmark": benchmark,
         "system_prompt": JUDGE_SYSTEM_PROMPT,
         "user_prompt_template": JUDGE_USER_PROMPT_TEMPLATE,
+        "response_retry_instruction": JUDGE_RETRY_INSTRUCTION,
         "optional_context_fields": (
             ["question_type", "question_date"]
             if benchmark == "longmemeval"

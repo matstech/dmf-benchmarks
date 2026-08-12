@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from dmf_bench.frameworks.mem0_runtime import normalize_memory_internal_usage
 from dmf_bench.reporting.reports import build_timing_report, normalize_answerer_usage
+from dmf_bench.reporting.resources import ResourceUsageTracker
 from dmf_bench.adapters.base import JudgeAdapter, JudgeRequest
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json, write_json_atomic
@@ -108,7 +109,9 @@ class OfflineLifecycleFinalizer:
         cancel_check: Callable[[], None] | None = None,
         _lock_held: bool = False,
         _attempt: Attempt | None = None,
+        _resource_tracker: ResourceUsageTracker | None = None,
     ) -> FinalizationResult:
+        resource_tracker = _resource_tracker or ResourceUsageTracker.start()
         self.artifact_store.run_dir(run_id)
         lock_path = self.artifact_store.runs_dir / ".locks" / f"{run_id}.lock"
         lock = nullcontext() if _lock_held else RunLock(lock_path)
@@ -118,6 +121,7 @@ class OfflineLifecycleFinalizer:
                 interrupt_at=interrupt_at,
                 cancel_check=cancel_check,
                 attempt=_attempt,
+                resource_tracker=resource_tracker,
             )
 
     def _finalize_locked(
@@ -127,6 +131,7 @@ class OfflineLifecycleFinalizer:
         interrupt_at: str | None,
         cancel_check: Callable[[], None] | None,
         attempt: Attempt | None,
+        resource_tracker: ResourceUsageTracker,
     ) -> FinalizationResult:
         run_dir = self.artifact_store.run_dir(run_id)
         manifest = load_manifest(run_dir)
@@ -337,6 +342,7 @@ class OfflineLifecycleFinalizer:
                     evaluations,
                     reports,
                     attempt=active_attempt,
+                    resource_tracker=resource_tracker,
                 )
                 _check_cancel(cancel_check)
                 _emit_phase_event(
@@ -352,6 +358,9 @@ class OfflineLifecycleFinalizer:
                         operational_summary={
                             "usage": _load_json_dict(run_dir / "reports" / "usage.json"),
                             "timing": _load_json_dict(run_dir / "reports" / "timing.json"),
+                            "resources": _load_json_dict(
+                                run_dir / "reports" / "resources.json"
+                            ),
                         },
                     )
                 reporting_checkpoint = self._commit_phase_checkpoint(
@@ -1089,9 +1098,14 @@ class OfflineLifecycleFinalizer:
         reports: dict[str, Any],
         *,
         attempt: Attempt,
+        resource_tracker: ResourceUsageTracker,
     ) -> tuple[Path, ...]:
         usage = _build_usage_report(evaluations)
         timing = _build_execution_timing_report(run_dir, evaluations, attempt)
+        resources = resource_tracker.report(
+            attempt_id=attempt.attempt_id,
+            resume=attempt.resume,
+        )
         summary = {
             "schema_version": REPORT_SCHEMA_VERSION,
             "run_id": manifest.run_id,
@@ -1111,14 +1125,17 @@ class OfflineLifecycleFinalizer:
             "report_artifacts": {
                 "usage": "reports/usage.json",
                 "timing": "reports/timing.json",
+                "resources": "reports/resources.json",
             },
         }
         summary_path = run_dir / "reports" / "summary.json"
         markdown_path = run_dir / "reports" / "summary.md"
         usage_path = run_dir / "reports" / "usage.json"
         timing_path = run_dir / "reports" / "timing.json"
+        resources_path = run_dir / "reports" / "resources.json"
         write_json_atomic(usage_path, usage)
         write_json_atomic(timing_path, timing)
+        write_json_atomic(resources_path, resources)
         write_json_atomic(summary_path, summary)
         markdown = (
             f"# dmf-bench run {manifest.run_id}\n\n"
@@ -1132,10 +1149,12 @@ class OfflineLifecycleFinalizer:
             f"- judge tokens: {usage['totals']['evaluation']['total_tokens']}\n"
             f"- total tokens: {usage['totals']['overall']['total_tokens']}\n"
             f"- execution through reporting: {timing['attempt']['execution_seconds']:.6f} s\n"
+            f"- process CPU: {resources['process']['cpu_total_seconds']:.6f} s\n"
+            f"- peak RSS: {resources['process']['peak_rss_bytes']} bytes\n"
         )
         markdown_path.parent.mkdir(exist_ok=True)
         markdown_path.write_text(markdown, encoding="utf-8")
-        return summary_path, markdown_path, usage_path, timing_path
+        return summary_path, markdown_path, usage_path, timing_path, resources_path
 
     def _load_valid_phase_checkpoint(
         self,
@@ -1322,6 +1341,7 @@ class OfflineFullLifecycleRunner:
                 resumed_from_attempt_id=resumed_from,
             )
             started_at = time.perf_counter()
+            resource_tracker = ResourceUsageTracker.start()
             try:
                 prediction_result = self.prediction_runner.run(
                     config,
@@ -1340,6 +1360,7 @@ class OfflineFullLifecycleRunner:
                     cancel_check=cancel_check,
                     _lock_held=True,
                     _attempt=attempt,
+                    _resource_tracker=resource_tracker,
                 )
             except RunInterrupted:
                 self._record_attempt(config, "interrupted", started_at)

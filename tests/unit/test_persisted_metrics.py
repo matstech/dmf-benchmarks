@@ -49,6 +49,16 @@ def test_persisted_metrics_project_progress_usage_timing_and_results(tmp_path: P
         },
     )
     write_json_atomic(
+        run_dir / "reports" / "resources.json",
+        {
+            "process": {
+                "cpu_total_seconds": 31.25,
+                "average_cpu_percent": 250.0,
+                "peak_rss_bytes": 536870912,
+            }
+        },
+    )
+    write_json_atomic(
         run_dir / "evaluations" / "primary_judge_score.json",
         {"metrics": {"overall": {"judge_pass_rate": 0.7}}},
     )
@@ -77,6 +87,9 @@ def test_persisted_metrics_project_progress_usage_timing_and_results(tmp_path: P
     assert 'role="answerer",token_type="total"} 120.0' in body
     assert 'dmf_bench_persisted_run_execution_seconds{benchmark="locomo",framework="dmf"} 12.5' in body
     assert 'stage="judge"} 2.5' in body
+    assert 'dmf_bench_persisted_run_process_cpu_seconds{benchmark="locomo",framework="dmf"} 31.25' in body
+    assert 'dmf_bench_persisted_run_average_cpu_percent{benchmark="locomo",framework="dmf"} 250.0' in body
+    assert 'dmf_bench_persisted_run_peak_rss_bytes{benchmark="locomo",framework="dmf"} 5.36870912e+08' in body
     assert 'evaluator="judge",framework="dmf",metric="judge_pass_rate"} 0.7' in body
     assert 'evaluator="locomo-evaluator-v2",framework="dmf",metric="ndcg_at_k"} 0.5' in body
     assert "locomo-evaluator-v1" not in body

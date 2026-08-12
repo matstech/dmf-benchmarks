@@ -81,6 +81,25 @@ class FakeLoCoMoFramework:
         )
 
 
+class FailingRetentionLoCoMoFramework(FakeLoCoMoFramework):
+    def cleanup_unit(
+        self,
+        unit: BenchmarkUnit,
+        conversation: dict[str, Any],
+        config: dict[str, Any],
+        *,
+        run_context: FrameworkRunContext,
+    ) -> None:
+        super().cleanup_unit(
+            unit,
+            conversation,
+            config,
+            run_context=run_context,
+        )
+        if len(self.cleanup_calls) == 2:
+            raise RuntimeError("retention cleanup failed")
+
+
 class FakeAnswerer:
     name = "fake-answerer"
 
@@ -255,7 +274,10 @@ def test_locomo_runner_uses_one_ingestion_and_commits_conversation_atomically(
     assert read_json(run_dir / "run-status.json")["state"] == "PARTIAL"
     checkpoint = read_json(run_dir / "checkpoints" / "conversation-0001" / "checkpoint.json")
     assert checkpoint["status"] == "COMMITTED"
-    assert len(checkpoint["artifacts"]) == 6
+    assert len(checkpoint["artifacts"]) == 7
+    assert read_json(run_dir / "items" / "conversation-0001" / "retention.json")[
+        "outcome"
+    ] == "kept"
     cleanup_manifest = read_json(
         run_dir / "items" / "conversation-0001" / "cleanup-manifest.json"
     )
@@ -270,6 +292,46 @@ def test_locomo_runner_uses_one_ingestion_and_commits_conversation_atomically(
         run_dir / "items" / "conversation-0001" / "timing" / "conv0_q0.json"
     )
     assert timing["schema_version"] == REPORT_SCHEMA_VERSION
+
+
+def test_locomo_delete_on_success_cleans_before_commit(tmp_path: Path) -> None:
+    config = make_locomo_config(tmp_path)
+    config["qdrant"]["retention"] = "delete-on-success"
+    framework = FakeLoCoMoFramework()
+
+    LoCoMoPredictOnlyRunner(
+        artifact_store=LocalArtifactStore(tmp_path / "runs"),
+        framework=framework,
+        answerer=FakeAnswerer(),
+    ).run(config)
+
+    run_dir = tmp_path / "runs" / "fixture-locomo-dmf"
+    assert framework.cleanup_calls == ["conversation-0001", "conversation-0001"]
+    assert read_json(
+        run_dir / "items" / "conversation-0001" / "retention.json"
+    )["outcome"] == "deleted"
+
+
+def test_locomo_retention_failure_does_not_commit_conversation(tmp_path: Path) -> None:
+    config = make_locomo_config(tmp_path)
+    config["qdrant"]["retention"] = "delete-on-success"
+
+    with pytest.raises(RuntimeError, match="retention cleanup failed"):
+        LoCoMoPredictOnlyRunner(
+            artifact_store=LocalArtifactStore(tmp_path / "runs"),
+            framework=FailingRetentionLoCoMoFramework(),
+            answerer=FakeAnswerer(),
+        ).run(config)
+
+    run_dir = tmp_path / "runs" / "fixture-locomo-dmf"
+    checkpoint = read_json(
+        run_dir / "checkpoints" / "conversation-0001" / "checkpoint.json"
+    )
+    assert checkpoint["status"] == "PREDICTING"
+    assert read_json(run_dir / "run-status.json")["state"] == "FAILED_RUNNING"
+    assert not (
+        run_dir / "items" / "conversation-0001" / "retention.json"
+    ).exists()
 
 
 def test_locomo_resume_skips_committed_conversation(tmp_path: Path) -> None:

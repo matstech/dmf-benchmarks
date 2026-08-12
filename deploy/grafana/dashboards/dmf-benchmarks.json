@@ -1,179 +1,158 @@
 {
-  "annotations": {
-    "list": []
-  },
-  "editable": false,
+  "annotations": {"list": []},
+  "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
-  "links": [],
-  "liveNow": false,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Evaluation dashboard",
+      "type": "link",
+      "url": "/d/dmf-benchmarks-evaluation/dmf-benchmarks-evaluation"
+    }
+  ],
   "panels": [
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 0
-      },
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
       "id": 1,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
       "targets": [
-        {
-          "expr": "dmf_bench_persisted_run_completed_input_records / clamp_min(dmf_bench_persisted_run_expected_input_records, 1)",
-          "legendFormat": "{{benchmark}}/{{framework}} input records"
-        },
-        {
-          "expr": "dmf_bench_persisted_run_progress_ratio",
-          "legendFormat": "{{benchmark}}/{{framework}} evaluation items"
-        }
+        {"expr": "dmf_bench_persisted_run_completed_input_records{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"} / clamp_min(dmf_bench_persisted_run_expected_input_records{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}, 1)", "legendFormat": "{{benchmark}}/{{framework}} input records"},
+        {"expr": "dmf_bench_persisted_run_progress_ratio{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "{{benchmark}}/{{framework}} evaluation items"}
       ],
       "title": "Run progress",
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 0
-      },
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
       "id": 2,
-      "targets": [
-        {
-          "expr": "dmf_bench_persisted_run_state == 1",
-          "legendFormat": "state={{state}}"
-        }
-      ],
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+      "targets": [{"expr": "dmf_bench_persisted_run_state{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"} == 1", "legendFormat": "{{benchmark}}/{{framework}} state={{state}}"}],
       "title": "Run state",
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 0
-      },
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
       "id": 3,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
       "targets": [
-        {
-          "expr": "dmf_bench_persisted_run_llm_tokens",
-          "legendFormat": "persisted {{benchmark}}/{{framework}} {{role}} {{token_type}}"
-        },
-        {
-          "expr": "dmf_bench_llm_tokens_total{job=\"benchmark\"}",
-          "legendFormat": "live {{role}}/{{provider}} {{token_type}}"
-        }
+        {"expr": "dmf_bench_persisted_run_llm_tokens{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "persisted {{benchmark}}/{{framework}} {{role}} {{token_type}}"},
+        {"expr": "dmf_bench_llm_tokens_total{job=\"benchmark\"} and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "live {{role}}/{{provider}} {{token_type}}"}
       ],
       "title": "LLM token usage",
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 8
-      },
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
       "id": 4,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
       "targets": [
-        {
-          "expr": "rate(dmf_bench_qdrant_client_operations_total{job=\"benchmark\"}[$__rate_interval])",
-          "legendFormat": "{{operation}}/{{outcome}}"
-        },
-        {
-          "expr": "up{job=\"qdrant\"}",
-          "legendFormat": "qdrant up"
-        }
+        {"expr": "rate(dmf_bench_qdrant_client_operations_total{job=\"benchmark\"}[$__rate_interval]) and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "{{operation}}/{{outcome}}"},
+        {"expr": "up{job=\"qdrant\"} and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "qdrant up"}
       ],
       "title": "Qdrant client and server",
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 8
-      },
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
       "id": 5,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
       "targets": [
-        {
-          "expr": "dmf_bench_persisted_run_result",
-          "legendFormat": "{{benchmark}}/{{framework}} {{evaluator}} {{metric}}"
-        }
+        {"expr": "dmf_bench_persisted_run_execution_seconds{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "{{benchmark}}/{{framework}} execution"},
+        {"expr": "dmf_bench_persisted_run_pipeline_duration_seconds{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "{{benchmark}}/{{framework}} {{stage}}"}
       ],
-      "title": "Evaluation results",
+      "title": "Execution and pipeline time",
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 8
-      },
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
       "id": 6,
+      "description": "Live process utilization plus the final attempt average. One fully used logical CPU is 100%; 1200% means twelve logical CPUs. The benchmark container is capped by DMF_BENCH_CPUS.",
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
       "targets": [
-        {
-          "expr": "dmf_bench_persisted_run_execution_seconds",
-          "legendFormat": "{{benchmark}}/{{framework}} execution"
-        },
-        {
-          "expr": "dmf_bench_persisted_run_pipeline_duration_seconds",
-          "legendFormat": "{{benchmark}}/{{framework}} {{stage}}"
-        }
+        {"expr": "100 * rate(process_cpu_seconds_total{job=\"benchmark\"}[$__rate_interval]) and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "live benchmark process"},
+        {"expr": "dmf_bench_persisted_run_average_cpu_percent{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "completed attempt average"}
       ],
-      "title": "Execution and pipeline time",
+      "title": "Benchmark CPU usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+      "id": 7,
+      "description": "Live benchmark/Qdrant memory plus the persisted peak RSS of the latest completed attempt.",
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+      "targets": [
+        {"expr": "process_resident_memory_bytes{job=\"benchmark\"} and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "benchmark RSS"},
+        {"expr": "memory_resident_bytes{job=\"qdrant\"} and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "qdrant resident"},
+        {"expr": "memory_allocated_bytes{job=\"qdrant\"} and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "qdrant allocated"},
+        {"expr": "dmf_bench_persisted_run_peak_rss_bytes{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "completed attempt peak RSS"}
+      ],
+      "title": "Memory usage",
       "type": "timeseries"
     }
   ],
   "refresh": "10s",
   "schemaVersion": 39,
-  "tags": [
-    "dmf",
-    "benchmarks"
-  ],
+  "tags": ["dmf", "benchmarks", "operations"],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "current": {"selected": true, "text": "locomo", "value": "locomo"},
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "definition": "label_values(dmf_bench_persisted_run_state, benchmark)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Benchmark framework",
+        "multi": false,
+        "name": "benchmark_framework",
+        "options": [],
+        "query": {"query": "label_values(dmf_bench_persisted_run_state, benchmark)", "refId": "benchmark-framework-variable"},
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {"selected": true, "text": "dmf", "value": "dmf"},
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "definition": "label_values(dmf_bench_persisted_run_state{benchmark=~\"$benchmark_framework\"}, framework)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Memory system",
+        "multi": false,
+        "name": "memory_system",
+        "options": [],
+        "query": {"query": "label_values(dmf_bench_persisted_run_state{benchmark=~\"$benchmark_framework\"}, framework)", "refId": "memory-system-variable"},
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
   },
-  "time": {
-    "from": "now-6h",
-    "to": "now"
-  },
+  "time": {"from": "now-6h", "to": "now"},
   "timezone": "browser",
-  "title": "DMF Benchmarks",
+  "title": "DMF Benchmarks — Operations",
   "uid": "dmf-benchmarks",
-  "version": 2,
+  "version": 4,
   "weekStart": ""
 }

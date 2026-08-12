@@ -18,7 +18,7 @@
   },
   "qdrant": {
     "endpoint_env": "QDRANT_URL",
-    "retention": "keep",
+    "retention": "delete-on-success",
     "request_timeout_seconds": 10
   },
   "dataset": {
@@ -26,25 +26,13 @@
     "registry_id": "locomo-official-v1",
     "sampling": {
       "fraction": 0.05,
-      "unit": "qa",
-      "stratify_by": "category",
+      "unit": "conversation",
       "seed": 7,
       "rounding": "ceil"
     }
   },
   "selection": {
-    "ordered_item_ids": [
-      "conversation-0001",
-      "conversation-0002",
-      "conversation-0003",
-      "conversation-0004",
-      "conversation-0005",
-      "conversation-0006",
-      "conversation-0007",
-      "conversation-0008",
-      "conversation-0009",
-      "conversation-0010"
-    ],
+    "ordered_item_ids": ["*"],
     "filters": {
       "categories": [
         1,
@@ -81,7 +69,8 @@
       "runtime": {
         "timeout_seconds": 120,
         "rpm": 200,
-        "max_retries": 5
+        "max_retries": 5,
+        "response_max_retries": 1
       }
     }
   },

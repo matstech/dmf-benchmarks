@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -35,6 +36,16 @@ class FakeTransport:
         return self.response
 
 
+class SequenceTransport:
+    def __init__(self, responses: list[LLMResponse]) -> None:
+        self.responses = list(responses)
+        self.calls: list[dict[str, Any]] = []
+
+    def generate_with_usage(self, **kwargs: Any) -> LLMResponse:
+        self.calls.append(dict(kwargs))
+        return self.responses.pop(0)
+
+
 def settings(role: str, *, provider: str = "openai") -> ProviderModelConfig:
     return ProviderModelConfig(
         role=role,
@@ -49,7 +60,12 @@ def settings(role: str, *, provider: str = "openai") -> ProviderModelConfig:
     )
 
 
-def response(text: str, *, model: str = "returned-model") -> LLMResponse:
+def response(
+    text: str,
+    *,
+    model: str = "returned-model",
+    finish_reason: str | None = "stop",
+) -> LLMResponse:
     return LLMResponse(
         response=text,
         token_usage=TokenUsage(
@@ -58,7 +74,7 @@ def response(text: str, *, model: str = "returned-model") -> LLMResponse:
             total_tokens=18,
         ),
         model=model,
-        finish_reason="stop",
+        finish_reason=finish_reason,
     )
 
 
@@ -175,6 +191,7 @@ def test_judge_uses_canonical_prompt_surface_and_parser(benchmark: str) -> None:
             "completion_tokens": 7,
             "total_tokens": 18,
         },
+        "judge_attempts": 1,
         "judge_fingerprint": judge_fingerprint(benchmark),
     }
 
@@ -188,6 +205,82 @@ def test_malformed_judge_response_fails_closed() -> None:
 
     with pytest.raises(ProviderResponseError, match="no recognized verdict"):
         adapter.judge(JudgeRequest(prediction={}))
+
+
+def test_judge_retries_malformed_response_and_accounts_for_all_tokens() -> None:
+    transport = SequenceTransport(
+        [
+            response("I cannot decide."),
+            response('{"reasoning":"same fact","label":"CORRECT"}'),
+        ]
+    )
+    adapter = OpenAICompatibleJudgeAdapter(
+        benchmark="locomo",
+        settings=replace(settings("judge"), response_max_retries=1),
+        transport=transport,
+    )
+
+    result = adapter.judge(JudgeRequest(prediction={}))
+
+    assert result["judgment"] == "CORRECT"
+    assert result["judge_attempts"] == 2
+    assert result["judge_usage"] == {
+        "prompt_tokens_total": 22,
+        "completion_tokens": 14,
+        "total_tokens": 36,
+    }
+    assert "previous response was invalid or incomplete" in transport.calls[1][
+        "user_prompt"
+    ]
+
+
+def test_judge_retries_truncated_response_instead_of_scoring_it() -> None:
+    transport = SequenceTransport(
+        [
+            response(
+                '{"reasoning":"partial",',
+                finish_reason="length",
+            ),
+            response('{"reasoning":"different fact","label":"WRONG"}'),
+        ]
+    )
+    adapter = OpenAICompatibleJudgeAdapter(
+        benchmark="locomo",
+        settings=replace(settings("judge"), response_max_retries=1),
+        transport=transport,
+    )
+
+    result = adapter.judge(JudgeRequest(prediction={}))
+
+    assert result["judgment"] == "WRONG"
+    assert result["judge_finish_reason"] == "stop"
+    assert result["judge_attempts"] == 2
+
+
+def test_judge_exhausts_bounded_response_retries() -> None:
+    transport = SequenceTransport(
+        [response("invalid one"), response("invalid two")]
+    )
+    adapter = OpenAICompatibleJudgeAdapter(
+        benchmark="locomo",
+        settings=replace(settings("judge"), response_max_retries=1),
+        transport=transport,
+    )
+
+    with pytest.raises(ProviderResponseError, match="no recognized verdict"):
+        adapter.judge(JudgeRequest(prediction={}))
+
+    assert len(transport.calls) == 2
+
+
+def test_provider_model_config_defaults_response_retries_by_role() -> None:
+    config = experiment_config()
+
+    answerer = ProviderModelConfig.from_experiment(config, role="answerer")
+    judge = ProviderModelConfig.from_experiment(config, role="judge")
+
+    assert answerer.response_max_retries == 0
+    assert judge.response_max_retries == 1
 
 
 def test_transport_retries_only_retryable_failures() -> None:

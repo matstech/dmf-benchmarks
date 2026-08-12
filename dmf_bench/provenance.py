@@ -94,8 +94,9 @@ def build_run_provenance(
                 "machine": platform.machine(),
                 "python": platform.python_version(),
                 "resources": {
-                    "cpu_limit": os.getenv("DMF_BENCH_CPU_LIMIT", ""),
+                    "cpu_limit": os.getenv("DMF_BENCH_CPUS", ""),
                     "memory_limit": os.getenv("DMF_BENCH_MEMORY_LIMIT", ""),
+                    "thread_limit": os.getenv("DMF_BENCH_THREADS", ""),
                 },
             },
             "resume_lineage": sanitized.get("resume_lineage", []),

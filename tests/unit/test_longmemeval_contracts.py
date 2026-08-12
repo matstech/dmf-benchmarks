@@ -83,7 +83,7 @@ def test_longmemeval_prompt_and_judge_fingerprint_are_stable() -> None:
     )
 
     assert judge_fingerprint("longmemeval") == (
-        "506c89576b7336db6ae18a5ed2af1aa8f5e0fb044fcfb0ace9875d06848cb69a"
+        "e2eaef074e7972a6ad684b89733897eda6d958a3d4d5a4450dc0b42594c07ad3"
     )
     assert hashlib.sha256(ANSWERER_USER_PROMPT_TEMPLATE.encode()).hexdigest() == (
         "eca46aba4c1023ed177549c216ce73da8e3cb00e9a3445d3228523a3e02af977"

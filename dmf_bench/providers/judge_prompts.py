@@ -29,6 +29,11 @@ JUDGE_SYSTEM_PROMPT = (
     "Return JSON only with the format requested."
 )
 
+JUDGE_RETRY_INSTRUCTION = (
+    "\n\nThe previous response was invalid or incomplete. Return one complete JSON "
+    'object only, with exactly "reasoning" and "label"; label must be CORRECT or WRONG.'
+)
+
 
 def _optional_context_block(
     *,

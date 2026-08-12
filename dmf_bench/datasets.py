@@ -396,8 +396,10 @@ def _materialize_sample(
 
 def _sample_locomo(payload: list[Any], sampling: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
     unit = sampling["unit"] or "qa"
+    if unit == "conversation":
+        return _sample_locomo_conversations(payload, sampling)
     if unit != "qa":
-        raise ValueError("LoCoMo sampling.unit must be 'qa'.")
+        raise ValueError("LoCoMo sampling.unit must be 'conversation' or 'qa'.")
     stratify_by = sampling["stratify_by"]
     if stratify_by not in {None, "category"}:
         raise ValueError("LoCoMo sampling.stratify_by must be 'category' when provided.")
@@ -442,6 +444,52 @@ def _sample_locomo(payload: list[Any], sampling: dict[str, Any]) -> tuple[list[A
     manifest["sample_conversation_count"] = len(sampled)
     manifest["population_conversation_count"] = len(payload)
     return sampled, manifest
+
+
+def _sample_locomo_conversations(
+    payload: list[Any],
+    sampling: dict[str, Any],
+) -> tuple[list[Any], dict[str, Any]]:
+    if sampling["stratify_by"] is not None:
+        raise ValueError(
+            "LoCoMo conversation sampling does not support sampling.stratify_by."
+        )
+    candidates = [index for index, item in enumerate(payload) if isinstance(item, dict)]
+    sample_size = _sample_size(
+        len(candidates),
+        fraction=float(sampling["fraction"]),
+        rounding=str(sampling["rounding"]),
+    )
+    selected = set(random.Random(sampling["seed"]).sample(candidates, sample_size))
+    sampled = [item for index, item in enumerate(payload) if index in selected]
+    population_question_count = sum(_locomo_question_count(item) for item in payload)
+    sample_question_count = sum(_locomo_question_count(item) for item in sampled)
+    manifest = _sampling_manifest(
+        sampling=sampling,
+        unit="conversation",
+        population_count=len(candidates),
+        sample_count=len(sampled),
+        population_by_group={},
+        sample_by_group={},
+    )
+    manifest.update(
+        {
+            "population_conversation_count": len(candidates),
+            "sample_conversation_count": len(sampled),
+            "population_question_count": population_question_count,
+            "sample_question_count": sample_question_count,
+        }
+    )
+    return sampled, manifest
+
+
+def _locomo_question_count(item: Any) -> int:
+    if not isinstance(item, dict):
+        return 0
+    qa_items = item.get("qa")
+    if not isinstance(qa_items, list):
+        return 0
+    return sum(1 for qa_item in qa_items if isinstance(qa_item, dict))
 
 
 def _sample_longmemeval(payload: list[Any], sampling: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:

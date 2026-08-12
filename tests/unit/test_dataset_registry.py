@@ -220,6 +220,60 @@ def test_materialize_dataset_can_sample_locomo_and_documents_sampling(tmp_path: 
     assert manifest["materialized"]["sha256"] == sha256_file(materialized)
 
 
+def test_materialize_dataset_can_sample_complete_locomo_conversations(
+    tmp_path: Path,
+) -> None:
+    conversations = []
+    for index in range(20):
+        conversations.append(
+            {
+                "conversation": {
+                    "speaker_a": "A",
+                    "speaker_b": "B",
+                    "session_1": [{"dia_id": f"D{index}:1", "text": f"turn {index}"}],
+                },
+                "qa": [
+                    {"question": f"q{index}-1", "answer": "a", "category": 1},
+                    {"question": f"q{index}-2", "answer": "a", "category": 2},
+                ],
+            }
+        )
+    source_path = tmp_path / "locomo-source.json"
+    source_path.write_text(json.dumps(conversations), encoding="utf-8")
+    registry_path = write_registry(tmp_path, source_path=source_path)
+
+    materialized = materialize_dataset(
+        dataset_id="fixture-locomo",
+        output_dir=tmp_path / "datasets",
+        registry_path=registry_path,
+        sampling={
+            "fraction": 0.05,
+            "unit": "conversation",
+            "seed": 7,
+            "rounding": "ceil",
+        },
+    )
+
+    sampled = json.loads(materialized.read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (tmp_path / "datasets" / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert len(sampled) == 1
+    assert len(sampled[0]["qa"]) == 2
+    assert manifest["sampling"] == {
+        "fraction": 0.05,
+        "seed": 7,
+        "rounding": "ceil",
+        "unit": "conversation",
+        "population_count": 20,
+        "sample_count": 1,
+        "population_conversation_count": 20,
+        "sample_conversation_count": 1,
+        "population_question_count": 40,
+        "sample_question_count": 2,
+    }
+
+
 def test_resolve_config_materializes_source_based_dataset(tmp_path: Path) -> None:
     registry_path = write_registry(tmp_path)
     config_path = write_config(tmp_path, dataset_path=FIXTURE_DIR / "locomo-mini.json")
