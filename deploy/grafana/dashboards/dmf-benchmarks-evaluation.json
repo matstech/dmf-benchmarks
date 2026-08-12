@@ -1,0 +1,91 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Operations dashboard",
+      "type": "link",
+      "url": "/d/dmf-benchmarks/dmf-benchmarks"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "description": "Final quality metrics emitted only after a run has completed evaluation and written its reports. No partial judging values are shown.",
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 16, "w": 18, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"displayMode": "gradient", "legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "minVizHeight": 10, "minVizWidth": 0, "namePlacement": "auto", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true, "sizing": "auto", "valueMode": "color"},
+      "targets": [{"expr": "dmf_bench_persisted_run_result{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\",metric!=\"judged_count\"}", "instant": true, "legendFormat": "{{benchmark}}/{{framework}} · {{evaluator}} · {{metric}}"}],
+      "title": "Latest completed evaluation — final quality metrics",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "description": "Number of items included in each completed primary judge report.",
+      "fieldConfig": {"defaults": {"decimals": 0, "unit": "short"}, "overrides": []},
+      "gridPos": {"h": 16, "w": 6, "x": 18, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "targets": [{"expr": "dmf_bench_persisted_run_result{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\",metric=\"judged_count\"}", "instant": true, "legendFormat": "{{benchmark}}/{{framework}}"}],
+      "title": "Evaluated items",
+      "type": "stat"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["dmf", "benchmarks", "evaluation"],
+  "templating": {
+    "list": [
+      {
+        "current": {"selected": true, "text": "locomo", "value": "locomo"},
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "definition": "label_values(dmf_bench_persisted_run_state, benchmark)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Benchmark framework",
+        "multi": false,
+        "name": "benchmark_framework",
+        "options": [],
+        "query": {"query": "label_values(dmf_bench_persisted_run_state, benchmark)", "refId": "benchmark-framework-variable"},
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {"selected": true, "text": "dmf", "value": "dmf"},
+        "datasource": {"type": "prometheus", "uid": "Prometheus"},
+        "definition": "label_values(dmf_bench_persisted_run_state{benchmark=~\"$benchmark_framework\"}, framework)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Memory system",
+        "multi": false,
+        "name": "memory_system",
+        "options": [],
+        "query": {"query": "label_values(dmf_bench_persisted_run_state{benchmark=~\"$benchmark_framework\"}, framework)", "refId": "memory-system-variable"},
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {"from": "now-30d", "to": "now"},
+  "timezone": "browser",
+  "title": "DMF Benchmarks — Evaluation",
+  "uid": "dmf-benchmarks-evaluation",
+  "version": 2,
+  "weekStart": ""
+}

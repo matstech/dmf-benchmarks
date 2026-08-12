@@ -7,7 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    ProcessCollector,
+)
 from prometheus_client import generate_latest, start_http_server
 
 from dmf_bench.atomic_io import read_json, write_json_atomic
@@ -63,6 +70,7 @@ class BenchmarkMetrics:
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
         self.registry = registry or CollectorRegistry()
+        self.process_collector = ProcessCollector(registry=self.registry)
         self.expected_units = Gauge(
             "dmf_bench_run_expected_units",
             "Expected benchmark atomic units for the current run.",

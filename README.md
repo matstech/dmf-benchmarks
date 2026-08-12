@@ -76,6 +76,11 @@ export OPENAI_API_KEY=your_openai_api_key_here
 export DMF_BENCH_IMAGE=ghcr.io/ORG/dmf-benchmarks:TAG
 ```
 
+The controller reads provider credentials from the shell or the repository
+`.env`, writes them to a private ephemeral file for the duration of the job,
+and mounts that file read-only. The key is not placed in Compose service
+environment metadata or command arguments.
+
 Prepare the complete checked-in smoke suite without calling the provider:
 
 ```bash
@@ -179,7 +184,9 @@ locally, the standard endpoint is:
 http://127.0.0.1:8000
 ```
 
-Useful endpoints:
+Open `http://127.0.0.1:8000` for the run and artifact browser. Select a
+committed run to view or download any artifact without constructing an API
+URL. The read-only API remains available for automation:
 
 ```bash
 RUN_ID=local-locomo-dmf-001
@@ -187,19 +194,37 @@ curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID" | jq
 curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/artifacts" | jq
 curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/artifacts/reports/usage.json" | jq
 curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/artifacts/reports/timing.json" | jq
+curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/artifacts/reports/resources.json" | jq
 curl -fsS "http://127.0.0.1:8000/runs/$RUN_ID/verify" | jq
 ```
 
 `usage.json` separates framework-internal, answerer, and judge calls and
 tokens. `timing.json` aggregates measured lifecycle work for the active
-attempt. Scientific quality remains in `rigorous_report.json` and
+attempt. `resources.json` records process CPU, average CPU utilization, RSS,
+available cgroup measurements, and configured CPU/thread limits. Scientific
+quality remains in `rigorous_report.json` and
 `ablation_report.json`.
 
-When observability is enabled, Grafana is available at
-`http://127.0.0.1:3000/d/dmf-benchmarks/dmf-benchmarks`. The Artifact API
-projects the latest persisted run per benchmark/framework into Prometheus, so
-progress, state, token usage, timings, and evaluation results remain visible
-after the one-shot benchmark container exits.
+When observability is enabled, Grafana provides two dashboards:
+
+- Operations at `http://127.0.0.1:3000/d/dmf-benchmarks/dmf-benchmarks` for
+  progress, state, token usage, timings, CPU, memory, and Qdrant activity.
+- Evaluation at
+  `http://127.0.0.1:3000/d/dmf-benchmarks-evaluation/dmf-benchmarks-evaluation`
+  for final scientific metrics from completed evaluations. It intentionally
+  does not show partial judging values.
+
+Both dashboards require one Benchmark framework and one Memory system
+selection, so panels never mix LoCoMo with LongMemEval or DMF with Mem0.
+
+Grafana uses a dark theme. Local anonymous users are Editors, and dashboard
+changes are stored in the persistent Grafana volume. The Artifact API projects
+the latest persisted run per benchmark/framework into Prometheus, so final
+values remain visible after the one-shot benchmark container exits.
+
+The benchmark job defaults to four CPUs and four worker threads. Override the
+limits deliberately with `DMF_BENCH_CPUS` and `DMF_BENCH_THREADS`; keep the
+same values when comparing DMF and Mem0 timing.
 
 Deterministic LoCoMo reports can be re-derived from an immutable committed run
 without provider calls:
@@ -274,8 +299,7 @@ Materialize a dataset manually:
 dmf-benchctl runtime -- materialize-dataset \
   --dataset-id locomo-official-v1 \
   --sample-fraction 0.05 \
-  --sample-unit qa \
-  --sample-stratify-by category \
+  --sample-unit conversation \
   --sample-seed 7 \
   --sample-rounding ceil \
   --output-dir /bench/cache/datasets/manual-locomo-smoke
@@ -293,7 +317,9 @@ or cost.
 Each run performs sequential ingestion, framework-owned retrieval, answer
 generation, LLM judging, deterministic rigorous/ablation evaluation, atomic
 JSON publication, and digest verification. Prompt/completion token usage and
-wall-clock timings are first-class reports.
+wall-clock timings are first-class reports. Official configs can use Qdrant
+`delete-on-success` retention to remove each unit's collections only after its
+predictions are complete; a cleanup failure prevents the atomic unit commit.
 
 The manual `Scientific canary` workflow is cost-gated by the protected
 `scientific-canary` environment and requires the exact

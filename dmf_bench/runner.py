@@ -519,9 +519,22 @@ class LongMemEvalPredictOnlyRunner:
             },
         )
         cleanup_manifest_path = _persist_cleanup_manifest(run_path, unit, prepared)
+        retention_path = _apply_unit_retention(
+            run_path=run_path,
+            unit=unit,
+            item=question,
+            config=config,
+            framework=self.framework,
+            run_context=run_context,
+        )
         return tuple(
             path
-            for path in (prediction_path, timing_path, cleanup_manifest_path)
+            for path in (
+                prediction_path,
+                timing_path,
+                cleanup_manifest_path,
+                retention_path,
+            )
             if path is not None
         )
 
@@ -777,6 +790,14 @@ class LoCoMoPredictOnlyRunner:
                             raise InjectedInterrupt("Interrupted after first LoCoMo prediction.")
 
                     aggregate_path = self._write_conversation_aggregate(run_path, unit, prediction_paths)
+                    retention_path = _apply_unit_retention(
+                        run_path=run_path,
+                        unit=unit,
+                        item=conversation,
+                        config=config,
+                        framework=self.framework,
+                        run_context=run_context,
+                    )
                     self._write_committed_checkpoint(
                         run_path,
                         manifest,
@@ -788,6 +809,7 @@ class LoCoMoPredictOnlyRunner:
                                 *timing_paths,
                                 aggregate_path,
                                 cleanup_manifest_path,
+                                retention_path,
                             )
                             if path is not None
                         ),
@@ -1139,6 +1161,42 @@ def _persist_cleanup_manifest(
         raise StateError("Framework cleanup_manifest must be a JSON object.")
     path = run_path / "items" / unit.unit_id / "cleanup-manifest.json"
     write_json_atomic(path, cleanup_manifest)
+    return path
+
+
+def _apply_unit_retention(
+    *,
+    run_path: Path,
+    unit: BenchmarkUnit,
+    item: dict[str, Any],
+    config: dict[str, Any],
+    framework: Any,
+    run_context: FrameworkRunContext,
+) -> Path:
+    qdrant = config.get("qdrant")
+    policy = str(qdrant.get("retention", "keep")) if isinstance(qdrant, dict) else "keep"
+    if policy not in {"keep", "delete-on-success"}:
+        raise StateError(f"Unsupported Qdrant retention policy: {policy!r}.")
+
+    outcome = "kept"
+    if policy == "delete-on-success":
+        framework.cleanup_unit(
+            unit,
+            item,
+            config,
+            run_context=run_context,
+        )
+        outcome = "deleted"
+
+    path = run_path / "items" / unit.unit_id / "retention.json"
+    write_json_atomic(
+        path,
+        {
+            "schema_version": REPORT_SCHEMA_VERSION,
+            "policy": policy,
+            "outcome": outcome,
+        },
+    )
     return path
 
 

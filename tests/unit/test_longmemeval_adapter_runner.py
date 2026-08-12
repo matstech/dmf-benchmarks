@@ -83,6 +83,25 @@ class FakeLongMemEvalFramework:
         )
 
 
+class FailingRetentionLongMemEvalFramework(FakeLongMemEvalFramework):
+    def cleanup_unit(
+        self,
+        unit: BenchmarkUnit,
+        question: dict[str, Any],
+        config: dict[str, Any],
+        *,
+        run_context: FrameworkRunContext,
+    ) -> None:
+        super().cleanup_unit(
+            unit,
+            question,
+            config,
+            run_context=run_context,
+        )
+        if len(self.cleanup_calls) == 2:
+            raise RuntimeError("retention cleanup failed")
+
+
 class FakeAnswerer:
     name = "fake-answerer"
 
@@ -265,10 +284,50 @@ def test_predict_only_runner_commits_question_predictions_and_stops_partial(
         "items/lme-001/prediction.json",
         "items/lme-001/timing.json",
         "items/lme-001/cleanup-manifest.json",
+        "items/lme-001/retention.json",
     ]
+    assert read_json(run_dir / "items" / "lme-001" / "retention.json")[
+        "outcome"
+    ] == "kept"
     assert read_json(run_dir / "items" / "lme-001" / "cleanup-manifest.json")[
         "unit_hash"
     ] == "lme-001"
+
+
+def test_delete_on_success_cleans_each_unit_before_commit(tmp_path: Path) -> None:
+    config = make_longmemeval_config(tmp_path)
+    config["qdrant"]["retention"] = "delete-on-success"
+    framework = FakeLongMemEvalFramework()
+
+    LongMemEvalPredictOnlyRunner(
+        artifact_store=LocalArtifactStore(tmp_path / "runs"),
+        framework=framework,
+        answerer=FakeAnswerer(),
+    ).run(config)
+
+    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf"
+    assert framework.cleanup_calls == ["lme-001", "lme-001", "lme-002", "lme-002"]
+    assert read_json(run_dir / "items" / "lme-001" / "retention.json")[
+        "outcome"
+    ] == "deleted"
+
+
+def test_retention_failure_does_not_commit_unit(tmp_path: Path) -> None:
+    config = make_longmemeval_config(tmp_path)
+    config["qdrant"]["retention"] = "delete-on-success"
+
+    with pytest.raises(RuntimeError, match="retention cleanup failed"):
+        LongMemEvalPredictOnlyRunner(
+            artifact_store=LocalArtifactStore(tmp_path / "runs"),
+            framework=FailingRetentionLongMemEvalFramework(),
+            answerer=FakeAnswerer(),
+        ).run(config)
+
+    run_dir = tmp_path / "runs" / "fixture-longmemeval-dmf"
+    checkpoint = read_json(run_dir / "checkpoints" / "lme-001" / "checkpoint.json")
+    assert checkpoint["status"] == "PREDICTING"
+    assert read_json(run_dir / "run-status.json")["state"] == "FAILED_RUNNING"
+    assert not (run_dir / "items" / "lme-001" / "retention.json").exists()
 
 
 def test_resume_skips_committed_questions(tmp_path: Path) -> None:

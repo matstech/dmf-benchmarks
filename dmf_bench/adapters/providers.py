@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
 from dmf_bench.providers.judge_prompts import (
+    JUDGE_RETRY_INSTRUCTION,
     JUDGE_SYSTEM_PROMPT,
     build_judge_user_prompt,
 )
@@ -55,6 +56,7 @@ class ProviderModelConfig:
     timeout_seconds: float
     rpm: int
     max_retries: int
+    response_max_retries: int = 0
 
     @classmethod
     def from_experiment(
@@ -104,6 +106,11 @@ class ProviderModelConfig:
             timeout_seconds=_positive_number(runtime, "timeout_seconds"),
             rpm=_positive_integer(runtime, "rpm"),
             max_retries=_non_negative_integer(runtime, "max_retries"),
+            response_max_retries=_non_negative_integer(
+                runtime,
+                "response_max_retries",
+                default=1 if role == "judge" else 0,
+            ),
         )
 
 
@@ -203,29 +210,64 @@ class OpenAICompatibleJudgeAdapter:
                 else ""
             ),
         )
-        try:
-            response = self.transport.generate_with_usage(
-                system_prompt=JUDGE_SYSTEM_PROMPT,
-                user_prompt=prompt,
-                temperature=self.settings.temperature,
-                max_tokens=self.settings.max_tokens,
-                reasoning_effort=self.settings.reasoning_effort,
+        responses: list[LLMResponse] = []
+        total_attempts = self.settings.response_max_retries + 1
+        for attempt in range(total_attempts):
+            try:
+                response = self.transport.generate_with_usage(
+                    system_prompt=JUDGE_SYSTEM_PROMPT,
+                    user_prompt=(
+                        prompt if attempt == 0 else prompt + JUDGE_RETRY_INSTRUCTION
+                    ),
+                    temperature=self.settings.temperature,
+                    max_tokens=self.settings.max_tokens,
+                    reasoning_effort=self.settings.reasoning_effort,
+                )
+                responses.append(response)
+                if response.finish_reason not in {None, "stop"}:
+                    raise ProviderResponseError(
+                        "Judge provider returned an incomplete response "
+                        f"(finish_reason={response.finish_reason!r})."
+                    )
+                judgment, score, reason = _parse_judge_response_strict(
+                    self.benchmark,
+                    response.response,
+                )
+            except ProviderResponseError:
+                _record_llm(
+                    self.metrics,
+                    role="judge",
+                    provider=self.settings.provider,
+                    outcome="failed",
+                    response=responses[-1] if responses else None,
+                )
+                if attempt + 1 >= total_attempts:
+                    raise
+                if self.metrics is not None:
+                    self.metrics.record_llm_retry(
+                        role="judge",
+                        provider=self.settings.provider,
+                    )
+                continue
+            except Exception:
+                _record_llm(
+                    self.metrics,
+                    role="judge",
+                    provider=self.settings.provider,
+                    outcome="failed",
+                )
+                raise
+            _record_llm(
+                self.metrics,
+                role="judge",
+                provider=self.settings.provider,
+                outcome="completed",
+                response=response,
             )
-            judgment, score, reason = _parse_judge_response_strict(
-                self.benchmark,
-                response.response,
-            )
-        except Exception:
-            _record_llm(self.metrics, role="judge", provider=self.settings.provider, outcome="failed")
-            raise
+            break
+        else:  # pragma: no cover - loop exits by return or exception
+            raise AssertionError("Judge response retry loop exited unexpectedly.")
 
-        _record_llm(
-            self.metrics,
-            role="judge",
-            provider=self.settings.provider,
-            outcome="completed",
-            response=response,
-        )
         return {
             "judgment": judgment,
             "score": score,
@@ -234,7 +276,8 @@ class OpenAICompatibleJudgeAdapter:
             "judge_requested_model": self.settings.requested_model,
             "judge_model": response.model,
             "judge_finish_reason": response.finish_reason,
-            "judge_usage": _usage_payload(response),
+            "judge_usage": _cumulative_usage_payload(responses),
+            "judge_attempts": len(responses),
             "judge_fingerprint": self.judge_fingerprint,
         }
 
@@ -354,6 +397,18 @@ def _usage_payload(response: LLMResponse) -> dict[str, int]:
     }
 
 
+def _cumulative_usage_payload(responses: list[LLMResponse]) -> dict[str, int]:
+    return {
+        "prompt_tokens_total": sum(
+            response.token_usage.prompt_tokens_total for response in responses
+        ),
+        "completion_tokens": sum(
+            response.token_usage.completion_tokens for response in responses
+        ),
+        "total_tokens": sum(response.token_usage.total_tokens for response in responses),
+    }
+
+
 def _record_llm(
     metrics: BenchmarkMetrics | None,
     *,
@@ -414,8 +469,13 @@ def _positive_integer(
     return value
 
 
-def _non_negative_integer(data: dict[str, Any], key: str) -> int:
-    value = data.get(key)
+def _non_negative_integer(
+    data: dict[str, Any],
+    key: str,
+    *,
+    default: int | None = None,
+) -> int:
+    value = data.get(key, default)
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"{key} must be a non-negative integer.")
     return value

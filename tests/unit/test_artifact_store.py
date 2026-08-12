@@ -107,18 +107,31 @@ def test_artifact_api_lists_verifies_and_downloads_json(tmp_path: Path) -> None:
     openapi = client.get("/openapi.json")
     health = client.get("/health")
     services = client.get("/services")
+    runs = client.get("/runs")
     run = client.get("/runs/run-001")
     artifacts = client.get("/runs/run-001/artifacts")
     verified = client.get("/runs/run-001/verify")
     download = client.get("/runs/run-001/artifacts/reports/summary.json")
+    attachment = client.get(
+        "/runs/run-001/artifacts/reports/summary.json?download=true"
+    )
 
     assert landing.status_code == 200
     assert landing.headers["content-type"].startswith("text/html")
     assert "DMF Benchmarks" in landing.text
     assert 'id="run-result"' in landing.text
+    assert 'id="artifact-browser"' in landing.text
+    assert 'id="run-list"' in landing.text
+    assert 'id="artifact-list"' in landing.text
     assert 'async function loadRunResource' in landing.text
+    assert 'async function loadArtifacts' in landing.text
     assert '<button class="run-link"' in landing.text
     assert '<a class="run-link"' not in landing.text
+    assert '>Rigorous</button>' not in landing.text
+    assert '>Ablation</button>' not in landing.text
+    assert 'id="browse-artifacts"' not in landing.text
+    for label in ("Inspect", "Verify", "Summary", "Tokens", "Timing", "Resources"):
+        assert f">{label}</button>" in landing.text
     assert openapi.json()["info"]["version"] == "0.2.0"
     assert health.json() == {
         "status": "ok",
@@ -126,16 +139,26 @@ def test_artifact_api_lists_verifies_and_downloads_json(tmp_path: Path) -> None:
         "writable": False,
     }
     assert services.json()["services"]["grafana"] == {
-        "label": "Grafana",
+        "label": "Grafana Operations",
         "port": 3000,
         "path": "/d/dmf-benchmarks/dmf-benchmarks",
     }
+    assert services.json()["services"]["grafana_evaluation"] == {
+        "label": "Grafana Evaluation",
+        "port": 3000,
+        "path": "/d/dmf-benchmarks-evaluation/dmf-benchmarks-evaluation",
+    }
+    assert runs.json()["runs"][0]["run_id"] == "run-001"
+    assert runs.json()["runs"][0]["artifact_count"] > 0
     assert run.json()["completed"] is True
     assert artifacts.json()["artifacts"]
     assert verified.json()["status"] == "verified"
     assert download.status_code == 200
     assert download.headers["content-type"].startswith("application/json")
     assert download.json() == {"evaluated": 1, "expected": 1}
+    assert attachment.headers["content-disposition"] == (
+        'attachment; filename="summary.json"'
+    )
 
 
 def test_artifact_api_service_catalog_uses_published_ports(
@@ -150,6 +173,7 @@ def test_artifact_api_service_catalog_uses_published_ports(
     services = client.get("/services").json()["services"]
 
     assert services["grafana"]["port"] == 4300
+    assert services["grafana_evaluation"]["port"] == 4300
     assert services["prometheus"]["port"] == 49090
     assert services["qdrant"]["port"] == 46333
 

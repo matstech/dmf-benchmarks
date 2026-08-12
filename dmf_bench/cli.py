@@ -23,6 +23,7 @@ from .metrics import BenchmarkMetrics, MetricsServer, start_metrics_endpoint, st
 from .oci import OciPublishError, publish_run_oci
 from .registry import BENCHMARKS, FRAMEWORKS, supported_combinations
 from .runtime import RuntimeApplication, assemble_application
+from .secrets import load_runtime_secret_files
 from .state import (
     StateError,
     load_run_status,
@@ -205,6 +206,10 @@ def main(
     *,
     application_builder: ApplicationBuilder | None = None,
 ) -> int:
+    try:
+        load_runtime_secret_files()
+    except ValueError as exc:
+        raise SystemExit(f"dmf-bench: error: {exc}") from exc
     parser = build_parser()
     args = parser.parse_args(argv)
 

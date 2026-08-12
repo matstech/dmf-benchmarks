@@ -236,6 +236,8 @@ def validate_config(data: dict[str, Any], *, source_path: Path) -> None:
         validate_positive_number(model_runtime, "timeout_seconds")
         validate_positive_integer(model_runtime, "rpm")
         validate_non_negative_integer(model_runtime, "max_retries")
+        if "response_max_retries" in model_runtime:
+            validate_non_negative_integer(model_runtime, "response_max_retries")
 
     evaluation = required_mapping(data, "evaluation")
     for key in ("required", "optional"):

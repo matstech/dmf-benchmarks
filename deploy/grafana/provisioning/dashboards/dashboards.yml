@@ -5,7 +5,8 @@ providers:
     orgId: 1
     folder: DMF Benchmarks
     type: file
-    disableDeletion: false
-    editable: false
+    disableDeletion: true
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
     options:
       path: /etc/grafana/dashboards

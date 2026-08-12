@@ -33,7 +33,12 @@ A standard execution uses these components:
 - `/bench/cache`: writable cache for materialized datasets, models, and temporary data.
 - `/bench/runs`: writable volume where results are published.
 
-Provider keys must never be written into JSON files. Pass them through environment variables, for example `OPENAI_API_KEY`.
+Provider keys must never be written into JSON files. Declare them in the host
+environment or repository `.env`, for example as `OPENAI_API_KEY`.
+`dmf-benchctl` copies each required value into a private ephemeral file and
+mounts it read-only for the benchmark process. The value is not included in
+Compose service environment metadata or command arguments, and the temporary
+host file is deleted when the job command finishes.
 
 # 3. Prerequisites
 
@@ -87,7 +92,18 @@ HF_HUB_OFFLINE=1
 
 No Qdrant API key is needed when Qdrant runs locally without authentication.
 
-The `.env` file is read by the current Docker Compose adapter. You can also export the same variables in the shell. Never commit the file.
+The `.env` file is read by `dmf-benchctl`. You can also export the same
+variables in the shell. Never commit the file.
+
+The benchmark container defaults to four CPUs and four worker threads. For a
+different controlled limit, add values such as these to `.env`:
+
+```dotenv
+DMF_BENCH_CPUS=6
+DMF_BENCH_THREADS=6
+```
+
+Use identical limits for every framework in a timing comparison.
 
 # 4. Configuration
 
@@ -203,7 +219,7 @@ A complete config has this shape:
   },
   "qdrant": {
     "endpoint_env": "QDRANT_URL",
-    "retention": "keep",
+    "retention": "delete-on-success",
     "request_timeout_seconds": 10
   },
   "dataset": {
@@ -240,7 +256,8 @@ A complete config has this shape:
       "runtime": {
         "timeout_seconds": 120,
         "rpm": 200,
-        "max_retries": 5
+        "max_retries": 5,
+        "response_max_retries": 1
       }
     }
   },
@@ -263,6 +280,18 @@ dmf-benchctl validate --materialize-datasets --config path/to/experiment.json
 ```
 
 The controller mounts or translates the host path and runs `dmf-bench validate` inside the same image used for execution. Validation checks the config schema, path boundaries, framework config hash, dataset declaration, and environment-dependent settings that can be checked without executing the benchmark lifecycle.
+
+`qdrant.retention` is operational. Use `delete-on-success` for official batch
+runs: after all predictions for one atomic input record are complete, its owned
+Qdrant collections are deleted before that record is committed. If deletion
+fails, the record remains resumable and is not reported as committed. Use
+`keep` only when retained collections are intentionally needed for debugging.
+
+`models.*.runtime.max_retries` controls retryable transport failures.
+`models.judge.runtime.response_max_retries` separately controls malformed or
+truncated judge responses. A value of `1` allows one corrective retry; all
+attempt tokens are counted, and exhausting the limit fails closed instead of
+inventing a score.
 
 # 5. Dataset
 
@@ -318,9 +347,11 @@ Official registry entries are immutable: their URL contains an upstream commit a
 
 # 6. Sampling
 
-Sampling is optional and is declared inside `dataset.sampling`.
+Sampling is optional and is declared inside `dataset.sampling`. To reduce the
+work performed by both ingestion and answering, sample complete top-level
+dataset records rather than questions inside otherwise complete records.
 
-LoCoMo example, 5% of QA stratified by category:
+LoCoMo example, 5% of complete conversations:
 
 ```json
 {
@@ -329,14 +360,25 @@ LoCoMo example, 5% of QA stratified by category:
     "registry_id": "locomo-official-v1",
     "sampling": {
       "fraction": 0.05,
-      "unit": "qa",
-      "stratify_by": "category",
+      "unit": "conversation",
       "seed": 7,
       "rounding": "ceil"
     }
   }
 }
 ```
+
+Conversation sampling keeps every session and QA item belonging to each
+selected conversation. LoCoMo contains only 10 top-level conversations, so a
+5% sample with `ceil` rounding selects one complete conversation. The effective
+conversation fraction is therefore 10%; selecting half a conversation would
+not preserve the dataset record. The materialization manifest records both
+conversation and question counts so the effective sample is explicit.
+
+LoCoMo also supports `unit: "qa"` with optional
+`stratify_by: "category"` for question-focused analyses. That mode can retain
+many or all conversations and is therefore not appropriate when the purpose is
+to reduce ingestion in the same proportion as answering.
 
 LongMemEval example, 5% of records:
 
@@ -354,6 +396,9 @@ LongMemEval example, 5% of records:
   }
 }
 ```
+
+Each selected LongMemEval record carries its complete memory and question, so
+the same materialized 5% sample bounds both ingestion and answering.
 
 If `sampling` is omitted, `manifest.json` is still generated, but without a `sampling` block.
 
@@ -501,8 +546,7 @@ Manually materialize a dataset:
 dmf-benchctl runtime -- materialize-dataset \
   --dataset-id locomo-official-v1 \
   --sample-fraction 0.05 \
-  --sample-unit qa \
-  --sample-stratify-by category \
+  --sample-unit conversation \
   --sample-seed 7 \
   --sample-rounding ceil \
   --output-dir /bench/cache/datasets/manual-locomo-smoke
@@ -581,7 +625,9 @@ The controller starts Qdrant and the read-only Artifact API, leaves them running
 The one-shot container receives the stable network alias expected by
 Prometheus. The Artifact API also exports persisted run metrics from the shared
 volume, so Grafana continues to show the latest progress, final token usage,
-timings, and evaluation values after the benchmark process exits.
+timings, final process resource measurements, and evaluation values after the
+benchmark process exits. Qdrant must pass its healthcheck before a benchmark
+container can start.
 
 During the run, JSON events are printed. A completed run exits with code `0` and prints a final `COMPLETED` state. Stop services afterward without deleting run or cache volumes:
 
@@ -596,6 +642,11 @@ The Artifact API exposes results in read-only mode. When started locally, it nor
 ```text
 http://127.0.0.1:8000
 ```
+
+Open that address in a browser for the simplest workflow. The landing page
+lists committed runs and all their artifacts. Select a run, then use **View**
+for text-based artifacts or **Download** to save any artifact directly. The
+endpoints below remain useful for agents and automation.
 
 Health check:
 
@@ -623,27 +674,54 @@ curl --fail http://127.0.0.1:8000/runs/RUN_ID
 
 To download a single artifact, use exactly one of the paths returned by `/runs/RUN_ID/artifacts`.
 
-Cost and timing metrics:
+Cost, timing, and resource metrics:
 
 ```text
 curl --fail http://127.0.0.1:8000/runs/RUN_ID/artifacts/reports/usage.json
 curl --fail http://127.0.0.1:8000/runs/RUN_ID/artifacts/reports/timing.json
+curl --fail http://127.0.0.1:8000/runs/RUN_ID/artifacts/reports/resources.json
 ```
 
 ## Grafana and Prometheus
 
-When the stack was prepared or started with `--observability`, open:
+When the stack was prepared or started with `--observability`, use the
+Operations dashboard for live and persisted runtime information:
 
 ```text
 http://127.0.0.1:3000/d/dmf-benchmarks/dmf-benchmarks
 ```
 
-Grafana shows the latest persisted run for every benchmark/framework pair:
-input-record and evaluation-item progress, run state, committed LLM tokens,
-execution and pipeline timings, evaluation metrics, and Qdrant health. These
-values come from the shared run volume through the Artifact API and therefore
-remain available after the benchmark container terminates. Prometheus itself is
-available at `http://127.0.0.1:9090` for advanced inspection.
+It shows input-record and evaluation-item progress, run state, LLM tokens,
+execution and pipeline timings, benchmark CPU and memory, and Qdrant activity.
+CPU is process CPU: 100% means one fully used logical CPU, so a machine using 12
+logical CPUs can report about 1200% when unbounded. The standard stack caps the
+benchmark at `DMF_BENCH_CPUS=4.0`, so its sustained default ceiling is about
+400%. The panel combines live utilization with the persisted final-attempt
+average; the memory panel likewise retains final peak RSS after process exit.
+
+Final scientific metrics are deliberately separated into the Evaluation
+dashboard:
+
+```text
+http://127.0.0.1:3000/d/dmf-benchmarks-evaluation/dmf-benchmarks-evaluation
+```
+
+The Evaluation dashboard is populated only after evaluation reports have been
+written; it does not expose a partial judging score during a run. Persisted
+values come from the shared run volume through the Artifact API and remain
+available after the benchmark container terminates.
+
+At the top of both dashboards, select exactly one **Benchmark framework**
+(LoCoMo or LongMemEval) and one **Memory system** (DMF or Mem0). Every panel is
+bound to those selections; series from different benchmark and memory-system
+combinations are not overlaid.
+
+Grafana starts with a dark theme. On this loopback-only stack anonymous users
+have the Editor role, so **Save dashboard** overwrites the dashboard copy in
+Grafana's persistent data volume. Those edits survive container recreation and
+stack shutdown. A later repository release can intentionally replace the
+provisioned dashboard definition. Prometheus is available at
+`http://127.0.0.1:9090` for advanced inspection.
 
 # 12. Verification And Resume
 
@@ -701,13 +779,14 @@ The most important files are:
 | `resolved-config.json` | Resolved configuration without secrets. |
 | `reports/usage.json` | Tokens and provider usage when available. |
 | `reports/timing.json` | Timing for measured phases and operations. |
+| `reports/resources.json` | Process CPU, average utilization, RSS, cgroup observations, and configured limits. |
 | `evaluations/primary_judge_score.json` | Primary LLM judge aggregate. |
 | `evaluations/rigorous_report.json` | Deterministic rigorous metrics. |
 | `evaluations/ablation_report.json` | Retrieval ablation report, if requested. |
 | `logs/events.jsonl` | Lifecycle JSON events. |
 | `datasets/materialization-manifest.json` | Dataset manifest copied into the run when the dataset is materialized from the registry. |
 
-To archive an official run, publish the run OCI bundle or keep at least the image name and digest, `RUN_ID`, `resolved-config.json`, dataset materialization manifest, `final/COMPLETED.json`, `reports/usage.json`, and `reports/timing.json`.
+To archive an official run, publish the run OCI bundle or keep at least the image name and digest, `RUN_ID`, `resolved-config.json`, dataset materialization manifest, `final/COMPLETED.json`, `reports/usage.json`, `reports/timing.json`, and `reports/resources.json`.
 
 ## Offline deterministic re-evaluation
 
@@ -818,6 +897,9 @@ This is only an operational example. For a real experiment, create a dedicated c
 7. Check each exit code and `COMPLETED` state.
 8. Read artifacts and dataset manifests from the Artifact API.
 9. Compare materialized dataset hashes between frameworks evaluating the same benchmark.
-10. Save usage, timing, resolved config, and dataset manifest.
-11. Publish each OCI bundle with `dmf-benchctl publish-run` if the run is official.
-12. Stop services with `dmf-benchctl stack down`; named volumes are preserved.
+10. Compare `reports/timing.json` and `reports/resources.json` only when image,
+    dataset materialization manifest, model settings, CPU limit, and thread
+    limit match between DMF and Mem0.
+11. Save usage, timing, resources, resolved config, and dataset manifest.
+12. Publish each OCI bundle with `dmf-benchctl publish-run` if the run is official.
+13. Stop services with `dmf-benchctl stack down`; named volumes are preserved.

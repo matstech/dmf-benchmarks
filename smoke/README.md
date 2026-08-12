@@ -13,10 +13,13 @@ The configs declare deterministic dataset materialization (seed 7). During
 writes the materialized file under `/bench/cache/datasets/...`, and generates
 `manifest.json` next to it.
 
-- LoCoMo keeps all 10 real conversations and samples 5% of the QA population
-  independently in each category, rounded up: 15/282, 17/321, 5/96, 43/841
-  and 23/446, for 103 QA items total.
+- LoCoMo samples 5% of the complete conversation population, rounded up. Since
+  the official dataset contains 10 conversations, the smoke sample contains
+  one complete conversation and all of its QA items. Both ingestion and
+  answering therefore operate only on the materialized sample.
 - LongMemEval samples 5% of the 500 real records, rounded up: 25 records.
+  Each selected record includes the complete memory and question used by both
+  ingestion and answering.
 
 They validate a substantial end-to-end lifecycle, but they are not paper-scale
 reproduction datasets. The official source revisions and SHA-256 digests are
@@ -52,4 +55,8 @@ required read-only resource mount automatically. The local Compose override is
 an orchestrator implementation detail and is not part of the user command.
 
 The configs use the OpenAI provider. A run requires `OPENAI_API_KEY` in the
-operator's environment; no key is stored in this directory.
+operator's environment or repository `.env`; the controller mounts it as an
+ephemeral read-only secret file and no key is stored in this directory or in
+Compose service metadata. Smoke configs delete their per-unit Qdrant resources
+after successful prediction so the four runs do not accumulate stale
+collections.

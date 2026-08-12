@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ from dmf_bench.config import resolve_config
 from dmf_bench.atomic_io import read_json
 from dmf_bench.contracts import sha256_file
 from dmf_bench.registry import supported_combinations
+from dmf_bench.secrets import load_runtime_secret_files
 
 
 FIXTURE_DIR = Path(__file__).parents[1] / "fixtures"
@@ -87,6 +89,20 @@ def test_validate_rejects_inline_secrets(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Inline secret field"):
         resolve_config(config_path)
+
+
+def test_runtime_secret_file_populates_provider_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret_path = tmp_path / "openai-key"
+    secret_path.write_text("file-secret\n", encoding="utf-8")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY_FILE", str(secret_path))
+
+    load_runtime_secret_files()
+
+    assert os.environ["OPENAI_API_KEY"] == "file-secret"
 
 
 def test_validate_rejects_mutated_framework_config(tmp_path: Path) -> None:

@@ -167,7 +167,8 @@
       font-size: 12px;
     }
 
-    input {
+    input,
+    select {
       width: 100%;
       min-width: 0;
       padding: 9px 10px;
@@ -178,7 +179,8 @@
       font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
-    input:focus { border-color: var(--muted); }
+    input:focus,
+    select:focus { border-color: var(--muted); }
 
     .run-links {
       display: flex;
@@ -255,12 +257,108 @@
       tab-size: 2;
     }
 
+    .artifact-browser {
+      display: grid;
+      grid-template-columns: minmax(220px, 0.8fr) minmax(0, 2fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .browser-column {
+      min-width: 0;
+      border: 1px solid var(--border);
+      background: var(--background);
+    }
+
+    .browser-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 36px;
+      padding: 6px 8px 6px 10px;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .browser-list {
+      max-height: 440px;
+      overflow: auto;
+    }
+
+    .browser-empty {
+      padding: 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .run-entry,
+    .artifact-entry {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-width: 0;
+      padding: 9px 10px;
+      border: 0;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+    }
+
+    .run-entry:last-child,
+    .artifact-entry:last-child { border-bottom: 0; }
+
+    .run-entry:hover,
+    .run-entry:focus-visible { background: var(--surface-hover); }
+
+    .run-entry.active { background: var(--surface-hover); }
+
+    .entry-main {
+      min-width: 0;
+      overflow: hidden;
+      font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .entry-meta {
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .artifact-actions {
+      display: flex;
+      gap: 5px;
+      margin-left: auto;
+    }
+
+    .artifact-action {
+      padding: 4px 7px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      background: transparent;
+      font-size: 10px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .artifact-action:hover,
+    .artifact-action:focus-visible {
+      border-color: var(--muted);
+      color: var(--text);
+      outline: none;
+    }
+
     @media (max-width: 680px) {
       main { width: min(100% - 20px, 1040px); padding: 10px 0; }
       .status-bar { flex-wrap: wrap; padding: 10px; }
       .api-state { margin-left: 0; }
       .services { grid-template-columns: 1fr; }
       .run-input { grid-template-columns: 1fr; gap: 6px; }
+      .artifact-browser { grid-template-columns: 1fr; }
       .result-bar { flex-wrap: wrap; }
       .result-status { margin-left: 0; }
       .result-endpoint { flex-basis: 100%; }
@@ -279,10 +377,19 @@
     <nav class="services" aria-label="Local services">
       <a class="service" data-service="grafana" href="http://127.0.0.1:3000/d/dmf-benchmarks/dmf-benchmarks" target="_blank" rel="noopener">
         <span class="service-row">
-          <span class="service-name">Grafana</span>
+          <span class="service-name">Grafana Operations</span>
           <span class="service-status">checking</span>
         </span>
         <span class="service-description">Benchmark progress and operational dashboards</span>
+        <code class="service-url">127.0.0.1:3000</code>
+      </a>
+
+      <a class="service" data-service="grafana_evaluation" href="http://127.0.0.1:3000/d/dmf-benchmarks-evaluation/dmf-benchmarks-evaluation" target="_blank" rel="noopener">
+        <span class="service-row">
+          <span class="service-name">Grafana Evaluation</span>
+          <span class="service-status">checking</span>
+        </span>
+        <span class="service-description">Final scientific metrics from completed runs</span>
         <code class="service-url">127.0.0.1:3000</code>
       </a>
 
@@ -317,7 +424,8 @@
     <section class="run-panel" aria-label="Committed run artifacts">
       <div class="run-input">
         <label for="run-id">Run ID</label>
-        <input id="run-id" type="text" autocomplete="off" spellcheck="false" placeholder="local-locomo-dmf-001">
+        <input id="run-id" type="text" list="run-id-options" autocomplete="off" spellcheck="false" placeholder="local-locomo-dmf-001">
+        <datalist id="run-id-options"></datalist>
       </div>
       <nav class="run-links" aria-label="Run artifacts">
         <button class="run-link" type="button" data-run-path="" disabled>Inspect</button>
@@ -325,9 +433,27 @@
         <button class="run-link" type="button" data-run-path="/artifacts/reports/summary.json" disabled>Summary</button>
         <button class="run-link" type="button" data-run-path="/artifacts/reports/usage.json" disabled>Tokens</button>
         <button class="run-link" type="button" data-run-path="/artifacts/reports/timing.json" disabled>Timing</button>
-        <button class="run-link" type="button" data-run-path="/artifacts/evaluations/rigorous_report.json" disabled>Rigorous</button>
-        <button class="run-link" type="button" data-run-path="/artifacts/evaluations/ablation_report.json" disabled>Ablation</button>
+        <button class="run-link" type="button" data-run-path="/artifacts/reports/resources.json" disabled>Resources</button>
       </nav>
+      <section class="artifact-browser" id="artifact-browser">
+        <div class="browser-column">
+          <div class="browser-bar">
+            <span>Committed runs</span>
+            <button id="refresh-runs" type="button">Refresh</button>
+          </div>
+          <div class="browser-list" id="run-list">
+            <div class="browser-empty">Loading…</div>
+          </div>
+        </div>
+        <div class="browser-column">
+          <div class="browser-bar">
+            <span id="artifact-list-label">Artifacts</span>
+          </div>
+          <div class="browser-list" id="artifact-list">
+            <div class="browser-empty">Select a committed run.</div>
+          </div>
+        </div>
+      </section>
       <section class="run-result" id="run-result" aria-label="API response" aria-live="polite" hidden>
         <div class="result-bar">
           <code class="result-endpoint" id="result-endpoint"></code>
@@ -411,7 +537,7 @@
 
     async function refreshStatus() {
       refreshButton.disabled = true;
-      await Promise.all([loadServices(), loadApiHealth()]);
+      await Promise.all([loadServices(), loadApiHealth(), loadRuns()]);
       refreshButton.disabled = false;
     }
 
@@ -422,6 +548,11 @@
     const resultStatus = document.getElementById("result-status");
     const resultBody = document.getElementById("result-body");
     const clearResultButton = document.getElementById("clear-result");
+    const refreshRunsButton = document.getElementById("refresh-runs");
+    const runIdOptions = document.getElementById("run-id-options");
+    const runList = document.getElementById("run-list");
+    const artifactList = document.getElementById("artifact-list");
+    const artifactListLabel = document.getElementById("artifact-list-label");
     let activeRequest = null;
 
     function clearRunResult() {
@@ -445,27 +576,149 @@
       }
     }
 
-    async function loadRunResource(link) {
+    function formatBytes(value) {
+      const bytes = Number(value) || 0;
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+    }
+
+    function artifactCanBeViewed(path) {
+      return /\.(json|jsonl|txt|md|log|prom|csv|ya?ml|toml)$/i.test(path);
+    }
+
+    async function loadRuns() {
+      refreshRunsButton.disabled = true;
+      try {
+        const response = await fetch("/runs", { cache: "no-store" });
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const payload = await response.json();
+        const runs = Array.isArray(payload.runs) ? payload.runs : [];
+        runIdOptions.replaceChildren();
+        runList.replaceChildren();
+        if (!runs.length) {
+          const empty = document.createElement("div");
+          empty.className = "browser-empty";
+          empty.textContent = "No committed runs found.";
+          runList.append(empty);
+          return;
+        }
+        for (const run of runs) {
+          const option = document.createElement("option");
+          option.value = run.run_id;
+          runIdOptions.append(option);
+
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "run-entry";
+          button.dataset.runId = run.run_id;
+          const name = document.createElement("span");
+          name.className = "entry-main";
+          name.textContent = run.run_id;
+          const meta = document.createElement("span");
+          meta.className = "entry-meta";
+          meta.textContent = `${run.benchmark}/${run.framework}`;
+          button.append(name, meta);
+          button.addEventListener("click", () => {
+            runInput.value = run.run_id;
+            updateRunLinks();
+            loadArtifacts();
+          });
+          runList.append(button);
+        }
+      } catch (error) {
+        runList.innerHTML = "";
+        const empty = document.createElement("div");
+        empty.className = "browser-empty";
+        empty.textContent = error instanceof Error ? error.message : String(error);
+        runList.append(empty);
+      } finally {
+        refreshRunsButton.disabled = false;
+      }
+    }
+
+    function renderArtifacts(runId, artifacts) {
+      artifactList.replaceChildren();
+      artifactListLabel.textContent = `${runId} · ${artifacts.length} artifacts`;
+      if (!artifacts.length) {
+        const empty = document.createElement("div");
+        empty.className = "browser-empty";
+        empty.textContent = "No artifacts found.";
+        artifactList.append(empty);
+        return;
+      }
+      for (const artifact of artifacts) {
+        const row = document.createElement("div");
+        row.className = "artifact-entry";
+        const path = document.createElement("span");
+        path.className = "entry-main";
+        path.title = artifact.path;
+        path.textContent = artifact.path;
+        const size = document.createElement("span");
+        size.className = "entry-meta";
+        size.textContent = formatBytes(artifact.bytes);
+        const actions = document.createElement("span");
+        actions.className = "artifact-actions";
+        const endpoint = `/runs/${encodeURIComponent(runId)}/artifacts/${artifact.path.split("/").map(encodeURIComponent).join("/")}`;
+        if (artifactCanBeViewed(artifact.path)) {
+          const view = document.createElement("button");
+          view.type = "button";
+          view.className = "artifact-action";
+          view.textContent = "View";
+          view.addEventListener("click", () => loadEndpoint(endpoint));
+          actions.append(view);
+        }
+        const download = document.createElement("a");
+        download.className = "artifact-action";
+        download.href = `${endpoint}?download=true`;
+        download.download = artifact.path.split("/").pop();
+        download.textContent = "Download";
+        actions.append(download);
+        row.append(path, size, actions);
+        artifactList.append(row);
+      }
+    }
+
+    async function loadArtifacts() {
       const runId = runInput.value.trim();
       if (!runId) return;
+      artifactList.setAttribute("aria-busy", "true");
+      artifactList.innerHTML = '<div class="browser-empty">Loading…</div>';
+      try {
+        const response = await fetch(`/runs/${encodeURIComponent(runId)}/artifacts`, {
+          cache: "no-store",
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || `${response.status} ${response.statusText}`);
+        renderArtifacts(runId, Array.isArray(payload.artifacts) ? payload.artifacts : []);
+        for (const entry of document.querySelectorAll(".run-entry")) {
+          entry.classList.toggle("active", entry.dataset.runId === runId);
+        }
+      } catch (error) {
+        artifactList.innerHTML = "";
+        const empty = document.createElement("div");
+        empty.className = "browser-empty";
+        empty.textContent = error instanceof Error ? error.message : String(error);
+        artifactList.append(empty);
+      } finally {
+        artifactList.removeAttribute("aria-busy");
+      }
+    }
 
+    async function loadEndpoint(endpoint) {
       if (activeRequest) activeRequest.abort();
       activeRequest = new AbortController();
       const request = activeRequest;
-      const endpoint = `/runs/${encodeURIComponent(runId)}${link.dataset.runPath}`;
-
-      for (const item of runLinks) item.classList.toggle("active", item === link);
       runResult.hidden = false;
       runResult.setAttribute("aria-busy", "true");
       resultEndpoint.textContent = endpoint;
       resultStatus.textContent = "loading";
       resultStatus.classList.remove("success", "error");
       resultBody.textContent = "Loading…";
-
       try {
         const response = await fetch(endpoint, {
           cache: "no-store",
-          headers: { Accept: "application/json" },
+          headers: { Accept: "application/json, text/plain" },
           signal: request.signal,
         });
         const rawBody = await response.text();
@@ -486,6 +739,16 @@
       }
     }
 
+    async function loadRunResource(link) {
+      const runId = runInput.value.trim();
+      if (!runId) return;
+
+      const endpoint = `/runs/${encodeURIComponent(runId)}${link.dataset.runPath}`;
+
+      for (const item of runLinks) item.classList.toggle("active", item === link);
+      await loadEndpoint(endpoint);
+    }
+
     function updateRunLinks() {
       const runId = runInput.value.trim();
       for (const link of runLinks) {
@@ -493,18 +756,26 @@
         link.classList.toggle("ready", Boolean(runId));
       }
       clearRunResult();
+      artifactListLabel.textContent = "Artifacts";
+      artifactList.innerHTML = '<div class="browser-empty">Select a committed run.</div>';
+      for (const entry of document.querySelectorAll(".run-entry")) {
+        entry.classList.remove("active");
+      }
     }
 
     runInput.addEventListener("input", updateRunLinks);
+    runInput.addEventListener("change", loadArtifacts);
     runInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !runLinks[0].disabled) {
         event.preventDefault();
         loadRunResource(runLinks[0]);
+        loadArtifacts();
       }
     });
     for (const link of runLinks) {
       link.addEventListener("click", () => loadRunResource(link));
     }
+    refreshRunsButton.addEventListener("click", loadRuns);
     clearResultButton.addEventListener("click", clearRunResult);
     refreshButton.addEventListener("click", refreshStatus);
     refreshStatus();

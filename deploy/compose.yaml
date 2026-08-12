@@ -42,6 +42,14 @@ services:
       - type: volume
         source: qdrant-storage-v2
         target: /qdrant/storage
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bash -ec ': >/dev/tcp/127.0.0.1/6333'"
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 12
     stop_grace_period: 30s
 
   artifact-api:
@@ -49,7 +57,7 @@ services:
     init: true
     depends_on:
       qdrant:
-        condition: service_started
+        condition: service_healthy
     entrypoint: ["uvicorn"]
     command:
       - "dmf_bench.api:create_default_app"
@@ -88,7 +96,7 @@ services:
       artifact-api:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -119,9 +127,9 @@ services:
         condition: service_started
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Editor
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
-      GF_USERS_DEFAULT_THEME: light
+      GF_USERS_DEFAULT_THEME: dark
     ports:
       - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     volumes:
@@ -145,7 +153,7 @@ services:
     init: true
     depends_on:
       qdrant:
-        condition: service_started
+        condition: service_healthy
       artifact-api:
         condition: service_healthy
     command:
@@ -153,10 +161,12 @@ services:
       - "--config"
       - "${DMF_BENCH_CONFIG:-/bench/config/experiment-locomo-dmf.json}"
     environment:
+      DMF_BENCH_CPUS: ${DMF_BENCH_CPUS:-4.0}
       DMF_BENCH_HARNESS_COMMIT: ${DMF_BENCH_HARNESS_COMMIT:-unknown}
       DMF_BENCH_IMAGE_DIGEST: ${DMF_BENCH_IMAGE_DIGEST:-unknown}
       DMF_BENCH_RUNS_DIR: /bench/runs
       DMF_BENCH_METRICS_PORT: "9464"
+      DMF_BENCH_THREADS: ${DMF_BENCH_THREADS:-4}
       FASTEMBED_CACHE_PATH: /bench/cache/models/embeddings
       HF_HOME: /bench/cache/huggingface
       HF_HUB_CACHE: /bench/cache/huggingface/hub
@@ -164,12 +174,19 @@ services:
       HF_XET_CACHE: /bench/cache/huggingface/xet
       MEM0_DIR: /bench/cache/mem0
       MEM0_TELEMETRY: "false"
+      MKL_NUM_THREADS: ${DMF_BENCH_THREADS:-4}
+      NUMEXPR_NUM_THREADS: ${DMF_BENCH_THREADS:-4}
+      OMP_NUM_THREADS: ${DMF_BENCH_THREADS:-4}
+      OMP_THREAD_LIMIT: ${DMF_BENCH_THREADS:-4}
+      OPENBLAS_NUM_THREADS: ${DMF_BENCH_THREADS:-4}
       QDRANT_URL: http://qdrant:6333
       QDRANT_IMAGE_DIGEST: sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c
       QDRANT_VERSION: 1.18.2
+      RAYON_NUM_THREADS: ${DMF_BENCH_THREADS:-4}
+      TOKENIZERS_PARALLELISM: "false"
+      VECLIB_MAXIMUM_THREADS: ${DMF_BENCH_THREADS:-4}
       XDG_CACHE_HOME: /bench/cache/xdg
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    cpus: ${DMF_BENCH_CPUS:-4.0}
     expose:
       - "9464"
     volumes: *job_volumes

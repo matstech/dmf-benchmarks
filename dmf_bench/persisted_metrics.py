@@ -75,6 +75,24 @@ def render_persisted_run_metrics(runs_dir: str | Path) -> bytes:
         (*RUN_LABELS, "stage"),
         registry=registry,
     )
+    process_cpu = Gauge(
+        "dmf_bench_persisted_run_process_cpu_seconds",
+        "Process CPU time consumed by the latest persisted run attempt.",
+        RUN_LABELS,
+        registry=registry,
+    )
+    average_cpu = Gauge(
+        "dmf_bench_persisted_run_average_cpu_percent",
+        "Average process CPU utilization in the latest persisted run attempt.",
+        RUN_LABELS,
+        registry=registry,
+    )
+    peak_rss = Gauge(
+        "dmf_bench_persisted_run_peak_rss_bytes",
+        "Peak process resident memory in the latest persisted run attempt.",
+        RUN_LABELS,
+        registry=registry,
+    )
     result = Gauge(
         "dmf_bench_persisted_run_result",
         "Evaluation result metric from the latest persisted completed run.",
@@ -108,6 +126,9 @@ def render_persisted_run_metrics(runs_dir: str | Path) -> bytes:
         timing = _read_optional_object(run_path / "reports" / "timing.json")
         if timing:
             _record_timing(execution, pipeline, labels, timing)
+        resources = _read_optional_object(run_path / "reports" / "resources.json")
+        if resources:
+            _record_resources(process_cpu, average_cpu, peak_rss, labels, resources)
         _record_results(result, labels, run_path)
 
     return generate_latest(registry)
@@ -165,6 +186,19 @@ def _record_timing(
             pipeline_metric.labels(*labels, str(stage)).set(
                 _number(values.get("total_ms")) / 1000.0
             )
+
+
+def _record_resources(
+    process_cpu_metric: Gauge,
+    average_cpu_metric: Gauge,
+    peak_rss_metric: Gauge,
+    labels: tuple[str, str],
+    resources: dict[str, Any],
+) -> None:
+    process = resources.get("process") or {}
+    process_cpu_metric.labels(*labels).set(_number(process.get("cpu_total_seconds")))
+    average_cpu_metric.labels(*labels).set(_number(process.get("average_cpu_percent")))
+    peak_rss_metric.labels(*labels).set(_number(process.get("peak_rss_bytes")))
 
 
 def _record_results(metric: Gauge, labels: tuple[str, str], run_path: Path) -> None:

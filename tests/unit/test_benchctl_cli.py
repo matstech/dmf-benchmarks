@@ -143,6 +143,48 @@ def test_quiet_runtime_redirects_stdout_and_stderr_to_local_log(
     assert captured["stderr"] == -2
 
 
+def test_runtime_mounts_provider_key_as_ephemeral_file_without_environment_leak(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    observed: dict[str, object] = {}
+
+    def runner(command, *, cwd, env):
+        del cwd
+        serialized = " ".join(command)
+        observed["command"] = list(command)
+        observed["environment"] = dict(env)
+        mount = next(
+            command[index + 1]
+            for index, value in enumerate(command)
+            if value == "--volume" and "/run/secrets/openai_api_key" in command[index + 1]
+        )
+        host_path = Path(mount.split(":", 1)[0])
+        observed["host_path"] = host_path
+        observed["secret_during_call"] = host_path.read_text(encoding="utf-8")
+        assert "sensitive-key" not in serialized
+        return 0
+
+    orchestrator = DockerComposeOrchestrator(
+        project_dir=project,
+        compose_files=(ROOT / "deploy" / "compose.yaml",),
+        environment={"OPENAI_API_KEY": "sensitive-key", "PATH": "/bin"},
+        runner=runner,
+    )
+
+    assert orchestrator.run_runtime(["run", "--config", "/bench/config.json"]) == 0
+
+    command = observed["command"]
+    environment = observed["environment"]
+    assert isinstance(command, list)
+    assert isinstance(environment, dict)
+    assert "OPENAI_API_KEY" not in environment
+    assert "OPENAI_API_KEY_FILE=/run/secrets/openai_api_key" in command
+    assert observed["secret_during_call"] == "sensitive-key\n"
+    assert not Path(str(observed["host_path"])).exists()
+
+
 def test_operator_status_renames_internal_units_and_renders_progress(
     capsys,
 ) -> None:
@@ -522,14 +564,15 @@ def test_resume_prepared_uses_locked_image_and_quiet_output(
 
     assert result == 0
     assert len(runner.calls) == 2
-    assert runner.calls[1][0][-6:] == [
-        "dmf-bench",
-        "--quiet",
+    runtime_command = runner.calls[1][0]
+    assert runtime_command[runtime_command.index("benchmark") :] == [
         "benchmark",
         "resume",
         "--run-id",
         run_id,
     ]
+    assert "--quiet" in runtime_command
+    assert "OPENAI_API_KEY_FILE=/run/secrets/openai_api_key" in runtime_command
     assert runner.calls[1][2]["DMF_BENCH_IMAGE"].endswith("@sha256:abc123")
     assert runner.calls[1][2]["HF_HUB_OFFLINE"] == "0"
 

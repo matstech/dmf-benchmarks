@@ -573,7 +573,7 @@ def _orchestrator(
         if not compose_file.is_file():
             raise ValueError(f"Compose file does not exist: {compose_file}")
 
-    environment = dict(os.environ)
+    environment = _credential_environment(project_dir)
     if args.image:
         environment["DMF_BENCH_IMAGE"] = args.image
     if getattr(args, "allow_downloads", False):
