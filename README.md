@@ -62,6 +62,26 @@ dmf-benchctl --help
 
 Repository contributors may instead use `pipx install --editable .`.
 
+Every push to `main` also builds a temporary wheel alongside the RC image. Open
+the corresponding **Publish benchmark distribution** workflow run and download
+the `dmf-benchctl-<timestamp>-RC` artifact, retained for 14 days. With GitHub
+CLI, download and extract the latest successful `main` artifact with:
+
+```bash
+RUN_ID="$(gh run list \
+  --workflow publish-image.yml \
+  --branch main \
+  --status success \
+  --limit 1 \
+  --json databaseId \
+  --jq '.[0].databaseId')"
+gh run download "$RUN_ID" --pattern 'dmf-benchctl-*-RC'
+pipx install --force dmf-benchctl-*-RC/*.whl
+```
+
+This wheel is an ephemeral RC build. Tagged versions remain permanently
+attached to their GitHub Release.
+
 The default install has no scientific runtime dependencies. Maintainers and the
 Docker image install the explicit `runtime` extra.
 

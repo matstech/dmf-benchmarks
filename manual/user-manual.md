@@ -61,6 +61,27 @@ then available directly: user commands do not need a `poetry run` prefix. This
 default installation does not install DMF, Mem0, OpenAI, embedding models, or
 the scientific runtime dependencies because those belong to the Docker image.
 
+For pre-release testing, every push to `main` creates a temporary wheel in the
+**Publish benchmark distribution** GitHub Actions run. Its artifact is named
+`dmf-benchctl-<timestamp>-RC` and is retained for 14 days. Download it from the
+workflow run page, extract the archive, and install the `.whl` file with:
+
+```text
+pipx install --force ./dmf_benchmarks-VERSION-py3-none-any.whl
+```
+
+The latest successful `main` artifact can also be downloaded with GitHub CLI:
+
+```text
+RUN_ID="$(gh run list --workflow publish-image.yml --branch main \
+  --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+gh run download "$RUN_ID" --pattern 'dmf-benchctl-*-RC'
+pipx install --force dmf-benchctl-*-RC/*.whl
+```
+
+RC artifacts are temporary. A tagged version is also attached permanently to
+the corresponding GitHub Release.
+
 For controller development from a source checkout, use
 `pipx install --editable .`. Repository
 maintainers who run Python unit tests should instead install the `runtime` extra

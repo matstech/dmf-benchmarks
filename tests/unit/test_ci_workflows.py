@@ -47,15 +47,18 @@ def test_expected_workflows_exist_and_parse() -> None:
         assert payload["jobs"]
 
 
-def test_workflows_do_not_use_unpinned_external_actions() -> None:
+def test_workflows_only_use_approved_commit_pinned_external_actions() -> None:
+    uses_values: list[str] = []
     for workflow_path in WORKFLOW_DIR.glob("*.yml"):
         payload = load_workflow(workflow_path)
-        uses_values = [
-            item
+        uses_values.extend(
+            item["uses"]
             for item in walk(payload)
             if isinstance(item, dict) and "uses" in item
-        ]
-        assert uses_values == []
+        )
+    assert uses_values == [
+        "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+    ]
 
 
 def test_pr_workflows_do_not_access_secrets_or_trusted_target_event() -> None:
@@ -94,6 +97,7 @@ def test_publish_image_workflow_publishes_only_on_main_or_tag() -> None:
     assert set(payload["jobs"]) == {
         "prepare",
         "build-platform",
+        "build-controller-artifact",
         "publish-manifest",
         "publish-controller-package",
     }
@@ -106,6 +110,18 @@ def test_publish_image_workflow_publishes_only_on_main_or_tag() -> None:
     assert "imagetools inspect --raw" in serialized
     assert "PUBLISH_LATEST=0" in serialized
     assert "merge-base --is-ancestor" in serialized
+    artifact_job = payload["jobs"]["build-controller-artifact"]
+    assert artifact_job["needs"] == "prepare"
+    artifact_upload = artifact_job["steps"][-1]
+    assert artifact_upload["uses"] == (
+        "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+    )
+    assert artifact_upload["with"] == {
+        "name": "dmf-benchctl-${{ needs.prepare.outputs.image_tag }}",
+        "path": "dist/*.whl",
+        "if-no-files-found": "error",
+        "retention-days": "14",
+    }
     package_job = payload["jobs"]["publish-controller-package"]
     assert package_job["if"] == "startsWith(github.ref, 'refs/tags/')"
     assert package_job["permissions"] == {"contents": "write"}

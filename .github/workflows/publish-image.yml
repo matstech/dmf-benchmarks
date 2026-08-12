@@ -1,4 +1,4 @@
-name: Publish benchmark image
+name: Publish benchmark distribution
 
 on:
   push:
@@ -102,6 +102,33 @@ jobs:
             IMAGE_TAG="$IMAGE_TAG" \
             IMAGE_PLATFORMS="$IMAGE_PLATFORMS" \
             PUBLISH_LATEST=0
+
+  build-controller-artifact:
+    name: build temporary controller wheel
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact publication ref
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - name: Install Poetry
+        run: python3 -m pip install "poetry==2.3.2"
+
+      - name: Build standalone controller wheel
+        run: poetry build --format wheel
+
+      - name: Upload temporary wheel artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dmf-benchctl-${{ needs.prepare.outputs.image_tag }}
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 14
 
   publish-manifest:
     name: publish multi-platform image manifest
