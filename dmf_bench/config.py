@@ -126,9 +126,29 @@ def resolve_config(
             data,
             registry_path=dataset_registry_path,
         )
+    _resolve_relative_resource_paths(data, source_path=source_path)
     validate_config(data, source_path=source_path)
     data["source_path"] = str(source_path)
     return ResolvedConfig(source_path=source_path, data=data)
+
+
+def _resolve_relative_resource_paths(
+    data: dict[str, Any],
+    *,
+    source_path: Path,
+) -> None:
+    """Make exported configuration bundles portable inside their mounted directory."""
+
+    for section_name in ("framework_config", "dataset"):
+        section = data.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        raw_path = section.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        path = Path(raw_path)
+        if not path.is_absolute():
+            section["path"] = str((source_path.parent / path).resolve())
 
 
 def validate_config(data: dict[str, Any], *, source_path: Path) -> None:

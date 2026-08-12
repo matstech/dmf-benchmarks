@@ -95,6 +95,7 @@ def test_publish_image_workflow_publishes_only_on_main_or_tag() -> None:
         "prepare",
         "build-platform",
         "publish-manifest",
+        "publish-controller-package",
     }
     assert "docker login ghcr.io" in serialized
     assert "ubuntu-24.04-arm" in serialized
@@ -105,6 +106,11 @@ def test_publish_image_workflow_publishes_only_on_main_or_tag() -> None:
     assert "imagetools inspect --raw" in serialized
     assert "PUBLISH_LATEST=0" in serialized
     assert "merge-base --is-ancestor" in serialized
+    package_job = payload["jobs"]["publish-controller-package"]
+    assert package_job["if"] == "startsWith(github.ref, 'refs/tags/')"
+    assert package_job["permissions"] == {"contents": "write"}
+    assert "poetry build" in serialized
+    assert "gh release upload" in serialized
 
 
 def test_scheduled_integration_is_not_part_of_pr_fast_path() -> None:

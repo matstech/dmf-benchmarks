@@ -114,6 +114,23 @@ def test_validate_rejects_mutated_framework_config(tmp_path: Path) -> None:
         resolve_config(config_path)
 
 
+def test_validate_resolves_bundle_relative_resource_paths(tmp_path: Path) -> None:
+    config_path = write_valid_config(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["framework_config"]["path"] = "framework.toml"
+    config["dataset"]["path"] = "locomo-mini.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    resolved = resolve_config(config_path)
+
+    assert resolved.data["framework_config"]["path"] == str(
+        (tmp_path / "framework.toml").resolve()
+    )
+    assert resolved.data["dataset"]["path"] == str(
+        (tmp_path / "locomo-mini.json").resolve()
+    )
+
+
 def test_validate_rejects_paths_outside_runtime_root(tmp_path: Path) -> None:
     config_path = write_valid_config(tmp_path)
     config = json.loads(config_path.read_text(encoding="utf-8"))

@@ -44,18 +44,23 @@ and OCI publication of official run bundles.
 
 ## CLI quickstart
 
-User operations go through `dmf-benchctl`. It locates the repository Compose
-definition, starts the required services, translates known host paths to
-container paths, and invokes `dmf-bench` explicitly inside the locked image.
-Docker Compose is an implementation detail of the current orchestrator adapter.
+User operations go through `dmf-benchctl`. The installed package contains the
+Compose definition, observability assets, framework settings, and built-in
+experiment presets. It starts the required services and invokes `dmf-bench`
+inside the locked image. Cloning this repository is not required; Docker
+Compose remains an implementation detail of the current orchestrator adapter.
 
 Install the lightweight host controller in an isolated environment; Poetry is
 not required for user operations:
 
+Download the wheel attached to the matching GitHub release, then install it:
+
 ```bash
-pipx install .
+pipx install ./dmf_benchmarks-VERSION-py3-none-any.whl
 dmf-benchctl --help
 ```
+
+Repository contributors may instead use `pipx install --editable .`.
 
 The default install has no scientific runtime dependencies. Maintainers and the
 Docker image install the explicit `runtime` extra.
@@ -76,8 +81,8 @@ export OPENAI_API_KEY=your_openai_api_key_here
 export DMF_BENCH_IMAGE=ghcr.io/ORG/dmf-benchmarks:TAG
 ```
 
-The controller reads provider credentials from the shell or the repository
-`.env`, writes them to a private ephemeral file for the duration of the job,
+The controller reads provider credentials from the shell or `.env` in the
+current operator workspace, writes them to a private ephemeral file for the duration of the job,
 and mounts that file read-only. The key is not placed in Compose service
 environment metadata or command arguments.
 
@@ -149,6 +154,29 @@ the internal checkpoint term `units` is not part of this user-facing format.
 The checked-in `smoke/` directory contains ready-to-use restricted configs for
 LoCoMo and LongMemEval across DMF and Mem0. They are substantial smoke checks,
 not paper-scale reproduction configs.
+
+Built-in presets can also be copied into an editable, portable bundle:
+
+```bash
+dmf-benchctl config list
+dmf-benchctl config export locomo-mem0 ./my-locomo-mem0
+```
+
+The export contains `experiment.json` and the referenced DMF TOML or Mem0 YAML
+settings file. Edit either file, then prepare it from any directory:
+
+```bash
+dmf-benchctl --image "$DMF_BENCH_IMAGE" prepare \
+  --config ./my-locomo-mem0/experiment.json \
+  --allow-downloads \
+  --observability
+dmf-benchctl run --prepared
+```
+
+Relative resource paths are resolved inside the exported directory. Before
+validation, the controller refreshes checksums for editable local framework or
+dataset files; `prepare` then locks the resulting experiment checksum. Later
+changes are rejected before execution.
 
 ## Configuration model
 

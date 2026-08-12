@@ -13,6 +13,7 @@ from pathlib import Path
 from .orchestrators import DockerComposeOrchestrator
 from .orchestrators.base import CommandRunner
 from .orchestrators.docker_compose import run_command
+from .presets import export_preset, pin_operator_config, preset_catalog
 from .preparation import (
     DEFAULT_PREPARATION_PATH,
     SMOKE_CONFIG_PATHS,
@@ -29,6 +30,7 @@ from .preparation import (
     verify_preparation_inputs,
     write_preparation_state,
 )
+from .resources import resolve_runtime_layout
 
 
 CORE_SERVICES = ("qdrant", "artifact-api")
@@ -51,23 +53,6 @@ PHASE_LABELS = {
     "INTERRUPTING": "Stopping at a safe boundary",
     "INTERRUPTED": "Interrupted",
 }
-
-
-def _project_dir(value: str | None) -> Path:
-    if value:
-        candidate = Path(value).expanduser().resolve()
-        if not (candidate / "deploy" / "compose.yaml").is_file():
-            raise ValueError(
-                f"project directory does not contain deploy/compose.yaml: {candidate}"
-            )
-        return candidate
-
-    for candidate in (Path.cwd(), *Path.cwd().parents):
-        if (candidate / "deploy" / "compose.yaml").is_file():
-            return candidate.resolve()
-    raise ValueError(
-        "cannot locate deploy/compose.yaml; run from the repository or use --project-dir"
-    )
 
 
 def _resolve_file(project_dir: Path, value: str) -> Path:
@@ -325,7 +310,8 @@ def _launch_background_worker(
 
 
 def _runtime_path(
-    project_dir: Path,
+    runtime_dir: Path,
+    workspace_dir: Path,
     value: str,
 ) -> tuple[str, tuple[str, ...], tuple[Path, ...]]:
     """Map a host config path to its stable path in the benchmark container."""
@@ -333,18 +319,18 @@ def _runtime_path(
     if value == "/bench" or value.startswith("/bench/"):
         return value, (), ()
 
-    host_path = _resolve_file(project_dir, value)
+    host_path = _resolve_file(workspace_dir, value)
     if not host_path.is_file():
         raise ValueError(f"configuration file does not exist: {host_path}")
 
     mappings = (
-        (project_dir / "config", Path("/bench/config"), None),
+        (runtime_dir / "config", Path("/bench/config"), None),
         (
-            project_dir / "smoke",
+            runtime_dir / "smoke",
             Path("/bench/smoke"),
-            project_dir / "smoke" / "compose.yaml",
+            runtime_dir / "smoke" / "compose.yaml",
         ),
-        (project_dir / "datasets", Path("/bench/datasets"), None),
+        (runtime_dir / "datasets", Path("/bench/datasets"), None),
     )
     for host_root, container_root, override in mappings:
         try:
@@ -355,7 +341,7 @@ def _runtime_path(
         return str(container_root / relative), (), overrides
 
     container_path = Path("/bench/operator") / host_path.name
-    volume = f"{host_path}:{container_path}:ro"
+    volume = f"{host_path.parent}:/bench/operator:ro"
     return str(container_path), (volume,), ()
 
 
@@ -368,7 +354,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--project-dir",
-        help="Repository directory containing deploy/compose.yaml (auto-detected by default).",
+        help="Source checkout containing runtime assets; intended for development overrides.",
+    )
+    parser.add_argument(
+        "--work-dir",
+        help="Writable operator workspace; defaults to the checkout or current directory.",
     )
     parser.add_argument(
         "--compose-override",
@@ -398,7 +388,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("config", help="Validate the orchestrator configuration.")
+    config_parser = commands.add_parser(
+        "config",
+        help="Inspect, export, or validate controller configuration.",
+    )
+    config_commands = config_parser.add_subparsers(dest="config_command")
+    config_commands.add_parser("list", help="List built-in experiment presets.")
+    config_export = config_commands.add_parser(
+        "export",
+        help="Export an editable copy of a built-in preset.",
+    )
+    config_export.add_argument("preset", help="Preset name shown by config list.")
+    config_export.add_argument("output_dir", help="Directory receiving experiment.json and settings.")
+    config_export.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace generated files if they already exist.",
+    )
 
     prepare_parser = commands.add_parser(
         "prepare",
@@ -559,21 +565,22 @@ def build_parser() -> argparse.ArgumentParser:
 def _orchestrator(
     args: argparse.Namespace,
     *,
-    project_dir: Path,
+    runtime_dir: Path,
+    workspace_dir: Path,
     extra_compose_files: Sequence[Path] = (),
     environment_overrides: dict[str, str] | None = None,
     runner: CommandRunner,
 ) -> DockerComposeOrchestrator:
-    compose_files = [project_dir / "deploy" / "compose.yaml"]
+    compose_files = [runtime_dir / "deploy" / "compose.yaml"]
     compose_files.extend(
-        _resolve_file(project_dir, value) for value in args.compose_override
+        _resolve_file(workspace_dir, value) for value in args.compose_override
     )
     compose_files.extend(extra_compose_files)
     for compose_file in compose_files:
         if not compose_file.is_file():
             raise ValueError(f"Compose file does not exist: {compose_file}")
 
-    environment = _credential_environment(project_dir)
+    environment = _credential_environment(workspace_dir)
     if args.image:
         environment["DMF_BENCH_IMAGE"] = args.image
     if getattr(args, "allow_downloads", False):
@@ -582,7 +589,7 @@ def _orchestrator(
         environment.update(environment_overrides)
 
     return DockerComposeOrchestrator(
-        project_dir=project_dir,
+        project_dir=workspace_dir,
         compose_files=_deduplicate(compose_files),
         environment=environment,
         runner=runner,
@@ -605,7 +612,10 @@ def main(
     args = parser.parse_args(original_argv)
 
     try:
-        project_dir = _project_dir(args.project_dir)
+        layout = resolve_runtime_layout(args.project_dir, args.work_dir)
+        runtime_dir = layout.runtime_dir
+        project_dir = layout.workspace_dir
+        project_dir.mkdir(parents=True, exist_ok=True)
         prepared_state: dict[str, object] | None = None
         prepared_path: Path | None = None
         if args.command in {"run", "resume"} and args.prepared:
@@ -631,7 +641,13 @@ def main(
         volumes: tuple[str, ...] = ()
         automatic_overrides: tuple[Path, ...] = ()
         if isinstance(getattr(args, "config", None), str):
+            if not args.config.startswith("/bench/"):
+                pin_operator_config(
+                    _resolve_file(project_dir, args.config),
+                    runtime_dir=runtime_dir,
+                )
             config_path, volumes, automatic_overrides = _runtime_path(
+                runtime_dir,
                 project_dir,
                 args.config,
             )
@@ -642,6 +658,7 @@ def main(
             override_paths: list[Path] = []
             for entry in prepared_entries:
                 _, _, entry_overrides = _runtime_path(
+                    runtime_dir,
                     project_dir,
                     str(entry["host_path"]),
                 )
@@ -658,7 +675,8 @@ def main(
             }
         orchestrator = _orchestrator(
             args,
-            project_dir=project_dir,
+            runtime_dir=runtime_dir,
+            workspace_dir=project_dir,
             extra_compose_files=automatic_overrides,
             environment_overrides=environment_overrides,
             runner=runner,
@@ -696,6 +714,28 @@ def main(
                 run_ids=run_ids,
                 image_ref=image_ref,
             )
+        if args.command == "config" and args.config_command == "list":
+            print(json.dumps({"presets": preset_catalog()}, indent=2, sort_keys=True))
+            return 0
+        if args.command == "config" and args.config_command == "export":
+            experiment_path, framework_path = export_preset(
+                runtime_dir=runtime_dir,
+                preset_name=args.preset,
+                output_dir=_resolve_file(project_dir, args.output_dir),
+                force=bool(args.force),
+            )
+            print(
+                json.dumps(
+                    {
+                        "preset": args.preset,
+                        "experiment": str(experiment_path),
+                        "framework_config": str(framework_path),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
         if args.command == "config":
             return orchestrator.validate_config()
         if args.command == "prepare":
@@ -712,10 +752,17 @@ def main(
                 if args.suite == "smoke"
                 else list(args.config or ())
             )
-            host_configs = [_resolve_file(project_dir, value) for value in config_values]
+            host_configs = [
+                (runtime_dir / value).resolve()
+                if args.suite == "smoke"
+                else _resolve_file(project_dir, value)
+                for value in config_values
+            ]
             missing = [str(path) for path in host_configs if not path.is_file()]
             if missing:
                 raise ValueError(f"configuration file does not exist: {missing[0]}")
+            for host_config in host_configs:
+                pin_operator_config(host_config, runtime_dir=runtime_dir)
             experiments = load_experiment_metadata(host_configs)
             require_provider_credentials(experiments, local_environment)
 
@@ -741,12 +788,13 @@ def main(
             prepare_overrides: list[Path] = []
             for host_config in host_configs:
                 _, _, config_overrides = _runtime_path(
-                    project_dir, str(host_config)
+                    runtime_dir, project_dir, str(host_config)
                 )
                 prepare_overrides.extend(config_overrides)
             pinned_orchestrator = _orchestrator(
                 args,
-                project_dir=project_dir,
+                runtime_dir=runtime_dir,
+                workspace_dir=project_dir,
                 extra_compose_files=_deduplicate(prepare_overrides),
                 environment_overrides={
                     "DMF_BENCH_IMAGE": image["resolved_ref"],
@@ -763,7 +811,7 @@ def main(
                 return 1
             for host_config in host_configs:
                 runtime_config, config_volumes, _ = _runtime_path(
-                    project_dir, str(host_config)
+                    runtime_dir, project_dir, str(host_config)
                 )
                 result = pinned_orchestrator.run_runtime(
                     ["validate", "--config", runtime_config, "--materialize-datasets"],
@@ -819,6 +867,7 @@ def main(
                         return result
                 for entry in prepared_entries:
                     runtime_config, entry_volumes, _ = _runtime_path(
+                        runtime_dir,
                         project_dir,
                         str(entry["host_path"]),
                     )

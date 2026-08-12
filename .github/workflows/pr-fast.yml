@@ -36,6 +36,25 @@ jobs:
       - name: Package metadata check
         run: poetry check
 
+      - name: Build standalone controller package
+        run: poetry build
+
+      - name: Exercise installed controller outside checkout
+        run: |
+          package_tmp="$(mktemp -d)"
+          python3 -m venv "$package_tmp/venv"
+          "$package_tmp/venv/bin/pip" install --no-deps dist/*.whl
+          cd "$package_tmp"
+          "$package_tmp/venv/bin/dmf-benchctl" config list
+          "$package_tmp/venv/bin/dmf-benchctl" config export locomo-mem0 ./exported
+          "$package_tmp/venv/bin/dmf-benchctl" \
+            --image example.invalid/dmf-benchmarks:test --dry-run stack status
+          "$package_tmp/venv/bin/dmf-benchctl" \
+            --image example.invalid/dmf-benchmarks:test --dry-run \
+            validate --config ./exported/experiment.json
+          test -f exported/experiment.json
+          test -f exported/mem0-settings.yaml
+
       - name: Compile package
         run: poetry run python -m compileall dmf_bench dmf_benchctl -q
 

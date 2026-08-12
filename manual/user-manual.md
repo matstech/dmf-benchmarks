@@ -42,14 +42,18 @@ host file is deleted when the job command finishes.
 
 # 3. Prerequisites
 
-You need Docker with the Compose plugin, Python 3.12 or newer, the repository files, and the `dmf-benchctl` command installed from this project.
+You need Docker with the Compose plugin, Python 3.12 or newer, and the
+`dmf-benchctl` package. You do not need to download or clone the GitHub
+repository: the installed package contains its orchestration files,
+observability definitions, and built-in configurations.
 
-From the repository root, install the lightweight controller with `pipx`:
+Download the `dmf_benchmarks-VERSION-py3-none-any.whl` file attached to the
+matching GitHub release, then install the lightweight controller with `pipx`:
 
 ```text
 python3 -m pip install --user pipx
 python3 -m pipx ensurepath
-pipx install .
+pipx install ./dmf_benchmarks-VERSION-py3-none-any.whl
 ```
 
 Open a new shell if `ensurepath` requests it. The `dmf-benchctl` executable is
@@ -57,7 +61,8 @@ then available directly: user commands do not need a `poetry run` prefix. This
 default installation does not install DMF, Mem0, OpenAI, embedding models, or
 the scientific runtime dependencies because those belong to the Docker image.
 
-For editable controller development, use `pipx install --editable .`. Repository
+For controller development from a source checkout, use
+`pipx install --editable .`. Repository
 maintainers who run Python unit tests should instead install the `runtime` extra
 through the documented Makefile/Poetry workflow.
 
@@ -80,7 +85,8 @@ Silicon Mac, verify that the pulled image reports `linux/arm64` before recording
 official timing measurements; an emulated `linux/amd64` image can produce
 misleading timings.
 
-Create a local `.env` file in the repository root:
+Create a local `.env` file in the directory from which you operate the
+benchmarks:
 
 ```dotenv
 DMF_BENCH_IMAGE=ghcr.io/ORG/IMAGE:TAG
@@ -104,6 +110,13 @@ DMF_BENCH_THREADS=6
 ```
 
 Use identical limits for every framework in a timing comparison.
+
+All writable controller state belongs to this operator directory: `.env`,
+`.dmf-bench/prepared.json`, detached-job receipts, and local logs. Immutable
+Compose and dashboard resources continue to come from the installed package.
+`--work-dir PATH` selects another operator directory. `--project-dir PATH` is
+reserved for developers who deliberately want to replace packaged resources
+with those from a source checkout.
 
 # 4. Configuration
 
@@ -134,6 +147,48 @@ The most important rule is separation of responsibilities:
 - Environment variables provide secrets and deployment endpoints.
 - Run artifacts record what actually happened.
 
+## Built-in presets and editable bundles
+
+The package provides four starting presets:
+
+- `locomo-dmf`
+- `locomo-mem0`
+- `longmemeval-dmf`
+- `longmemeval-mem0`
+
+List them with descriptions:
+
+```text
+dmf-benchctl config list
+```
+
+To customize one, export a private copy instead of editing installed files:
+
+```text
+dmf-benchctl config export locomo-mem0 ./my-locomo-mem0
+```
+
+The target directory contains:
+
+```text
+my-locomo-mem0/
+|-- experiment.json
+`-- mem0-settings.yaml
+```
+
+A DMF preset contains `dmf-settings.toml` instead. The framework settings path
+inside `experiment.json` is relative to the bundle, making the directory
+portable. The user may change the model roles, sampling, selection, runtime
+policy, or the framework-specific settings. Provider keys must still remain in
+the environment or `.env`.
+
+When an external bundle is validated, prepared, or run, `dmf-benchctl`
+recalculates the SHA-256 declaration of an edited local framework settings file
+and, when present, an edited local dataset. `prepare` then records the final
+`experiment.json` hash. Any change after preparation is rejected before the
+run starts. This automatic update is convenience before the reproducibility
+boundary; it does not permit mutation of an already prepared official run.
+
 Do not put provider API keys in the JSON config. For example, `models.answerer.provider` may be `openai`, but the actual key must come from `OPENAI_API_KEY`. Similarly, `qdrant.endpoint_env` normally contains the string `QDRANT_URL`; the actual URL is read from that environment variable at runtime.
 
 ## Path rules
@@ -148,7 +203,13 @@ When running inside the official Docker image, paths normally live under `/bench
 
 Paths used by the benchmark must be absolute inside the runtime environment and must stay under `runtime.root`, normally `/bench`. This prevents a config from accidentally reading or writing unrelated host files.
 
-In commands, `dmf-benchctl` accepts either a host path or an existing `/bench/...` path for the experiment config. Repository paths under `config/` and `smoke/` are translated automatically. A config elsewhere is mounted read-only at `/bench/operator/<filename>`. Paths written inside the JSON still describe the container runtime and therefore normally remain under `/bench`.
+In commands, `dmf-benchctl` accepts either a host path or an existing
+`/bench/...` path for the experiment config. Built-in package paths are
+translated automatically. An external configuration directory is mounted
+read-only at `/bench/operator`, so `experiment.json` can refer to adjacent
+framework or dataset files by relative path. Absolute paths written inside the
+JSON still describe the container runtime and therefore normally remain under
+`/bench`.
 
 For example:
 
@@ -478,6 +539,13 @@ Show the controller commands:
 dmf-benchctl --help
 ```
 
+List and export built-in configurations:
+
+```text
+dmf-benchctl config list
+dmf-benchctl config export locomo-mem0 ./my-locomo-mem0
+```
+
 List benchmarks and frameworks:
 
 ```text
@@ -512,8 +580,8 @@ dmf-benchctl --image ghcr.io/ORG/dmf-benchmarks:TAG prepare \
   --observability
 ```
 
-For the four checked-in sampled smoke experiments, replace the repeated
-`--config` options with `--suite smoke`.
+For the four packaged sampled smoke experiments, replace the repeated
+`--config` options with `--suite smoke`. No repository checkout is required.
 
 `prepare` performs the deterministic operational checks as one transaction:
 
@@ -847,22 +915,26 @@ A real push requires `oras` installed and authenticated to GHCR. A dry run does 
 
 # 15. Ready-To-Use Example
 
-The `smoke/` directory contains ready-to-use configurations for a restricted but substantial check:
+The installed package contains ready-to-use configurations for a restricted
+but substantial smoke check:
 
 - LoCoMo with DMF: `smoke/config/experiment-locomo-dmf.json`
 - LoCoMo with Mem0: `smoke/config/experiment-locomo-mem0.json`
 - LongMemEval with DMF: `smoke/config/experiment-longmemeval-dmf.json`
 - LongMemEval with Mem0: `smoke/config/experiment-longmemeval-mem0.json`
 
-Run a ready config directly from the repository root:
+Prepare and run the complete built-in suite from any operator directory:
 
 ```text
-dmf-benchctl run \
-  --config smoke/config/experiment-locomo-dmf.json \
-  --run-id smoke-20260809-locomo-dmf
+dmf-benchctl --image "$DMF_BENCH_IMAGE" prepare \
+  --suite smoke \
+  --allow-downloads \
+  --observability
+dmf-benchctl run --prepared
 ```
 
-The controller detects the `smoke/` path and automatically adds the required read-only mount. No orchestrator-specific option is needed.
+To run only one starting configuration, export its preset, inspect or edit the
+copy, and pass its `experiment.json` to `prepare --config`.
 
 This is only an operational example. For a real experiment, create a dedicated configuration and treat dataset, selection, models, and costs as explicit decisions.
 
@@ -888,10 +960,10 @@ This is only an operational example. For a real experiment, create a dedicated c
 
 # 17. Operator Or Agent Checklist
 
-1. Install `dmf-benchctl` with `pipx`; do not prepend user commands with Poetry.
+1. Install `dmf-benchctl` with `pipx`; neither Poetry nor a repository clone is required.
 2. Prepare `.env` without committing secrets.
-3. Prepare or choose the JSON configs.
-4. Run `dmf-benchctl --image IMAGE prepare --config CONFIG ...`; use `--suite smoke` for the checked-in sampled suite.
+3. Choose a built-in suite or export and edit a preset with `config export`.
+4. Run `dmf-benchctl --image IMAGE prepare --config CONFIG ...`; use `--suite smoke` for the packaged sampled suite.
 5. Review `.dmf-bench/prepared.json`, especially image digest, platform, model names, run IDs, and config list.
 6. Launch the batch with `dmf-benchctl run --prepared`; paid provider calls start here.
 7. Check each exit code and `COMPLETED` state.

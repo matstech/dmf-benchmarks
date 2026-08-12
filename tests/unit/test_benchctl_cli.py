@@ -685,7 +685,7 @@ def test_external_config_is_mounted_read_only() -> None:
         "/bench/operator/experiment-valid.json",
     ]
     assert "--volume" in command
-    assert f"{config}:/bench/operator/experiment-valid.json:ro" in command
+    assert f"{config.parent}:/bench/operator:ro" in command
 
 
 def test_read_only_run_commands_use_shared_volume_without_starting_services() -> None:
