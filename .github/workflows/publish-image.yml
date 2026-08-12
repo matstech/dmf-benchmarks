@@ -147,3 +147,44 @@ jobs:
 
       - name: Report published image
         run: echo "Published multi-platform image $IMAGE_REF"
+
+  publish-controller-package:
+    name: publish standalone controller package
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    needs:
+      - prepare
+      - publish-manifest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact release tag
+        run: |
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          git checkout --detach "$GITHUB_SHA"
+
+      - name: Install Poetry
+        run: python3 -m pip install "poetry==2.3.2"
+
+      - name: Require package version to match tag
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          observed="$(poetry version -s)"
+          test "$observed" = "$expected" || {
+            echo "Package version $observed does not match tag $GITHUB_REF_NAME."
+            exit 1
+          }
+
+      - name: Build wheel and source package
+        run: poetry build
+
+      - name: Publish package files on the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/*.whl dist/*.tar.gz --clobber

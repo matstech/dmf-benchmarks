@@ -28,6 +28,20 @@ dmf-benchctl = "dmf_benchctl.cli:main"
 package-mode = true
 include = [
     { path = "dmf_bench/static/index.html", format = ["sdist", "wheel"] },
+    { path = "deploy/compose.yaml", format = ["sdist", "wheel"] },
+    { path = "deploy/grafana", format = ["sdist", "wheel"] },
+    { path = "deploy/prometheus", format = ["sdist", "wheel"] },
+    { path = "config/locomo_dmf_qdrant_settings.toml", format = ["sdist", "wheel"] },
+    { path = "config/locomo_mem0_qdrant_settings.yaml", format = ["sdist", "wheel"] },
+    { path = "config/longmemeval_dmf_qdrant_settings.toml", format = ["sdist", "wheel"] },
+    { path = "config/longmemeval_mem0_qdrant_settings.yaml", format = ["sdist", "wheel"] },
+    { path = "datasets/locomo/locomo-mini.json", format = ["sdist", "wheel"] },
+    { path = "datasets/longmemeval/longmemeval-mini.json", format = ["sdist", "wheel"] },
+    { path = "smoke/config/experiment-locomo-dmf.json", format = ["sdist", "wheel"] },
+    { path = "smoke/config/experiment-locomo-mem0.json", format = ["sdist", "wheel"] },
+    { path = "smoke/config/experiment-longmemeval-dmf.json", format = ["sdist", "wheel"] },
+    { path = "smoke/config/experiment-longmemeval-mem0.json", format = ["sdist", "wheel"] },
+    { path = "smoke/compose.yaml", format = ["sdist", "wheel"] },
 ]
 packages = [
     { include = "dmf_bench" },

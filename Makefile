@@ -39,7 +39,7 @@ CANARY_CONFIRM ?=
 
 .PHONY: \
 	help require-% \
-	install check compile test test-unit test-integration \
+	install check compile test test-unit test-integration package-build package-smoke \
 	docs-build \
 	compose-config prometheus-check stack-up stack-down \
 	image-build image-build-ghcr image-inspect image-smoke image-push image-buildx-push image-manifest-create ghcr-login \
@@ -52,7 +52,9 @@ help:
 	@printf "  make install                         Install Poetry dependencies\n"
 	@printf "  make check                           poetry check + compile + unit tests\n"
 	@printf "  make test                            Run unit tests\n"
-	@printf "  make test-integration                Run integration tests against local stack\n\n"
+	@printf "  make test-integration                Run integration tests against local stack\n"
+	@printf "  make package-build                   Build the standalone controller wheel/sdist\n"
+	@printf "  make package-smoke                   Test the wheel outside the repository\n\n"
 	@printf "Documentation:\n"
 	@printf "  make docs-build                      Rebuild the PDF user manual\n\n"
 	@printf "Container and observability checks:\n"
@@ -96,6 +98,21 @@ check:
 	$(POETRY) check
 	$(MAKE) compile
 	$(MAKE) test-unit
+
+package-build:
+	$(POETRY) build
+
+package-smoke: package-build
+	package_tmp="$$(mktemp -d)"; \
+	$(PYTHON) -m venv "$$package_tmp/venv"; \
+	"$$package_tmp/venv/bin/pip" install --no-deps dist/*.whl; \
+	cd "$$package_tmp"; \
+	"$$package_tmp/venv/bin/dmf-benchctl" config list; \
+	"$$package_tmp/venv/bin/dmf-benchctl" config export locomo-mem0 ./exported; \
+	"$$package_tmp/venv/bin/dmf-benchctl" --image example.invalid/dmf-benchmarks:test --dry-run stack status; \
+	"$$package_tmp/venv/bin/dmf-benchctl" --image example.invalid/dmf-benchmarks:test --dry-run validate --config ./exported/experiment.json; \
+	test -f exported/experiment.json; \
+	test -f exported/mem0-settings.yaml
 
 docs-build:
 	$(PANDOC) manual/user-manual.md --pdf-engine=xelatex --output manual/user-manual.pdf
