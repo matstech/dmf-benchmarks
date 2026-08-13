@@ -177,6 +177,7 @@ def inspect_dataset_registry(
 def load_experiment_metadata(config_paths: Sequence[Path]) -> list[dict[str, Any]]:
     metadata: list[dict[str, Any]] = []
     datasets_by_benchmark: dict[str, dict[str, Any]] = {}
+    paths_by_combination: dict[tuple[str, str], Path] = {}
     for path in config_paths:
         try:
             config = json.loads(path.read_text(encoding="utf-8"))
@@ -186,6 +187,15 @@ def load_experiment_metadata(config_paths: Sequence[Path]) -> list[dict[str, Any
             raise ValueError(f"experiment config must contain a JSON object: {path}")
         benchmark = _required_string(config, "benchmark", path)
         framework = _required_string(config, "framework", path)
+        combination = (benchmark, framework)
+        previous_path = paths_by_combination.get(combination)
+        if previous_path is not None:
+            raise ValueError(
+                "prepared batches accept one config per benchmark/framework; "
+                f"duplicate {benchmark}/{framework} configs: "
+                f"{previous_path} and {path}"
+            )
+        paths_by_combination[combination] = path
         dataset = config.get("dataset")
         if not isinstance(dataset, dict):
             raise ValueError(f"experiment config has no dataset object: {path}")
@@ -196,7 +206,10 @@ def load_experiment_metadata(config_paths: Sequence[Path]) -> list[dict[str, Any
                 "the same dataset and sampling policy"
             )
         requested_models = _requested_models(config)
-        run_suffix = path.stem.removeprefix("experiment-")
+        # Config exports intentionally use the portable filename
+        # ``experiment.json``. Run identity must therefore come from the
+        # scientific matrix, never from the host filename.
+        run_suffix = f"{benchmark}-{framework}"
         metadata.append(
             {
                 "host_path": str(path.resolve()),
@@ -286,9 +299,14 @@ def build_preparation_state(
 ) -> dict[str, Any]:
     prepared_at = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
     prepared_experiments = []
+    run_ids: set[str] = set()
     for experiment in experiments:
         item = dict(experiment)
-        item["run_id"] = f"{batch_id}-{experiment['run_suffix']}"
+        run_id = f"{batch_id}-{experiment['run_suffix']}"
+        if run_id in run_ids:
+            raise ValueError(f"prepared batch would generate duplicate run_id: {run_id}")
+        run_ids.add(run_id)
+        item["run_id"] = run_id
         prepared_experiments.append(item)
     return {
         "schema_version": PREPARATION_SCHEMA_VERSION,

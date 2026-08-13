@@ -11,7 +11,11 @@ from pathlib import Path
 import pytest
 
 from dmf_benchctl.cli import _operator_status, _print_operator_status, main
-from dmf_benchctl.preparation import CommandOutput
+from dmf_benchctl.preparation import (
+    CommandOutput,
+    build_preparation_state,
+    load_experiment_metadata,
+)
 from dmf_benchctl.orchestrators.docker_compose import DockerComposeOrchestrator
 
 
@@ -105,6 +109,86 @@ class RecordingOutputRunner:
             stdout=json.dumps({"OSType": "linux", "Architecture": "aarch64"}),
             stderr="",
         )
+
+
+def _write_exported_experiment(
+    path: Path,
+    *,
+    experiment_id: str,
+    framework: str,
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "experiment_id": experiment_id,
+                "benchmark": "locomo",
+                "framework": framework,
+                "dataset": {
+                    "name": "locomo",
+                    "registry_id": "locomo-official-v1",
+                    "sampling": {
+                        "fraction": 0.05,
+                        "unit": "conversation",
+                        "seed": 7,
+                        "rounding": "ceil",
+                    },
+                },
+                "models": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_exported_generic_filenames_generate_distinct_matrix_run_ids(
+    tmp_path: Path,
+) -> None:
+    mem0 = _write_exported_experiment(
+        tmp_path / "locomo-mem0" / "experiment.json",
+        experiment_id="custom-locomo-mem0",
+        framework="mem0",
+    )
+    dmf = _write_exported_experiment(
+        tmp_path / "locomo-dmf" / "experiment.json",
+        experiment_id="custom-locomo-dmf",
+        framework="dmf",
+    )
+
+    metadata = load_experiment_metadata([mem0, dmf])
+    state = build_preparation_state(
+        project_dir=tmp_path,
+        image={"resolved_ref": "example@sha256:abc"},
+        experiments=metadata,
+        batch_id="20260813T053827Z",
+        observability=True,
+        allow_downloads=True,
+    )
+
+    assert [item["run_id"] for item in state["experiments"]] == [
+        "20260813T053827Z-locomo-mem0",
+        "20260813T053827Z-locomo-dmf",
+    ]
+def test_preparation_rejects_duplicate_benchmark_framework_configs(
+    tmp_path: Path,
+) -> None:
+    first = _write_exported_experiment(
+        tmp_path / "first" / "experiment.json",
+        experiment_id="first-locomo-mem0",
+        framework="mem0",
+    )
+    second = _write_exported_experiment(
+        tmp_path / "second" / "experiment.json",
+        experiment_id="second-locomo-mem0",
+        framework="mem0",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="one config per benchmark/framework; duplicate locomo/mem0",
+    ):
+        load_experiment_metadata([first, second])
 
 
 def test_quiet_runtime_redirects_stdout_and_stderr_to_local_log(
