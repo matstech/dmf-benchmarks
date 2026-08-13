@@ -13,11 +13,11 @@ The configs declare deterministic dataset materialization (seed 7). During
 writes the materialized file under `/bench/cache/datasets/...`, and generates
 `manifest.json` next to it.
 
-- LoCoMo samples 5% of the complete conversation population, rounded up. Since
+- LoCoMo samples 0.5% of the complete conversation population, rounded up. Since
   the official dataset contains 10 conversations, the smoke sample contains
   one complete conversation and all of its QA items. Both ingestion and
   answering therefore operate only on the materialized sample.
-- LongMemEval samples 5% of the 500 real records, rounded up: 25 records.
+- LongMemEval samples 0.5% of the 500 real records, rounded up: 3 records.
   Each selected record includes the complete memory and question used by both
   ingestion and answering.
 

@@ -6,7 +6,6 @@ POETRY ?= poetry
 DOCKER ?= docker
 GH ?= gh
 ORAS ?= oras
-PANDOC ?= pandoc
 
 VERSION := $(shell $(POETRY) version -s 2>/dev/null || printf "0.0.0")
 GIT_SHA := $(shell git rev-parse HEAD 2>/dev/null || printf "unknown")
@@ -40,7 +39,6 @@ CANARY_CONFIRM ?=
 .PHONY: \
 	help require-% \
 	install check compile test test-unit test-integration package-build package-smoke \
-	docs-build \
 	compose-config prometheus-check stack-up stack-down \
 	image-build image-build-ghcr image-inspect image-smoke image-push image-buildx-push image-manifest-create ghcr-login \
 	run-oci-dry-run run-oci-push \
@@ -55,8 +53,6 @@ help:
 	@printf "  make test-integration                Run integration tests against local stack\n"
 	@printf "  make package-build                   Build the standalone controller wheel/sdist\n"
 	@printf "  make package-smoke                   Test the wheel outside the repository\n\n"
-	@printf "Documentation:\n"
-	@printf "  make docs-build                      Rebuild the PDF user manual\n\n"
 	@printf "Container and observability checks:\n"
 	@printf "  make compose-config                  Validate deploy compose config\n"
 	@printf "  make prometheus-check                Validate Prometheus config with promtool\n"
@@ -113,9 +109,6 @@ package-smoke: package-build
 	"$$package_tmp/venv/bin/dmf-benchctl" --image example.invalid/dmf-benchmarks:test --dry-run validate --config ./exported/experiment.json; \
 	test -f exported/experiment.json; \
 	test -f exported/mem0-settings.yaml
-
-docs-build:
-	$(PANDOC) manual/user-manual.md --pdf-engine=xelatex --output manual/user-manual.pdf
 
 test-integration: stack-up
 	$(POETRY) run pytest tests/integration -q

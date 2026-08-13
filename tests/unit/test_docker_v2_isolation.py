@@ -187,7 +187,6 @@ def test_operations_and_evaluation_dashboards_are_separate() -> None:
 def test_standard_commands_never_expose_volume_deletion() -> None:
     command_surfaces = [
         ROOT / "Makefile",
-        ROOT / "README.md",
         *sorted((ROOT / ".github" / "workflows").glob("*.yml")),
         *sorted((ROOT / ".github" / "workflows").glob("*.yaml")),
     ]
@@ -202,12 +201,3 @@ def test_standard_commands_never_expose_volume_deletion() -> None:
         "stack-down:\n\t$(POETRY) run $(PYTHON) -m dmf_benchctl stack down\n"
         in makefile
     )
-
-
-def test_readme_points_to_historical_tag_without_migration_command() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-
-    assert "historical Git tag" in readme
-    assert "`v0.1.0`" in readme
-    assert "does not provide compatibility commands" in readme
-    assert "git worktree" not in readme

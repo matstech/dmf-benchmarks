@@ -30,7 +30,7 @@ PRESETS = {
             framework="dmf",
             experiment_path="smoke/config/experiment-locomo-dmf.json",
             framework_path="config/locomo_dmf_qdrant_settings.toml",
-            description="LoCoMo official 5% conversation sample with DMF",
+            description="LoCoMo official 0.5% conversation sample with DMF",
         ),
         Preset(
             name="locomo-mem0",
@@ -38,7 +38,7 @@ PRESETS = {
             framework="mem0",
             experiment_path="smoke/config/experiment-locomo-mem0.json",
             framework_path="config/locomo_mem0_qdrant_settings.yaml",
-            description="LoCoMo official 5% conversation sample with Mem0",
+            description="LoCoMo official 0.5% conversation sample with Mem0",
         ),
         Preset(
             name="longmemeval-dmf",
@@ -46,7 +46,7 @@ PRESETS = {
             framework="dmf",
             experiment_path="smoke/config/experiment-longmemeval-dmf.json",
             framework_path="config/longmemeval_dmf_qdrant_settings.toml",
-            description="LongMemEval official 5% record sample with DMF",
+            description="LongMemEval official 0.5% record sample with DMF",
         ),
         Preset(
             name="longmemeval-mem0",
@@ -54,7 +54,7 @@ PRESETS = {
             framework="mem0",
             experiment_path="smoke/config/experiment-longmemeval-mem0.json",
             framework_path="config/longmemeval_mem0_qdrant_settings.yaml",
-            description="LongMemEval official 5% record sample with Mem0",
+            description="LongMemEval official 0.5% record sample with Mem0",
         ),
     )
 }

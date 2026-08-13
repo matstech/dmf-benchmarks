@@ -35,7 +35,7 @@ def test_smoke_sampling_bounds_complete_ingestion_and_answering_records() -> Non
 
     locomo = by_benchmark["locomo"]
     assert locomo["dataset"]["sampling"] == {
-        "fraction": 0.05,
+        "fraction": 0.005,
         "unit": "conversation",
         "seed": 7,
         "rounding": "ceil",
@@ -44,14 +44,12 @@ def test_smoke_sampling_bounds_complete_ingestion_and_answering_records() -> Non
 
     longmemeval = by_benchmark["longmemeval"]
     assert longmemeval["dataset"]["sampling"] == {
-        "fraction": 0.05,
+        "fraction": 0.005,
         "unit": "record",
         "seed": 7,
         "rounding": "ceil",
     }
-    selected_ids = longmemeval["selection"]["ordered_item_ids"]
-    assert len(selected_ids) == 25
-    assert len(set(selected_ids)) == 25
+    assert longmemeval["selection"]["ordered_item_ids"] == ["*"]
 
 
 def test_smoke_judges_use_bounded_response_recovery() -> None:

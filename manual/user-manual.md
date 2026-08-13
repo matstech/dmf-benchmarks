@@ -1,195 +1,359 @@
----
-title: "DMF Benchmarks - user manual"
-subtitle: "Configuring experiments and operating dmf-benchctl"
-author: "DMF Benchmarks"
-date: "August 11, 2026"
-lang: en-US
-geometry: margin=2.2cm
-fontsize: 10.5pt
-colorlinks: true
-linkcolor: blue
-urlcolor: blue
----
+# DMF Benchmarks Operator Manual
 
-# 1. Purpose
+Complete guide to `dmf-benchctl`, experiment configuration, execution, and
+results.
 
-This manual explains how to configure and operate DMF Benchmarks: how to prepare a configuration, validate it, run a benchmark, read the results, and publish an official run bundle.
+# 1. Start Here
 
-The document is not tied to a single smoke dataset. Examples use concrete paths so they can be copied, but the flow is the same for LoCoMo, LongMemEval, DMF, and Mem0.
+This manual is the complete user reference for `dmf-benchctl`. It explains not
+only which commands exist, but when to use each command, what it changes, where
+its output goes, and how to recover when a run fails.
 
-The system has two command-line surfaces with separate responsibilities. Users operate `dmf-benchctl` on the host. The controller manages the current orchestrator and explicitly starts `dmf-bench` inside the benchmark image. `dmf-bench` remains the scientific runtime; it does not start infrastructure itself.
+Use this document in one of three ways:
 
-All benchmarks are native-only and run inside Docker. The old protocol concept no longer exists.
+1. Follow **First Reproducible Run** if this is your first execution.
+2. Follow **Custom Experiments** when changing models, datasets, sampling, or
+   memory-system settings.
+3. Use **Command Reference** and **Troubleshooting** while operating or
+   automating existing runs.
 
-# 2. Components
+All normal user operations go through `dmf-benchctl`. Do not invoke Docker
+Compose directly. The controller is the stable external interface; Docker
+Compose is only its current orchestration implementation.
 
-A standard execution uses these components:
+## What do you want to do?
 
-- `dmf-benchctl`: the host-side control plane used by operators and automation.
-- `benchmark`: the container that runs `dmf-bench`.
-- `qdrant`: the local vector database used by the frameworks.
-- `artifact-api`: a read-only API for reading runs and artifacts.
-- `/bench/config`: read-only mounted configurations.
-- `/bench/cache`: writable cache for materialized datasets, models, and temporary data.
-- `/bench/runs`: writable volume where results are published.
+| Goal | Command |
+|---|---|
+| See available starting configurations | `dmf-benchctl config list` |
+| Copy a configuration for editing | `dmf-benchctl config export PRESET DIR` |
+| Check one experiment config | `dmf-benchctl validate --config FILE` |
+| Lock image, config, dataset, and run IDs | `dmf-benchctl prepare ...` |
+| Start a run or prepared batch | `dmf-benchctl run ...` |
+| See progress | `dmf-benchctl status --run-id RUN_ID` |
+| Continue interrupted work | `dmf-benchctl resume --run-id RUN_ID` |
+| See run metadata and artifact inventory | `dmf-benchctl inspect --run-id RUN_ID` |
+| Verify committed artifact integrity | `dmf-benchctl verify --run-id RUN_ID` |
+| Recompute deterministic LoCoMo reports | `dmf-benchctl evaluate --run-id RUN_ID` |
+| Browse and download results | open `http://127.0.0.1:8000` |
+| Start or stop local services | `dmf-benchctl stack ...` |
+| Package or publish a completed run | `dmf-benchctl publish-run ...` |
 
-Provider keys must never be written into JSON files. Declare them in the host
-environment or repository `.env`, for example as `OPENAI_API_KEY`.
-`dmf-benchctl` copies each required value into a private ephemeral file and
-mounts it read-only for the benchmark process. The value is not included in
-Compose service environment metadata or command arguments, and the temporary
-host file is deleted when the job command finishes.
+The recommended reproducible path is:
 
-# 3. Prerequisites
+```text
+choose/export config -> prepare -> review prepared.json -> run -> status
+    -> inspect results -> verify -> optionally evaluate -> optionally publish
+```
 
-You need Docker with the Compose plugin, Python 3.12 or newer, and the
-`dmf-benchctl` package. You do not need to download or clone the GitHub
-repository: the installed package contains its orchestration files,
-observability definitions, and built-in configurations.
+`prepare` does not call the answerer or judge provider. Paid provider calls
+begin at `run`.
 
-Download the `dmf_benchmarks-VERSION-py3-none-any.whl` file attached to the
-matching GitHub release, then install the lightweight controller with `pipx`:
+# 2. Installation and Operator Workspace
+
+## Host requirements
+
+You need:
+
+- Docker with the Compose plugin;
+- Python 3.12 or newer for the lightweight controller;
+- access to the selected benchmark image;
+- provider credentials required by the selected models;
+- ORAS only when publishing a run OCI artifact.
+
+You do not need Poetry or a repository clone. The wheel contains the
+orchestration definition, dashboards, framework settings, dataset registry,
+and built-in experiment presets.
+
+## Install the controller
+
+Install a release wheel with `pipx`:
 
 ```text
 python3 -m pip install --user pipx
 python3 -m pipx ensurepath
 pipx install ./dmf_benchmarks-VERSION-py3-none-any.whl
+dmf-benchctl --help
 ```
 
-Open a new shell if `ensurepath` requests it. The `dmf-benchctl` executable is
-then available directly: user commands do not need a `poetry run` prefix. This
-default installation does not install DMF, Mem0, OpenAI, embedding models, or
-the scientific runtime dependencies because those belong to the Docker image.
-
-For pre-release testing, every push to `main` creates a temporary wheel in the
-**Publish benchmark distribution** GitHub Actions run. Its artifact is named
-`dmf-benchctl-<timestamp>-RC` and is retained for 14 days. Download it from the
-workflow run page, extract the archive, and install the `.whl` file with:
+Replace an installed version with another wheel:
 
 ```text
 pipx install --force ./dmf_benchmarks-VERSION-py3-none-any.whl
 ```
 
-The latest successful `main` artifact can also be downloaded with GitHub CLI:
+Every successful `main` image-publication workflow also stores an RC wheel for
+14 days. From a checkout of this repository, download the latest artifact with:
 
 ```text
-RUN_ID="$(gh run list --workflow publish-image.yml --branch main \
-  --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
-gh run download "$RUN_ID" --pattern 'dmf-benchctl-*-RC'
+RUN_ID="$(gh run list --repo matstech/dmf-benchmarks \
+  --workflow publish-image.yml --branch main --status success --limit 1 \
+  --json databaseId --jq '.[0].databaseId')"
+gh run download --repo matstech/dmf-benchmarks "$RUN_ID" \
+  --pattern 'dmf-benchctl-*-RC'
 pipx install --force dmf-benchctl-*-RC/*.whl
 ```
 
-RC artifacts are temporary. A tagged version is also attached permanently to
-the corresponding GitHub Release.
+Tagged releases retain their wheel permanently. RC workflow artifacts are
+temporary.
 
-For controller development from a source checkout, use
-`pipx install --editable .`. Repository
-maintainers who run Python unit tests should instead install the `runtime` extra
-through the documented Makefile/Poetry workflow.
+## Choose a workspace
 
-Then check the two required host surfaces:
+Run controller commands from a dedicated operator directory:
 
 ```text
-docker version
-dmf-benchctl --help
+mkdir my-benchmark-workspace
+cd my-benchmark-workspace
 ```
 
-If you use an image published to GHCR:
+The current directory is the default workspace. It contains user-owned state:
 
 ```text
-docker login ghcr.io
+.env
+.dmf-bench/
+|-- prepared.json
+|-- jobs/
+|-- logs/
+`-- secrets/       ephemeral files only
+my-locomo-dmf/
+|-- experiment.json
+`-- dmf-settings.toml
 ```
 
-Official RC and tagged image references contain both `linux/amd64` and
-`linux/arm64`. Docker selects the native variant automatically. On an Apple
-Silicon Mac, verify that the pulled image reports `linux/arm64` before recording
-official timing measurements; an emulated `linux/amd64` image can produce
-misleading timings.
+Use the global `--work-dir PATH` option to operate another directory without
+changing the shell directory. A prepared context belongs to its recorded
+workspace and is rejected from a different workspace.
 
-Create a local `.env` file in the directory from which you operate the
-benchmarks:
+`--project-dir PATH` has a different purpose: it tells the controller to use
+orchestration assets from a source checkout. Normal wheel users should not use
+it.
+
+## Configure image, secrets, and limits
+
+Create `.env` in the workspace:
 
 ```dotenv
-DMF_BENCH_IMAGE=ghcr.io/ORG/IMAGE:TAG
+DMF_BENCH_IMAGE=ghcr.io/ORG/dmf-benchmarks:TAG
 OPENAI_API_KEY=paste_the_key_here
 HF_HUB_OFFLINE=1
+DMF_BENCH_CPUS=4
+DMF_BENCH_THREADS=4
 ```
 
-`HF_HUB_OFFLINE=1` prevents implicit Hugging Face model downloads during an official run. If the cache does not already contain the required models, the run may fail; prepare the cache before the run.
+You may export the same variables instead. Exported shell variables take
+precedence over `.env`. The global `--image IMAGE` option takes precedence over
+`DMF_BENCH_IMAGE` for that command.
 
-No Qdrant API key is needed when Qdrant runs locally without authentication.
+Provider secrets must never be placed in experiment JSON, framework TOML/YAML,
+or command arguments. For `run` and `resume`, the controller writes each secret
+to a temporary private host file, mounts it read-only in the job, and deletes
+the file when that job command ends. Secrets are removed from the environment
+passed to Docker Compose.
 
-The `.env` file is read by `dmf-benchctl`. You can also export the same
-variables in the shell. Never commit the file.
+Supported provider credential variables currently include:
 
-The benchmark container defaults to four CPUs and four worker threads. For a
-different controlled limit, add values such as these to `.env`:
+- `OPENAI_API_KEY`;
+- `OPENROUTER_API_KEY`.
 
-```dotenv
-DMF_BENCH_CPUS=6
-DMF_BENCH_THREADS=6
+Optional endpoint and network variables passed to the runtime include
+`OPENAI_BASE_URL`, `OPENROUTER_BASE_URL`, `OLLAMA_BASE_URL`, `HTTP_PROXY`,
+`HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`.
+
+Local Qdrant does not require an API key.
+
+## Image platform
+
+Official image references contain native `linux/amd64` and `linux/arm64`
+variants. `prepare` verifies that the selected variant matches the Docker
+engine. Do not compare official timings from an emulated architecture.
+
+# 3. First Reproducible Run
+
+This tutorial executes the complete built-in smoke suite: LoCoMo and
+LongMemEval with both DMF and Mem0.
+
+## Step 1: confirm configuration and credentials
+
+```text
+dmf-benchctl config list
+dmf-benchctl stack status
 ```
 
-Use identical limits for every framework in a timing comparison.
+Ensure `.env` or the shell contains `DMF_BENCH_IMAGE` and `OPENAI_API_KEY`.
+The stack may be stopped at this point.
 
-All writable controller state belongs to this operator directory: `.env`,
-`.dmf-bench/prepared.json`, detached-job receipts, and local logs. Immutable
-Compose and dashboard resources continue to come from the installed package.
-`--work-dir PATH` selects another operator directory. `--project-dir PATH` is
-reserved for developers who deliberately want to replace packaged resources
-with those from a source checkout.
+## Step 2: prepare the batch
 
-# 4. Configuration
+```text
+dmf-benchctl prepare \
+  --suite smoke \
+  --allow-downloads \
+  --observability
+```
 
-An experiment is described by one JSON file with `schema_version: 2`.
+Preparation performs deterministic checks before paid calls:
 
-The configuration is the scientific contract of a run. It says what benchmark is executed, which framework is evaluated, which dataset is used, which model answers, which model judges, where state is stored, and which reports must be produced.
+1. verifies Docker and the Compose plugin;
+2. requires provider credentials declared by the configs, without using them;
+3. pulls the requested image;
+4. resolves and records its registry digest, revision, and native platform;
+5. reads the pinned dataset registry embedded in that image;
+6. checks that each prepared dataset is immutable and belongs to the expected
+   benchmark;
+7. validates orchestration and starts the requested services;
+8. materializes and validates datasets;
+9. records every config SHA-256 and generated run ID;
+10. writes `.dmf-bench/prepared.json` atomically.
 
-A config should be treated as immutable once a run is considered official. If you change the dataset, framework config, selected units, model names, model parameters, or evaluation requirements, you are defining a different experiment.
+`--allow-downloads` permits controlled dataset and model downloads during
+preparation and records that policy for later runs. Omit it only when all
+required bytes are already cached.
 
-The top-level structure is:
+## Step 3: review the preparation receipt
 
-- `schema_version`: must be `2`. Older benchmark config formats are rejected.
-- `experiment_id`: stable human-readable experiment name. It should describe the benchmark, framework, and scope.
-- `benchmark`: task to execute, either `locomo` or `longmemeval`.
-- `framework`: memory framework under test, either `dmf` or `mem0`.
-- `runtime`: operational paths and process settings. This includes root directory, run directory, cache directory, metrics port, and log level.
-- `framework_config`: framework-specific TOML or YAML file plus SHA-256. This pins the DMF/Mem0 runtime configuration used by the experiment.
-- `qdrant`: how the benchmark reaches Qdrant. The URL is read from an environment variable, normally `QDRANT_URL`.
-- `dataset`: dataset declaration. It can point to an already materialized JSON file or to a registry entry that `dmf-bench` materializes before the run.
-- `selection`: exact benchmark units to execute and optional filters. This controls the experiment size and order.
-- `models`: provider, requested model, generation parameters, timeout, rate limit, and retry policy for answerer and judge.
-- `evaluation`: reports that must or may be produced. Missing required reports make the run fail.
-- `artifact_store`: destination for committed artifacts, normally the same directory as `runtime.runs_dir`.
+```text
+python3 -m json.tool .dmf-bench/prepared.json
+```
 
-The most important rule is separation of responsibilities:
+Before spending provider tokens, confirm:
 
-- JSON config files define reproducible experiment inputs.
-- Environment variables provide secrets and deployment endpoints.
-- Run artifacts record what actually happened.
+- `image.resolved_ref` contains the expected registry digest;
+- `image.platform` is native for the machine;
+- `image.revision` is the intended harness revision;
+- every `experiments[].benchmark` and `framework` is expected;
+- every requested answerer and judge model is correct;
+- dataset locks and sampling policies match between DMF and Mem0 for the same
+  benchmark;
+- generated run IDs are unique;
+- `observability` and `allow_downloads` match the intended policy.
 
-## Built-in presets and editable bundles
+Do not edit a config after preparation. Version-2 prepared contexts verify
+each config hash before execution and reject drift.
 
-The package provides four starting presets:
+## Step 4: launch the batch
 
-- `locomo-dmf`
-- `locomo-mem0`
-- `longmemeval-dmf`
-- `longmemeval-mem0`
+```text
+dmf-benchctl run --prepared
+```
 
-List them with descriptions:
+Default execution is detached. The command starts a background host worker,
+prints a JSON receipt, and returns to the shell. Save the receipt. It contains:
+
+- the worker PID;
+- the local job-receipt path;
+- the worker-log path;
+- all generated run IDs;
+- exact `status` and `verify` commands;
+- the locked image reference.
+
+The worker executes experiments sequentially in prepared order and stops at
+the first failure. Provider calls begin here.
+
+Use `--follow` only for interactive diagnostics:
+
+```text
+dmf-benchctl run --prepared --follow
+```
+
+With `--follow`, the command stays in the foreground and streams job output.
+It does not detach.
+
+## Step 5: monitor each run
+
+Use a run ID printed by the launch receipt:
+
+```text
+dmf-benchctl status --run-id RUN_ID
+```
+
+The output distinguishes:
+
+- lifecycle state and phase;
+- overall progress across the run;
+- completed evaluation items;
+- completed input records;
+- current partial activity and progress inside the active record;
+- whether verification is the next valid action.
+
+For agents and scripts:
+
+```text
+dmf-benchctl status --run-id RUN_ID --json
+```
+
+Re-run `status`; it is read-only. Do not infer a hang from zero overall
+progress while partial ingestion or answer generation is advancing.
+
+## Step 6: inspect and verify completion
+
+```text
+dmf-benchctl inspect --run-id RUN_ID
+dmf-benchctl verify --run-id RUN_ID
+```
+
+`inspect` answers “what is this run and which artifacts exist?” It returns the
+manifest, completion state, artifact inventory, and verification details for a
+committed run.
+
+`verify` answers “are all committed files present and byte-for-byte identical
+to the final manifest?” It verifies checksums and sizes without changing the
+run.
+
+## Step 7: read results
+
+Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+Select a committed run, browse its artifact list, and open or download files.
+The main result files are explained in **Results and Artifacts**.
+
+If observability was enabled, open:
+
+```text
+Operations: http://127.0.0.1:3000/d/dmf-benchmarks/dmf-benchmarks
+Evaluation: http://127.0.0.1:3000/d/dmf-benchmarks-evaluation/dmf-benchmarks-evaluation
+```
+
+Select one benchmark and one memory system in each dashboard.
+
+## Step 8: stop services
+
+```text
+dmf-benchctl stack down
+```
+
+This stops and removes service containers but preserves named volumes,
+including run artifacts, model/dataset cache, Grafana data, Prometheus data,
+and Qdrant storage. The controller has no user command that deletes these
+volumes.
+
+# 4. Custom Experiments
+
+## Export an editable bundle
+
+List built-in presets:
 
 ```text
 dmf-benchctl config list
 ```
 
-To customize one, export a private copy instead of editing installed files:
+Current presets are:
+
+- `locomo-dmf`;
+- `locomo-mem0`;
+- `longmemeval-dmf`;
+- `longmemeval-mem0`.
+
+Export one:
 
 ```text
 dmf-benchctl config export locomo-mem0 ./my-locomo-mem0
 ```
 
-The target directory contains:
+The bundle contains portable filenames:
 
 ```text
 my-locomo-mem0/
@@ -197,42 +361,538 @@ my-locomo-mem0/
 `-- mem0-settings.yaml
 ```
 
-A DMF preset contains `dmf-settings.toml` instead. The framework settings path
-inside `experiment.json` is relative to the bundle, making the directory
-portable. The user may change the model roles, sampling, selection, runtime
-policy, or the framework-specific settings. Provider keys must still remain in
-the environment or `.env`.
+A DMF export contains `dmf-settings.toml`. Different bundles may all use the
+filename `experiment.json`; run identity is derived from benchmark/framework,
+not from the filename.
 
-When an external bundle is validated, prepared, or run, `dmf-benchctl`
-recalculates the SHA-256 declaration of an edited local framework settings file
-and, when present, an edited local dataset. `prepare` then records the final
-`experiment.json` hash. Any change after preparation is rejected before the
-run starts. This automatic update is convenience before the reproducibility
-boundary; it does not permit mutation of an already prepared official run.
-
-Do not put provider API keys in the JSON config. For example, `models.answerer.provider` may be `openai`, but the actual key must come from `OPENAI_API_KEY`. Similarly, `qdrant.endpoint_env` normally contains the string `QDRANT_URL`; the actual URL is read from that environment variable at runtime.
-
-## Path rules
-
-When running inside the official Docker image, paths normally live under `/bench`:
+Use `--force` only when intentionally replacing files previously generated by
+the controller:
 
 ```text
-/bench/config    read-only configuration files
-/bench/cache     writable cache for datasets, models, and temporary data
-/bench/runs      writable output directory for committed run artifacts
+dmf-benchctl config export locomo-mem0 ./my-locomo-mem0 --force
 ```
 
-Paths used by the benchmark must be absolute inside the runtime environment and must stay under `runtime.root`, normally `/bench`. This prevents a config from accidentally reading or writing unrelated host files.
+## Understand where models are configured
 
-In commands, `dmf-benchctl` accepts either a host path or an existing
-`/bench/...` path for the experiment config. Built-in package paths are
-translated automatically. An external configuration directory is mounted
-read-only at `/bench/operator`, so `experiment.json` can refer to adjacent
-framework or dataset files by relative path. Absolute paths written inside the
-JSON still describe the container runtime and therefore normally remain under
-`/bench`.
+There are two configuration layers:
 
-For example:
+1. `experiment.json` configures the benchmark **answerer** and **judge** under
+   `models.answerer` and `models.judge`.
+2. The framework settings file configures memory-system internals.
+
+For Mem0, `mem0-settings.yaml` contains its internal `llm`, `embedder`, search,
+and vector-store declarations. Mem0 can therefore make internal LLM calls in
+addition to the benchmark answerer and judge calls. These categories are
+reported separately in `reports/usage.json`.
+
+For DMF, `dmf-settings.toml` contains embedding, scoring, temporal-decay,
+capacity, long-term-memory, and retrieval settings.
+
+Changing either layer changes the experiment. Exported bundles are designed
+for editing before preparation. The controller refreshes the declared hash of
+an adjacent edited framework settings file before validation/preparation, then
+locks the resulting experiment JSON hash in the prepared context.
+
+## Validate before preparing
+
+Check a config whose dataset is already available:
+
+```text
+dmf-benchctl validate --config ./my-locomo-mem0/experiment.json
+```
+
+Allow registry materialization during validation:
+
+```text
+dmf-benchctl validate \
+  --config ./my-locomo-mem0/experiment.json \
+  --materialize-datasets \
+  --allow-downloads
+```
+
+`validate` checks one current config. It does not create a reproducibility
+receipt, generate locked run IDs, or execute the benchmark lifecycle. Use it
+while editing.
+
+## Prepare one experiment
+
+```text
+dmf-benchctl prepare \
+  --config ./my-locomo-mem0/experiment.json \
+  --state-file .dmf-bench/prepared-locomo-mem0.json \
+  --batch-id 20260813T120000Z-locomo-mem0 \
+  --allow-downloads \
+  --observability
+```
+
+Run that exact context:
+
+```text
+dmf-benchctl run --prepared .dmf-bench/prepared-locomo-mem0.json
+```
+
+## Prepare a comparison batch
+
+Repeat `--config` to place comparable experiments in one sequential batch:
+
+```text
+dmf-benchctl prepare \
+  --config ./my-locomo-dmf/experiment.json \
+  --config ./my-locomo-mem0/experiment.json \
+  --state-file .dmf-bench/prepared-locomo-comparison.json \
+  --batch-id 20260813T120000Z-locomo \
+  --allow-downloads \
+  --observability
+```
+
+A prepared batch accepts at most one config for each benchmark/framework
+combination. Configs for the same benchmark must declare the same dataset and
+sampling policy. This prevents an accidental DMF/Mem0 comparison over
+different samples.
+
+# 5. Execution Modes
+
+## Prepared batch: recommended for reproducible runs
+
+```text
+dmf-benchctl run --prepared [PREPARED_FILE]
+```
+
+If the path is omitted, the default is `.dmf-bench/prepared.json`.
+
+Characteristics:
+
+- uses the image digest and policies recorded by `prepare`;
+- rejects changed or missing config files before starting;
+- uses generated, unique run IDs;
+- executes entries sequentially;
+- inspects each run before execution;
+- resumes an existing incomplete/failed run;
+- starts only a run whose state is absent;
+- stops the batch on the first non-zero run result;
+- detaches by default.
+
+Re-running the same command is safe after an interruption. It does not silently
+replace a committed run.
+
+## Direct run: exploratory or individually managed
+
+```text
+dmf-benchctl run \
+  --config ./my-locomo-dmf/experiment.json \
+  --run-id exploratory-locomo-dmf-001 \
+  --allow-downloads \
+  --observability
+```
+
+The caller chooses the run ID. A direct run does not create a prepared context
+and does not lock the image by registry digest on the user's behalf. It is
+useful for development and diagnosis, but `prepare` is safer for official work.
+
+A run ID is immutable. Use a new ID for a different experiment or a clean
+restart. Use `resume` for the same persisted run.
+
+## Detached versus foreground
+
+`run` detaches by default. It prints a job receipt and returns immediately.
+
+Add `--follow` to run in the foreground and stream logs. `--follow` changes
+only operator interaction; it does not change scientific behavior.
+
+Detached logs are stored under `.dmf-bench/logs/`. The launch receipt identifies
+the exact worker log and run IDs.
+
+## Plan-only
+
+```text
+dmf-benchctl run --config FILE --run-id RUN_ID --plan-only
+dmf-benchctl resume --run-id RUN_ID --plan-only
+```
+
+For a new run, plan-only resolves the dataset and prints expected input/evaluation
+IDs and final mode without creating run state. For resume, it prints the
+persisted resume plan. It does not detach.
+
+## Predict-only
+
+```text
+dmf-benchctl run --config FILE --run-id RUN_ID --predict-only
+```
+
+Predict-only stops after predictions and produces a `PARTIAL` run. It is not a
+completed official result. A later full `resume` can continue the persisted
+lifecycle.
+
+## Use an already running stack
+
+```text
+dmf-benchctl stack up --observability
+dmf-benchctl run --prepared PREPARED_FILE --no-stack-up
+```
+
+`--no-stack-up` skips service startup checks. Use it only when the matching
+stack is already healthy.
+
+## Run DMF and Mem0 in parallel
+
+One prepared context is intentionally sequential. To run two experiments in
+parallel, create two prepared contexts with different batch IDs and therefore
+different detached job IDs:
+
+```text
+STAMP=20260813T120000Z
+
+dmf-benchctl prepare \
+  --config ./my-locomo-dmf/experiment.json \
+  --state-file .dmf-bench/prepared-dmf.json \
+  --batch-id "${STAMP}-dmf" \
+  --allow-downloads --observability
+
+dmf-benchctl prepare \
+  --config ./my-locomo-mem0/experiment.json \
+  --state-file .dmf-bench/prepared-mem0.json \
+  --batch-id "${STAMP}-mem0" \
+  --allow-downloads --observability
+
+dmf-benchctl stack up --observability
+dmf-benchctl run --prepared .dmf-bench/prepared-dmf.json --no-stack-up
+dmf-benchctl run --prepared .dmf-bench/prepared-mem0.json --no-stack-up
+```
+
+Both `run` commands detach; shell `&` is unnecessary.
+
+Parallel execution shares CPU, memory, network, Qdrant, cache, and provider
+limits. It is appropriate for throughput or functional checks, but not for an
+official timing comparison. Live process metrics may also be ambiguous when
+multiple one-shot benchmark containers exist simultaneously. For fair timing
+and resource measurements, run DMF and Mem0 sequentially with identical CPU
+and thread limits.
+
+# 6. Command Reference
+
+Global options must appear before the command:
+
+```text
+dmf-benchctl [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]
+```
+
+Example:
+
+```text
+dmf-benchctl --work-dir ./operator --image ghcr.io/ORG/IMAGE:TAG \
+  prepare --suite smoke --allow-downloads
+```
+
+## Global options
+
+`--work-dir PATH`
+
+: Select writable operator state and `.env`. Defaults to the current directory
+  for wheel users.
+
+`--project-dir PATH`
+
+: Use deploy/config resources from a source checkout. Intended for controller
+  development, not normal operation.
+
+`--image REF`
+
+: Select the benchmark image for this command. Overrides `DMF_BENCH_IMAGE`.
+
+`--pull always|missing|never`
+
+: Select service-image pull behavior when bringing up the stack. Default:
+  `missing`.
+
+`--compose-override FILE`
+
+: Add an orchestrator override file. Repeatable and intended for advanced
+  deployment/development use.
+
+`--dry-run`
+
+: Print orchestrator commands without executing them. It cannot be combined
+  with `prepare`, because preparation must inspect and persist real state.
+
+## `config`
+
+```text
+dmf-benchctl config
+dmf-benchctl config list
+dmf-benchctl config export PRESET OUTPUT_DIR [--force]
+```
+
+- `config` checks the resolved orchestration definition.
+- `config list` prints built-in presets as JSON.
+- `config export` copies one preset and its framework settings into an editable
+  portable directory.
+- `--force` replaces files generated in the target directory.
+
+No service is started and no provider call occurs.
+
+## `prepare`
+
+```text
+dmf-benchctl prepare \
+  (--config FILE [--config FILE ...] | --suite smoke) \
+  [--state-file FILE] [--batch-id ID] \
+  [--observability] [--allow-downloads]
+```
+
+Use it to create the reproducibility boundary before execution. It requires a
+published image with a registry digest; a purely local unnamed image is not
+sufficient. It starts services needed for validation but makes no answerer or
+judge request.
+
+Outputs:
+
+- prepared context JSON;
+- preparation logs under `.dmf-bench/logs/`;
+- materialized datasets/model cache in persistent volumes;
+- running core/observability services.
+
+## `image build`
+
+```text
+dmf-benchctl image build
+```
+
+Builds the local benchmark and Artifact API services from source runtime
+assets. This is primarily a repository-development command. Reproducible
+`prepare` still requires a published image with a registry digest.
+
+## `stack`
+
+```text
+dmf-benchctl stack up [--observability]
+dmf-benchctl stack status
+dmf-benchctl stack stop [--observability]
+dmf-benchctl stack down
+```
+
+- `up` starts and waits for core services; `--observability` adds Prometheus
+  and Grafana.
+- `status` prints current service/container state.
+- `stop` stops selected services without removing their containers.
+- `down` removes service containers and network but preserves named volumes.
+
+`stop --observability` includes observability services in the stop set.
+
+## `validate`
+
+```text
+dmf-benchctl validate --config FILE \
+  [--materialize-datasets] [--allow-downloads]
+```
+
+Checks one experiment through the selected benchmark image. It prints the
+resolved redacted config. `--materialize-datasets` resolves a registry-backed
+dataset; `--allow-downloads` changes the offline policy for this operation.
+
+Validation does not generate a prepared context, run ID, predictions, scores,
+or committed run.
+
+## `run`
+
+```text
+dmf-benchctl run --config FILE --run-id ID [OPTIONS]
+dmf-benchctl run --prepared [PREPARED_FILE] [OPTIONS]
+```
+
+Options:
+
+- `--predict-only`: stop after prediction with a `PARTIAL` state;
+- `--plan-only`: print the execution plan without run mutation;
+- `--observability`: start Prometheus and Grafana;
+- `--no-stack-up`: assume services already run;
+- `--allow-downloads`: permit Hugging Face downloads for this operation;
+- `--follow`: foreground execution with streamed logs.
+
+Without `--follow`, `--plan-only`, or global `--dry-run`, execution detaches.
+
+## `status`
+
+```text
+dmf-benchctl status --run-id RUN_ID [--json]
+```
+
+Read-only progress view. Human output is the default. `--json` emits the stable
+operator schema with `evaluation_items`, `input_records`, and optional
+`current_activity`. It deliberately hides the internal checkpoint term
+`units`.
+
+Status is the primary monitoring command. A completed status is integrity
+checked before it is reported as verified.
+
+## `inspect`
+
+```text
+dmf-benchctl inspect --run-id RUN_ID
+```
+
+Returns raw structured run identity, manifest, paths, completion marker,
+artifact inventory, and verification data. Use it to discover artifacts or
+audit provenance. It is read-only.
+
+## `verify`
+
+```text
+dmf-benchctl verify --run-id RUN_ID
+```
+
+Requires a committed run. Recomputes final-manifest and artifact checksums and
+sizes. A successful result proves local integrity, not scientific quality.
+It is read-only.
+
+## `resume`
+
+```text
+dmf-benchctl resume --run-id RUN_ID [OPTIONS]
+dmf-benchctl resume --prepared [PREPARED_FILE] --run-id RUN_ID [OPTIONS]
+```
+
+Resume loads the resolved config persisted inside the run; no `--config` is
+accepted. With `--prepared`, it also enforces the locked image/policies and
+requires the run ID to belong to that prepared context.
+
+Options:
+
+- `--plan-only`: show the resume plan without execution;
+- `--no-stack-up`: use an already running core stack;
+- `--follow`: stream foreground logs.
+
+Resume restarts incomplete atomic records rather than trusting partial
+framework state.
+
+## `evaluate`
+
+```text
+dmf-benchctl evaluate --run-id RUN_ID
+```
+
+Recomputes supported deterministic LoCoMo rigorous/ablation reports from an
+immutable committed source run. It performs no ingestion, answerer call, or
+judge call. Derived files are written separately under:
+
+```text
+/bench/runs/.derived-evaluations/RUN_ID/EVALUATOR_VERSION/
+```
+
+It is not a command for completing an interrupted judging phase; use `resume`
+for that.
+
+## `publish-run`
+
+```text
+dmf-benchctl publish-run \
+  --run-id RUN_ID \
+  --ref OCI_REFERENCE \
+  [--subject IMAGE_DIGEST_REFERENCE] \
+  [--output-dir DIR] [--oras-bin PATH] [--dry-run]
+```
+
+The command verifies the run, writes official bundle metadata, creates
+`RUN_ID.run.tar.gz` from the complete run directory, retains it on the host,
+and, unless `--dry-run` is present, pushes the archive with host ORAS.
+
+- `--ref` is the destination, for example
+  `ghcr.io/ORG/dmf-benchmarks-runs:RUN_ID`.
+- `--subject` links the run artifact to the exact producing image digest.
+- `--output-dir` defaults to `bundles` in the workspace.
+- `--dry-run` packages and verifies but does not push and does not require
+  ORAS.
+
+## `runtime`
+
+```text
+dmf-benchctl runtime -- DMF_BENCH_ARGUMENTS...
+```
+
+Advanced escape hatch that invokes `dmf-bench` inside the selected image while
+still using controller-managed orchestration and volumes. Common read-only
+examples:
+
+```text
+dmf-benchctl runtime -- list
+dmf-benchctl runtime -- list-datasets
+```
+
+Manual dataset materialization example:
+
+```text
+dmf-benchctl runtime -- materialize-dataset \
+  --dataset-id locomo-official-v1 \
+  --sample-fraction 0.05 \
+  --sample-unit conversation \
+  --sample-seed 7 \
+  --sample-rounding ceil \
+  --output-dir /bench/cache/datasets/manual-locomo
+```
+
+Prefer dedicated controller commands when one exists. `runtime` is intended
+for advanced runtime capabilities and diagnosis.
+
+# 7. Experiment Configuration
+
+An experiment JSON uses `schema_version: 2`. It is the scientific contract for
+one benchmark and one memory system.
+
+## Top-level fields
+
+`schema_version`
+
+: Must be `2`.
+
+`experiment_id`
+
+: Human-readable experiment name. A prepared run ID is generated independently
+  as `BATCH_ID-BENCHMARK-FRAMEWORK`.
+
+`benchmark`
+
+: Built-in values are `locomo` and `longmemeval`.
+
+`framework`
+
+: Built-in memory systems are `dmf` and `mem0`.
+
+`runtime`
+
+: Container paths, metrics port, and log level. Standard writable locations
+  are `/bench/runs` and `/bench/cache`.
+
+`framework_config`
+
+: Path, format, profile, and SHA-256 of DMF TOML or Mem0 YAML settings.
+
+`qdrant`
+
+: Endpoint environment-variable name, request timeout, and retention policy.
+
+`dataset`
+
+: Local pinned dataset or registry ID, optionally with deterministic sampling.
+
+`selection`
+
+: Ordered source IDs and benchmark-specific filters applied after dataset
+  materialization.
+
+`models`
+
+: Benchmark answerer and judge provider/model declarations, parameters,
+  throttling, timeout, and retries.
+
+`evaluation`
+
+: Required and optional reports. A missing required report prevents successful
+  completion.
+
+`artifact_store`
+
+: Local artifact target, normally `/bench/runs`.
+
+## Standard runtime and artifact paths
 
 ```json
 {
@@ -250,77 +910,22 @@ For example:
 }
 ```
 
-## Scientific versus operational fields
+Paths in experiment configs describe the container, not arbitrary host paths.
+External exported bundles are mounted read-only under `/bench/operator`, and
+adjacent relative framework/dataset resources are translated by the
+controller. Writable work belongs under `/bench/cache` and `/bench/runs`.
 
-Some fields define the scientific identity of the run. Changing them changes the experiment:
+## Models and retries
 
-- `benchmark`
-- `framework`
-- `framework_config.sha256`
-- `dataset`
-- `selection`
-- `models.answerer.requested_model`
-- `models.answerer.parameters`
-- `models.judge.requested_model`
-- `models.judge.parameters`
-- `evaluation`
-
-Other fields are operational. They can change where or how the same experiment is executed, but they should still be recorded for auditability:
-
-- `runtime.runs_dir`
-- `runtime.cache_dir`
-- `runtime.metrics_port`
-- `runtime.log_level`
-- `qdrant.request_timeout_seconds`
-- `artifact_store.uri`
-
-`dmf-bench` records both kinds of information in the run manifest and provenance artifacts, but the scientific fingerprint focuses on the scientific inputs.
-
-## Minimal shape
-
-A complete config has this shape:
+Example:
 
 ```json
 {
-  "schema_version": 2,
-  "experiment_id": "locomo-dmf-official-run",
-  "benchmark": "locomo",
-  "framework": "dmf",
-  "runtime": {
-    "root": "/bench",
-    "runs_dir": "/bench/runs",
-    "cache_dir": "/bench/cache",
-    "metrics_port": 9464,
-    "log_level": "INFO"
-  },
-  "framework_config": {
-    "path": "/bench/config/locomo_dmf_qdrant_settings.toml",
-    "sha256": "64_character_sha256",
-    "format": "toml",
-    "profile": "official-v1"
-  },
-  "qdrant": {
-    "endpoint_env": "QDRANT_URL",
-    "retention": "delete-on-success",
-    "request_timeout_seconds": 10
-  },
-  "dataset": {
-    "name": "locomo",
-    "registry_id": "locomo-official-v1"
-  },
-  "selection": {
-    "ordered_item_ids": ["conversation-0001"],
-    "filters": {},
-    "seed": 7
-  },
   "models": {
     "answerer": {
       "provider": "openai",
       "requested_model": "gpt-4.1-mini",
-      "parameters": {
-        "temperature": 0,
-        "max_tokens": 4096
-      },
+      "parameters": {"temperature": 0, "max_tokens": 4096},
       "runtime": {
         "timeout_seconds": 120,
         "rpm": 200,
@@ -342,65 +947,42 @@ A complete config has this shape:
         "response_max_retries": 1
       }
     }
-  },
-  "evaluation": {
-    "required": ["primary_judge_score", "rigorous_report"],
-    "optional": ["ablation_report"],
-    "ablation_required": false
-  },
-  "artifact_store": {
-    "type": "local",
-    "uri": "/bench/runs"
   }
 }
 ```
 
-Before running an experiment, validate the config through the controller:
+`max_retries` handles retryable provider/transport failures.
+`response_max_retries` handles malformed or truncated judge responses. All
+attempts contribute to token usage. Exhaustion fails closed; the runner does
+not invent a score.
 
-```text
-dmf-benchctl validate --materialize-datasets --config path/to/experiment.json
-```
+## Qdrant retention
 
-The controller mounts or translates the host path and runs `dmf-bench validate` inside the same image used for execution. Validation checks the config schema, path boundaries, framework config hash, dataset declaration, and environment-dependent settings that can be checked without executing the benchmark lifecycle.
+`delete-on-success` is recommended for official batches. A record's owned
+collections are deleted only after predictions are complete and before the
+record is committed. Cleanup failure leaves the record resumable and prevents
+a false commit.
 
-`qdrant.retention` is operational. Use `delete-on-success` for official batch
-runs: after all predictions for one atomic input record are complete, its owned
-Qdrant collections are deleted before that record is committed. If deletion
-fails, the record remains resumable and is not reported as committed. Use
-`keep` only when retained collections are intentionally needed for debugging.
+Use `keep` only for intentional post-run memory-system debugging. Retained
+collections consume storage and can make operational inspection noisier,
+although run namespaces remain isolated.
 
-`models.*.runtime.max_retries` controls retryable transport failures.
-`models.judge.runtime.response_max_retries` separately controls malformed or
-truncated judge responses. A value of `1` allows one corrective retry; all
-attempt tokens are counted, and exhausting the limit fails closed instead of
-inventing a score.
+## Scientific versus operational changes
 
-# 5. Dataset
+Scientific identity includes benchmark, framework, framework settings hash,
+dataset and sampling, selection, answerer/judge models and parameters, and
+evaluation requirements. Changing any of these defines a different
+experiment.
 
-`dmf-bench` supports two ways to declare a dataset.
+Operational settings include cache/run paths, metrics port, log level,
+request timeout, and artifact location. They do not normally define quality,
+but must still be recorded when comparing timing or resource use.
 
-## Already materialized dataset
+# 8. Datasets, Sampling, and Selection
 
-Use this form when the dataset JSON file is already available:
+## Registry-backed dataset
 
-```json
-{
-  "dataset": {
-    "name": "locomo",
-    "source": "local-approved-dataset",
-    "revision": "v1",
-    "path": "/bench/datasets/locomo/locomo10.json",
-    "sha256": "64_character_sha256",
-    "expected_schema": "locomo10-json-array-v1"
-  }
-}
-```
-
-In this mode, `dmf-bench validate` checks that the file exists and that the SHA-256 matches.
-
-## Registry dataset
-
-Use this form when you want `dmf-bench` to download or reuse a registered source:
+Recommended official form:
 
 ```json
 {
@@ -411,29 +993,42 @@ Use this form when you want `dmf-bench` to download or reuse a registered source
 }
 ```
 
-During `run`, the dataset is materialized under:
+`prepare` requires the registry entry embedded in the image to be pinned by
+immutable source revision and SHA-256. Materialization writes `manifest.json`
+under the dataset cache and copies it into the run as:
 
 ```text
-/bench/cache/datasets/<fingerprint>/
+datasets/materialization-manifest.json
 ```
 
-The directory always contains a `manifest.json`. The manifest documents:
+The manifest records source identity, source/materialized hashes and sizes,
+schema, counts, and optional sampling policy.
 
-- dataset id, benchmark, source URL, and revision;
-- path and SHA-256 of the observed source file;
-- path and SHA-256 of the materialized file;
-- file sizes;
-- optional sampling policy.
+## Already materialized local dataset
 
-Official registry entries are immutable: their URL contains an upstream commit and their bytes must match the registered SHA-256. Custom exploratory registries may still declare unpinned sources, but those are not suitable for prepared or official runs.
+Exploratory/direct configurations can declare:
 
-# 6. Sampling
+```json
+{
+  "dataset": {
+    "name": "locomo",
+    "source": "local-approved-dataset",
+    "revision": "v1",
+    "path": "/bench/operator/locomo.json",
+    "sha256": "64_CHARACTER_SHA256",
+    "expected_schema": "locomo10-json-array-v1"
+  }
+}
+```
 
-Sampling is optional and is declared inside `dataset.sampling`. To reduce the
-work performed by both ingestion and answering, sample complete top-level
-dataset records rather than questions inside otherwise complete records.
+`prepare` is intentionally stricter and requires `dataset.registry_id` with a
+pinned registry entry.
 
-LoCoMo example, 5% of complete conversations:
+## Sampling complete records
+
+To reduce both ingestion and answering, sample complete top-level records.
+
+LoCoMo, 5% of conversations:
 
 ```json
 {
@@ -450,19 +1045,11 @@ LoCoMo example, 5% of complete conversations:
 }
 ```
 
-Conversation sampling keeps every session and QA item belonging to each
-selected conversation. LoCoMo contains only 10 top-level conversations, so a
-5% sample with `ceil` rounding selects one complete conversation. The effective
-conversation fraction is therefore 10%; selecting half a conversation would
-not preserve the dataset record. The materialization manifest records both
-conversation and question counts so the effective sample is explicit.
+LoCoMo has only ten top-level conversations. Five percent rounded upward is one
+complete conversation, so the effective top-level sample is ten percent. The
+manifest records actual counts.
 
-LoCoMo also supports `unit: "qa"` with optional
-`stratify_by: "category"` for question-focused analyses. That mode can retain
-many or all conversations and is therefore not appropriate when the purpose is
-to reduce ingestion in the same proportion as answering.
-
-LongMemEval example, 5% of records:
+LongMemEval, 5% of records:
 
 ```json
 {
@@ -479,446 +1066,372 @@ LongMemEval example, 5% of records:
 }
 ```
 
-Each selected LongMemEval record carries its complete memory and question, so
-the same materialized 5% sample bounds both ingestion and answering.
+LoCoMo also supports question-level sampling (`unit: "qa"`) and category
+stratification, but that may retain most conversations and therefore does not
+reduce ingestion proportionally.
 
-If `sampling` is omitted, `manifest.json` is still generated, but without a `sampling` block.
+If sampling is omitted, materialization still generates a manifest without a
+sampling block.
 
-# 7. Selection
+## Apply the same sample to DMF and Mem0
 
-`selection.ordered_item_ids` decides which units are executed and in which order.
+Use this procedure when comparing two memory systems over a reduced dataset.
+The example uses LoCoMo; for LongMemEval, export the two `longmemeval-*`
+presets and use `unit: "record"`.
 
-For LoCoMo, IDs are conversations, for example:
+### Step 1: export one bundle per memory system
+
+```text
+dmf-benchctl config export locomo-dmf ./sample/locomo-dmf
+dmf-benchctl config export locomo-mem0 ./sample/locomo-mem0
+```
+
+The two files may both be named `experiment.json` because they live in
+different directories.
+
+### Step 2: declare the identical sampling policy
+
+In both `experiment.json` files, make the complete `dataset` object identical:
 
 ```json
 {
-  "selection": {
-    "ordered_item_ids": ["conversation-0001", "conversation-0002"],
-    "filters": {"categories": [1, 2, 3, 4, 5]},
-    "seed": 7
+  "dataset": {
+    "name": "locomo",
+    "registry_id": "locomo-official-v1",
+    "sampling": {
+      "fraction": 0.05,
+      "unit": "conversation",
+      "seed": 7,
+      "rounding": "ceil"
+    }
   }
 }
 ```
 
-For LongMemEval, IDs are `question_id` values, for example:
+The fields have these effects:
+
+- `fraction`: requested portion of the population, greater than zero and at
+  most one;
+- `unit`: record type being sampled; use `conversation` for complete LoCoMo
+  conversations and `record` for LongMemEval;
+- `seed`: deterministic random selection; identical seed and source bytes
+  produce the same selected records;
+- `rounding`: converts a fractional record count using `ceil`, `floor`, or
+  `round`. `ceil` avoids an empty sample for small populations.
+
+Do not add `stratify_by` to LoCoMo conversation sampling. Question-level
+LoCoMo sampling can instead use `unit: "qa"` and
+`stratify_by: "category"`, while LongMemEval record sampling can optionally
+use `stratify_by: "question_type"`.
+
+### Step 3: make selection consume the materialized sample
+
+To execute every record selected by sampling, use this in both configs:
 
 ```json
 {
   "selection": {
-    "ordered_item_ids": ["10d9b85a", "gpt4_45189cb4"],
+    "ordered_item_ids": ["*"],
     "filters": {},
     "seed": 7
   }
 }
 ```
 
-The selection must be consistent with the materialized dataset. If sampling is used, the selected IDs must exist in the generated sample.
+For LoCoMo, retain identical category filters in both configs when categories
+are part of the experiment. If explicit LongMemEval IDs are left in
+`ordered_item_ids`, every ID must exist in the new sample; changing the sample
+seed or fraction can otherwise make validation fail. `"*"` is the simplest way
+to run the complete sampled dataset.
 
-# 8. Framework And Models
-
-`framework_config` points to the framework configuration:
-
-- DMF uses TOML files.
-- Mem0 uses YAML files.
-
-The file must provide `path`, `sha256`, `format`, and optionally `profile`.
-
-`models.answerer` and `models.judge` define provider, model, and parameters. Example:
-
-```json
-{
-  "models": {
-    "answerer": {
-      "provider": "openai",
-      "requested_model": "gpt-4.1-mini",
-      "parameters": {"temperature": 0, "max_tokens": 4096},
-      "runtime": {"timeout_seconds": 120, "rpm": 200, "max_retries": 5}
-    },
-    "judge": {
-      "provider": "openai",
-      "requested_model": "gpt-5-mini",
-      "parameters": {
-        "temperature": 0,
-        "max_tokens": 4096,
-        "reasoning_effort": "low"
-      },
-      "runtime": {"timeout_seconds": 120, "rpm": 200, "max_retries": 5}
-    }
-  }
-}
-```
-
-Do not add `api_key`, `token`, `secret`, or similar fields to JSON files: validation rejects them.
-
-# 9. Main Commands
-
-User operations go through `dmf-benchctl`. Its current orchestrator adapter uses Docker Compose, but this detail is not part of the user contract. The controller always invokes `dmf-bench` explicitly for scientific runtime operations.
-
-Show the controller commands:
+### Step 4: prepare both configs together
 
 ```text
-dmf-benchctl --help
-```
-
-List and export built-in configurations:
-
-```text
-dmf-benchctl config list
-dmf-benchctl config export locomo-mem0 ./my-locomo-mem0
-```
-
-List benchmarks and frameworks:
-
-```text
-dmf-benchctl runtime -- list
-```
-
-List registered datasets:
-
-```text
-dmf-benchctl runtime -- list-datasets
-```
-
-Validate an already materialized configuration:
-
-```text
-dmf-benchctl validate --config config/experiment.json
-```
-
-Validate after materializing the dataset from the registry:
-
-```text
-dmf-benchctl validate --materialize-datasets --config config/experiment.json
-```
-
-Prepare a reproducible batch without provider calls:
-
-```text
-dmf-benchctl --image ghcr.io/ORG/dmf-benchmarks:TAG prepare \
-  --config path/to/experiment-a.json \
-  --config path/to/experiment-b.json \
+dmf-benchctl prepare \
+  --config ./sample/locomo-dmf/experiment.json \
+  --config ./sample/locomo-mem0/experiment.json \
+  --state-file .dmf-bench/prepared-locomo-sample.json \
+  --batch-id 20260813T120000Z-locomo-sample \
   --allow-downloads \
   --observability
 ```
 
-For the four packaged sampled smoke experiments, replace the repeated
-`--config` options with `--suite smoke`. No repository checkout is required.
+Preparation rejects the batch if DMF and Mem0 declare different dataset or
+sampling objects for the same benchmark. It then downloads or reuses the
+pinned source, samples it deterministically, writes `manifest.json`, validates
+the materialized bytes, and locks the dataset identity in the prepared context.
+No separate sampling command is required.
 
-`prepare` performs the deterministic operational checks as one transaction:
-
-1. verifies that Docker and its Compose plugin are available;
-2. pulls the requested published image;
-3. resolves the mutable tag to an immutable registry digest;
-4. rejects an image whose platform differs from the Docker engine platform;
-5. verifies that required provider credentials exist, without printing or storing them;
-6. validates the resolved Compose configuration and starts the required services;
-7. materializes and validates every configured dataset;
-8. verifies that configurations for the same benchmark declare identical dataset and sampling policies;
-9. reads the dataset registry from the selected image and rejects unpinned entries;
-10. records each configuration SHA-256 and immutable dataset identity;
-11. generates one batch ID and deterministic run IDs.
-
-The command writes `.dmf-bench/prepared.json` by default. This local, Git-ignored
-file records the image digest, image revision, platform, configuration paths and
-SHA-256 digests, immutable dataset revisions and hashes, sampling declarations,
-requested models, preparation timestamp, batch ID, and generated run IDs. It
-never stores API keys. The context is written only after every preparation
-check succeeds.
-
-Preparation can download datasets and models but does not invoke answer or judge
-providers, so it does not consume OpenAI inference tokens. `--allow-downloads`
-records the download policy in the context for the later run.
-
-Manually materialize a dataset:
+Review the receipt before running:
 
 ```text
-dmf-benchctl runtime -- materialize-dataset \
-  --dataset-id locomo-official-v1 \
-  --sample-fraction 0.05 \
-  --sample-unit conversation \
-  --sample-seed 7 \
-  --sample-rounding ceil \
-  --output-dir /bench/cache/datasets/manual-locomo-smoke
+python3 -m json.tool .dmf-bench/prepared-locomo-sample.json
 ```
 
-The command prints a `dataset` fragment usable in a configuration and the path to `manifest.json`.
+Confirm that both experiment entries contain the same
+`dataset_lock.sampling`, source revision, and source SHA-256.
 
-The `runtime -- ...` escape hatch forwards advanced arguments to `dmf-bench` inside the image. Normal run, validation, state, verification, and publication operations have dedicated controller commands and should use those commands.
-
-# 10. Execution
-
-Before launching the run, set the image and provider variables required by the config, preferably in the repository `.env` file:
+### Step 5: run and verify the materialization manifests
 
 ```text
-DMF_BENCH_IMAGE=ghcr.io/ORG/dmf-benchmarks:TAG
-OPENAI_API_KEY=...
-HF_HUB_OFFLINE=1
+dmf-benchctl run --prepared .dmf-bench/prepared-locomo-sample.json
 ```
 
-Do not set `QDRANT_URL` for the standard local stack. The benchmark container receives the internal endpoint `http://qdrant:6333` automatically.
-
-Launch a run:
+After both runs complete, open `http://127.0.0.1:8000`, select each run, and
+open:
 
 ```text
-dmf-benchctl run --config config/experiment.json --run-id RUN_ID
+datasets/materialization-manifest.json
 ```
 
-To execute every experiment from the context produced by `prepare`, in declared
-order and stopping on the first failure:
+The manifest is generated automatically whenever a registry dataset is
+materialized and copied into every run. Compare these fields between DMF and
+Mem0:
+
+- `dataset.dataset_id` and `dataset.revision`;
+- `source.sha256`;
+- `materialized.sha256`;
+- the complete `sampling` object, especially `unit`, `fraction`, `seed`,
+  `rounding`, `population_count`, and `sample_count`;
+- benchmark-specific population/sample counts when present.
+
+The two runs are using the same sample when source identity,
+`materialized.sha256`, and the complete sampling policy/counts match. Paths and
+`generated_at` are operational metadata and do not establish sample equality.
+
+For automation, download the two manifests from:
 
 ```text
-dmf-benchctl run --prepared
+GET /runs/RUN_ID/artifacts/datasets/materialization-manifest.json
 ```
 
-An alternative context path can be supplied after `--prepared`. The controller
-uses the image digest, revision, download policy, observability choice, config
-paths, and generated run IDs stored by `prepare`. It checks the provider
-credential again immediately before execution. The secret itself remains in the
-host environment or repository `.env` file.
+If there is no `sampling` object in a manifest, the full materialized dataset
+was used.
 
-For version 2 preparation contexts, the controller verifies every config
-SHA-256 before starting infrastructure. The image digest fixes the built-in
-dataset registry, and materialization verifies the pinned source bytes.
+## Selection after materialization
 
-Execution is detached by default. The controller starts a separate host worker,
-prints a JSON launch receipt containing its PID, every run ID, the worker log,
-and exact `status` and `verify` commands, then returns immediately. The worker
-preserves sequential execution and stops the batch on the first failure.
-Container output is retained in `.dmf-bench/logs/<RUN_ID>.log`; orchestration
-output is retained in `.dmf-bench/logs/<BATCH_ID>.worker.log`. Add `--follow`
-only to keep execution in the foreground and stream container logs for
-interactive diagnostics.
+`selection.ordered_item_ids` determines which materialized records execute and
+their order. `"*"` means all records remaining after materialization.
 
-The detached prepared batch is restartable. On every invocation its worker checks each
-generated run ID: existing completed, incomplete, or failed runs go through the
-runtime resume path, while only missing runs start from an empty state. The
-batch still stops immediately if a resumed or new run fails.
+LoCoMo example:
 
-Resume a failed run using the same image digest and preparation policies:
+```json
+{
+  "selection": {
+    "ordered_item_ids": ["*"],
+    "filters": {"categories": [1, 2, 3, 4, 5]},
+    "seed": 7
+  }
+}
+```
+
+LongMemEval may use `"*"` or explicit question IDs. Explicit IDs must exist in
+the materialized sample. Sampling happens before selection.
+
+# 9. Monitoring and Recovery
+
+## Status states
+
+Common states include:
+
+- `RUNNING`: prediction work is active;
+- `JUDGING`: generated answers are being judged;
+- `EVALUATING`: deterministic metrics are being calculated;
+- `REPORTING`, `PUBLISHING`, `VERIFYING`: final artifacts are being committed;
+- `COMPLETED`: the final marker exists and verifies;
+- `PARTIAL`: predict-only execution ended before terminal phases;
+- `INTERRUPTING` or `INTERRUPTED`: safe cancellation occurred;
+- `FAILED_*`: the suffix identifies the lifecycle phase that failed.
+
+Judging intentionally has no fabricated item-by-item quality metric. Progress
+shows lifecycle state; final evaluation values appear only after committed
+reports exist.
+
+## Resume behavior
+
+Resume uses persisted `resolved-config.json`; it never asks the operator to
+reconstruct the original config. Completed atomic records are reused.
+Incomplete records are cleaned and restarted from their safe boundary because
+memory-system side effects inside a record are not assumed trustworthy.
+
+For a prepared run, prefer:
 
 ```text
-dmf-benchctl resume --prepared --run-id RUN_ID
+dmf-benchctl resume --prepared PREPARED_FILE --run-id RUN_ID
 ```
 
-Resume is quiet by default as well; add `--follow` only when live diagnostics
-are intentionally required.
+This restores the image digest and download policy as well as the run config.
 
-`RUN_ID` must be unique and readable, for example:
+## Logs
+
+Detached execution produces:
+
+- `.dmf-bench/logs/BATCH_ID.worker.log` for prepared-batch orchestration;
+- `.dmf-bench/logs/RUN_ID.log` for a new prepared run;
+- `.dmf-bench/logs/RUN_ID.resume.log` for prepared resume work;
+- operation-specific status and preparation logs.
+
+Use the exact paths printed in the launch receipt. Logs can contain prompts or
+dataset-derived text; handle them as experiment data even though provider keys
+are not included.
+
+# 10. Results and Artifacts
+
+## Which files contain official results?
+
+`final/COMPLETED.json` proves completion; it is not the quality score.
+
+Read these files for outcomes:
+
+| Artifact | Meaning |
+|---|---|
+| `evaluations/primary_judge_score.json` | Aggregate LLM-judge result |
+| `evaluations/rigorous_report.json` | Deterministic benchmark metrics |
+| `evaluations/ablation_report.json` | Retrieval ablation metrics, when requested |
+| `reports/usage.json` | Calls and tokens by answerer, judge, and memory internals |
+| `reports/timing.json` | Lifecycle and pipeline timing |
+| `reports/resources.json` | CPU, memory, cgroup observations, and limits |
+
+For per-item diagnosis, inspect predictions, judgments, and item timing under
+`items/` and `evaluations/`.
+
+## Run directory map
 
 ```text
-official-20260809-locomo-dmf
+runs/RUN_ID/
+|-- run-manifest.json
+|-- resolved-config.json
+|-- run-status.json
+|-- datasets/
+|   `-- materialization-manifest.json
+|-- items/
+|-- checkpoints/
+|-- attempts/
+|-- evaluations/
+|   |-- primary_judge_score.json
+|   |-- rigorous_report.json
+|   `-- ablation_report.json
+|-- reports/
+|   |-- usage.json
+|   |-- timing.json
+|   `-- resources.json
+|-- metrics/
+|-- logs/
+`-- final/
+    |-- manifest.json
+    `-- COMPLETED.json
 ```
 
-The controller starts Qdrant and the read-only Artifact API, leaves them running for result inspection, and executes `dmf-bench run` in a one-shot container. Add `--observability` to start Prometheus and Grafana as well. Add `--allow-downloads` only during an intentional cache-preparation or online run.
+The final manifest lists committed artifacts and hashes. `verify` checks the
+files against it.
 
-The one-shot container receives the stable network alias expected by
-Prometheus. The Artifact API also exports persisted run metrics from the shared
-volume, so Grafana continues to show the latest progress, final token usage,
-timings, final process resource measurements, and evaluation values after the
-benchmark process exits. Qdrant must pass its healthcheck before a benchmark
-container can start.
+## Artifact browser and API
 
-During the run, JSON events are printed. A completed run exits with code `0` and prints a final `COMPLETED` state. Stop services afterward without deleting run or cache volumes:
-
-```text
-dmf-benchctl stack down
-```
-
-# 11. Artifact API
-
-The Artifact API exposes results in read-only mode. When started locally, it normally responds at:
+The browser is the easiest interface:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-Open that address in a browser for the simplest workflow. The landing page
-lists committed runs and all their artifacts. Select a run, then use **View**
-for text-based artifacts or **Download** to save any artifact directly. The
-endpoints below remain useful for agents and automation.
+It lists committed runs and lets users browse/download artifacts without
+constructing URLs. The FastAPI documentation is available at `/docs`.
 
-Health check:
+Automation endpoints include:
 
 ```text
-curl --fail http://127.0.0.1:8000/health
+GET /runs
+GET /runs/RUN_ID
+GET /runs/RUN_ID/artifacts
+GET /runs/RUN_ID/artifacts/ARTIFACT_PATH
+GET /runs/RUN_ID/verify
+GET /runs/RUN_ID/derived-evaluations
 ```
 
-Run state:
+Example:
 
 ```text
-curl --fail http://127.0.0.1:8000/runs/RUN_ID
+curl -fsS http://127.0.0.1:8000/runs/RUN_ID/artifacts/reports/usage.json
 ```
 
-Artifacts:
+The API is read-only, unauthenticated, and bound to loopback. Do not expose it
+directly to an untrusted network.
 
-```text
-curl --fail http://127.0.0.1:8000/runs/RUN_ID/artifacts
-```
+## Deterministic re-evaluation
 
-The run state reports the final result and the local path to the `COMPLETED.json` marker:
-
-```text
-curl --fail http://127.0.0.1:8000/runs/RUN_ID
-```
-
-To download a single artifact, use exactly one of the paths returned by `/runs/RUN_ID/artifacts`.
-
-Cost, timing, and resource metrics:
-
-```text
-curl --fail http://127.0.0.1:8000/runs/RUN_ID/artifacts/reports/usage.json
-curl --fail http://127.0.0.1:8000/runs/RUN_ID/artifacts/reports/timing.json
-curl --fail http://127.0.0.1:8000/runs/RUN_ID/artifacts/reports/resources.json
-```
-
-## Grafana and Prometheus
-
-When the stack was prepared or started with `--observability`, use the
-Operations dashboard for live and persisted runtime information:
-
-```text
-http://127.0.0.1:3000/d/dmf-benchmarks/dmf-benchmarks
-```
-
-It shows input-record and evaluation-item progress, run state, LLM tokens,
-execution and pipeline timings, benchmark CPU and memory, and Qdrant activity.
-CPU is process CPU: 100% means one fully used logical CPU, so a machine using 12
-logical CPUs can report about 1200% when unbounded. The standard stack caps the
-benchmark at `DMF_BENCH_CPUS=4.0`, so its sustained default ceiling is about
-400%. The panel combines live utilization with the persisted final-attempt
-average; the memory panel likewise retains final peak RSS after process exit.
-
-Final scientific metrics are deliberately separated into the Evaluation
-dashboard:
-
-```text
-http://127.0.0.1:3000/d/dmf-benchmarks-evaluation/dmf-benchmarks-evaluation
-```
-
-The Evaluation dashboard is populated only after evaluation reports have been
-written; it does not expose a partial judging score during a run. Persisted
-values come from the shared run volume through the Artifact API and remain
-available after the benchmark container terminates.
-
-At the top of both dashboards, select exactly one **Benchmark framework**
-(LoCoMo or LongMemEval) and one **Memory system** (DMF or Mem0). Every panel is
-bound to those selections; series from different benchmark and memory-system
-combinations are not overlaid.
-
-Grafana starts with a dark theme. On this loopback-only stack anonymous users
-have the Editor role, so **Save dashboard** overwrites the dashboard copy in
-Grafana's persistent data volume. Those edits survive container recreation and
-stack shutdown. A later repository release can intentionally replace the
-provisioned dashboard definition. Prometheus is available at
-`http://127.0.0.1:9090` for advanced inspection.
-
-# 12. Verification And Resume
-
-Verify a published run:
-
-```text
-dmf-benchctl verify --run-id RUN_ID
-```
-
-Inspect state:
-
-```text
-dmf-benchctl status --run-id RUN_ID
-```
-
-The default output is designed for an operator and includes:
-
-- the persisted run state;
-- a plain-language description of the current lifecycle phase;
-- an **overall progress** bar and percentage for the complete run;
-- **evaluation items**, meaning questions or records that receive a benchmark result;
-- **input records**, meaning source conversations or source records already processed;
-- while an input record is active, a **partial progress** bar for the current
-  activity, such as memory initialization, memory ingestion, or answer generation;
-- the number of work items completed in that activity and the position of the
-  current input record;
-- the appropriate next action (`status` again or `verify`).
-
-For agents and automation, request the stable JSON representation:
-
-```text
-dmf-benchctl status --run-id RUN_ID --json
-```
-
-The public JSON uses `evaluation_items` and `input_records` with the explicit
-fields `completed`, `total`, and `failed`. During active processing it also
-contains `current_activity`, including `stage`, `label`, `memory_system`,
-`completed`, `total`, `percentage`, `item_label`, `input_record`, and
-`updated_at`. The activity contract is independent of DMF and Mem0, so another
-memory-system adapter can report progress through the same fields. The public
-schema deliberately does not expose the ambiguous internal `units` terminology
-used by persisted checkpoints.
-
-Resume an interrupted run:
-
-```text
-dmf-benchctl resume --run-id RUN_ID
-```
-
-For an individual run, inspect its state before manually resuming it. A prepared
-batch performs this check automatically and safely resumes existing run IDs.
-
-# 13. Official Results
-
-The official run result is published in the `/bench/runs` volume.
-
-The most important files are:
-
-| Artifact | Content |
-|---|---|
-| `final/COMPLETED.json` | Final state, counts, and main references. |
-| `final/manifest.json` | Run publication manifest. |
-| `run-manifest.json` | Scientific run manifest. |
-| `resolved-config.json` | Resolved configuration without secrets. |
-| `reports/usage.json` | Tokens and provider usage when available. |
-| `reports/timing.json` | Timing for measured phases and operations. |
-| `reports/resources.json` | Process CPU, average utilization, RSS, cgroup observations, and configured limits. |
-| `evaluations/primary_judge_score.json` | Primary LLM judge aggregate. |
-| `evaluations/rigorous_report.json` | Deterministic rigorous metrics. |
-| `evaluations/ablation_report.json` | Retrieval ablation report, if requested. |
-| `logs/events.jsonl` | Lifecycle JSON events. |
-| `datasets/materialization-manifest.json` | Dataset manifest copied into the run when the dataset is materialized from the registry. |
-
-To archive an official run, publish the run OCI bundle or keep at least the image name and digest, `RUN_ID`, `resolved-config.json`, dataset materialization manifest, `final/COMPLETED.json`, `reports/usage.json`, `reports/timing.json`, and `reports/resources.json`.
-
-## Offline deterministic re-evaluation
-
-When a deterministic evaluator changes, a committed LoCoMo run can be
-re-evaluated without repeating ingestion, answer generation, judging, or paid
-provider calls:
+For a committed LoCoMo run:
 
 ```text
 dmf-benchctl evaluate --run-id RUN_ID
 ```
 
-The source run remains immutable. The command verifies it first and writes
-`rigorous_report.json`, `ablation_report.json`, and `derivation.json` under:
+The source remains unchanged. `derivation.json` links derived report hashes,
+evaluator version, source final-manifest hash, and derivation fingerprint.
+
+# 11. Observability and Fair Comparisons
+
+Enable observability in `prepare`, `run`, or `stack up`.
+
+The **Operations** dashboard shows overall/partial progress, run state, tokens,
+pipeline time, CPU, memory, and Qdrant activity.
+
+The **Evaluation** dashboard shows final quality metrics from committed
+reports. It is intentionally separate and does not display provisional judging
+values.
+
+Both dashboards provide selectors for:
+
+- benchmark framework (`locomo` or `longmemeval`);
+- memory system (`dmf`, `mem0`, or future adapters).
+
+Select one value for each to avoid mixing series.
+
+Grafana uses a dark theme. Anonymous local users are Editors. Dashboard changes
+are stored in the persistent Grafana volume. Provisioned source dashboards are
+read-only files, but user-edited dashboard state persists in Grafana's data
+volume.
+
+The Artifact API projects the latest persisted run for each benchmark/memory
+system into Prometheus, so final values remain visible after a benchmark job
+exits.
+
+For timing comparisons:
+
+1. use the same image digest and native platform;
+2. use identical dataset materialization manifests and selections;
+3. use identical answerer/judge models and parameters;
+4. use identical `DMF_BENCH_CPUS` and `DMF_BENCH_THREADS`;
+5. avoid simultaneous benchmark jobs;
+6. account for first-run model/dataset downloads separately;
+7. compare `timing.json` and `resources.json`, not only wall-clock observation.
+
+CPU percentages can exceed 100% because 100% represents one fully used logical
+CPU. A 400% limit allows approximately four logical CPUs.
+
+# 12. Publishing an Official Run
+
+Before publication:
 
 ```text
-/bench/runs/.derived-evaluations/RUN_ID/EVALUATOR_VERSION/
+dmf-benchctl status --run-id RUN_ID
+dmf-benchctl inspect --run-id RUN_ID
+dmf-benchctl verify --run-id RUN_ID
 ```
 
-`derivation.json` records the source final-manifest hash, source evaluation
-hash, evaluator version, report hashes, and a derivation fingerprint. Derived
-reports are listed by `/runs/RUN_ID/derived-evaluations` in the Artifact API.
+Create a local bundle first:
 
-# 14. OCI Publication
+```text
+dmf-benchctl publish-run \
+  --run-id RUN_ID \
+  --ref ghcr.io/ORG/dmf-benchmarks-runs:RUN_ID \
+  --subject ghcr.io/ORG/dmf-benchmarks@sha256:IMAGE_DIGEST \
+  --output-dir bundles \
+  --dry-run
+```
 
-A completed run can be published to GHCR as an OCI artifact. The artifact is not an executable image: it is a complete snapshot of the run directory, meaning everything under `runs/RUN_ID/`.
+The archive contains every file under the run directory at packaging time,
+including `OFFICIAL-RUN.json` and `SHA256SUMS` added by the packaging step.
 
-Before publication, the controller asks `dmf-bench` to verify the committed run and add these files to the run directory:
-
-| File | Purpose |
-|---|---|
-| `OFFICIAL-RUN.json` | Bundle metadata: OCI ref, subject, image, harness commit, and run verification. |
-| `SHA256SUMS` | SHA-256 for every run file, excluding `SHA256SUMS` itself. |
-
-Command:
+After inspecting the archive, authenticate ORAS and remove `--dry-run`:
 
 ```text
 dmf-benchctl publish-run \
@@ -927,81 +1440,194 @@ dmf-benchctl publish-run \
   --subject ghcr.io/ORG/dmf-benchmarks@sha256:IMAGE_DIGEST
 ```
 
-`--ref` is the GHCR destination for the run bundle. `--subject` links the bundle to the Docker image that produced the run.
-
-Packaging happens inside the benchmark image against the shared run volume. The resulting archive is retained on the host, under `bundles/` by default. The controller then calls the host `oras` executable to push that exact archive. Authenticate `oras` to GHCR before publication.
-
-To test packaging without publishing:
+Artifact type:
 
 ```text
-dmf-benchctl publish-run \
-  --run-id RUN_ID \
-  --ref ghcr.io/ORG/dmf-benchmarks-runs:RUN_ID \
-  --output-dir bundles \
-  --dry-run
+application/vnd.dmf-bench.run.v1+tar
 ```
 
-A real push requires `oras` installed and authenticated to GHCR. A dry run does not require `oras` because it only verifies and exports the bundle.
+The published run artifact is separate from the executable benchmark image.
+The optional OCI subject creates an auditable link between them.
 
-# 15. Ready-To-Use Example
+# 13. Exit Codes and Automation
 
-The installed package contains ready-to-use configurations for a restricted
-but substantial smoke check:
+Controller commands print structured runtime output where appropriate and
+return non-zero on failure. Important codes are:
 
-- LoCoMo with DMF: `smoke/config/experiment-locomo-dmf.json`
-- LoCoMo with Mem0: `smoke/config/experiment-locomo-mem0.json`
-- LongMemEval with DMF: `smoke/config/experiment-longmemeval-dmf.json`
-- LongMemEval with Mem0: `smoke/config/experiment-longmemeval-mem0.json`
+| Code | Meaning |
+|---:|---|
+| `0` | Command succeeded; status may still be actively `RUNNING` |
+| `1` | Host/orchestrator operation failed |
+| `2` | Invalid controller arguments or experiment/config error |
+| `3` | Runtime state, infrastructure, inspect, or verification error |
+| `4` | Failed benchmark/scientific lifecycle state |
+| `5` | Partial or interrupted run state |
+| `127` | Required host executable was not found |
 
-Prepare and run the complete built-in suite from any operator directory:
+Runtime codes are passed through by the controller for runtime operations.
+Automation should inspect both the exit code and JSON state rather than
+assuming that all non-completed states share one code.
+
+For monitoring agents:
 
 ```text
-dmf-benchctl --image "$DMF_BENCH_IMAGE" prepare \
-  --suite smoke \
-  --allow-downloads \
-  --observability
-dmf-benchctl run --prepared
+dmf-benchctl status --run-id RUN_ID --json
 ```
 
-To run only one starting configuration, export its preset, inspect or edit the
-copy, and pass its `experiment.json` to `prepare --config`.
+Treat these public fields as the operator contract:
 
-This is only an operational example. For a real experiment, create a dedicated configuration and treat dataset, selection, models, and costs as explicit decisions.
+- `run_id`, `state`, `phase`, and `phase_label`;
+- `progress.percentage` for overall progress;
+- `evaluation_items.completed|total|failed`;
+- `input_records.completed|total|failed`;
+- optional `current_activity`;
+- `ready_for_verification`.
 
-# 16. Common Problems
+The detached launch receipt under `.dmf-bench/jobs/` is also JSON and contains
+the worker PID, run IDs, logs, image, and suggested commands. It is a launch
+receipt, not proof that the worker later completed successfully.
 
-**Missing `OPENAI_API_KEY`.** Check the host environment or repository `.env` file. Do not print the key in logs.
+# 14. Troubleshooting
 
-**Config not found.** For `dmf-benchctl --config`, verify the host path. For paths inside the JSON file, verify the corresponding `/bench` mount.
+## `dmf-benchctl` command is not found
 
-**Dataset not found.** If the config uses `registry_id`, use `run` or `validate --materialize-datasets`. If it uses `dataset.path`, check mounts and SHA-256.
+Run `pipx ensurepath`, open a new shell, and verify `pipx list`. If a newer wheel
+was installed, use `pipx install --force WHEEL`.
 
-**SHA-256 mismatch.** The file is not the one declared. Do not change the hash to make validation pass: regenerate or replace the file with the approved one.
+## The wrong image is used
 
-**Read-only file system.** This is normal. Write only to `/bench/cache` and `/bench/runs`.
+Check the exported shell value, workspace `.env`, global `--image`, and the
+prepared context. Exported variables override `.env`; `--image` overrides both.
+A prepared context then enforces its locked digest and rejects a conflicting
+`--image`.
 
-**Qdrant not reachable.** Run `dmf-benchctl stack status`. The standard stack injects `QDRANT_URL=http://qdrant:6333` automatically.
+## `prepare` says the image has no registry digest
 
-**Download blocked.** If `HF_HUB_OFFLINE=1`, Hugging Face downloads do not start. Prepare the cache before the run or change policy only for a controlled phase.
+Preparation requires a published image such as `ghcr.io/...:TAG`. Build-only
+local images do not have a registry digest. Push the image or use a published
+RC/tag.
 
-**Provider rate limit or timeout.** Check `logs/events.jsonl`, `reports/usage.json`, and run state before retrying.
+## Image platform does not match Docker engine
 
-**OCI publication failed.** Check that `oras` is installed, GHCR login is valid, and `dmf-benchctl verify --run-id RUN_ID` passes before pushing.
+Pull a multi-platform/native image. Do not force emulation for official timing
+results.
 
-# 17. Operator Or Agent Checklist
+## `OPENAI_API_KEY` is missing
 
-1. Install `dmf-benchctl` with `pipx`; neither Poetry nor a repository clone is required.
-2. Prepare `.env` without committing secrets.
-3. Choose a built-in suite or export and edit a preset with `config export`.
-4. Run `dmf-benchctl --image IMAGE prepare --config CONFIG ...`; use `--suite smoke` for the packaged sampled suite.
-5. Review `.dmf-bench/prepared.json`, especially image digest, platform, model names, run IDs, and config list.
-6. Launch the batch with `dmf-benchctl run --prepared`; paid provider calls start here.
-7. Check each exit code and `COMPLETED` state.
-8. Read artifacts and dataset manifests from the Artifact API.
-9. Compare materialized dataset hashes between frameworks evaluating the same benchmark.
-10. Compare `reports/timing.json` and `reports/resources.json` only when image,
-    dataset materialization manifest, model settings, CPU limit, and thread
-    limit match between DMF and Mem0.
-11. Save usage, timing, resources, resolved config, and dataset manifest.
-12. Publish each OCI bundle with `dmf-benchctl publish-run` if the run is official.
-13. Stop services with `dmf-benchctl stack down`; named volumes are preserved.
+Set it in the shell or `.env` of the selected workspace. Do not add it to JSON,
+TOML, YAML, or command arguments.
+
+## Provider requests fail with `APIConnectionError`
+
+Check host internet access, proxy variables, custom `OPENAI_BASE_URL`, Docker
+network access, and provider status. The secret presence check cannot prove
+that the provider endpoint is reachable.
+
+## A prepared config changed
+
+Do not edit prepared inputs. Export/edit again, run `prepare` again with a new
+batch ID, review the new receipt, and launch the new run IDs.
+
+## Run ID already exists
+
+Use `resume` for the same experiment state. Use a new run ID or new prepared
+batch ID for a distinct run. The controller does not overwrite existing run
+directories.
+
+## Status stays at zero percent
+
+Read `Current activity` and `Partial progress`. Overall progress advances only
+after an atomic input record commits. A large LoCoMo conversation can spend a
+long time ingesting and answering before the first overall increment.
+
+## The detached run appears silent
+
+This is expected. Use the `status` command printed in the launch receipt and
+inspect the reported `.dmf-bench/logs/...worker.log` or run log.
+
+## Read-only filesystem error
+
+The benchmark container is intentionally read-only. Frameworks and libraries
+must write under `/bench/cache`, `/bench/runs`, or `/tmp`. Verify that framework
+cache paths use the standard config and that the current image includes the
+required writable-volume fix.
+
+## Hugging Face download is blocked or a model file is missing
+
+The default stack sets `HF_HUB_OFFLINE=1`. Run a controlled preparation with
+`--allow-downloads` to fill the persistent cache, then keep the same cache for
+offline execution.
+
+## Qdrant is not reachable
+
+```text
+dmf-benchctl stack status
+dmf-benchctl stack up
+```
+
+The standard stack injects `QDRANT_URL=http://qdrant:6333`; users do not need a
+local Qdrant API key.
+
+## The batch stopped before later experiments
+
+Prepared batches stop on the first failing run. Check that run's status/log,
+fix only external causes, and rerun the same `run --prepared` command. Existing
+state is inspected and resumed automatically.
+
+## `verify` fails
+
+Do not publish the run. Use `inspect` and the error to identify a missing or
+changed artifact. Verification failure means the local committed directory no
+longer matches its final manifest.
+
+## Grafana is empty
+
+Confirm the stack was started with `--observability`, select the correct
+benchmark and memory system, and check `dmf-benchctl stack status`. Evaluation
+panels populate from completed reports; they do not show provisional judge
+scores.
+
+## OCI publication fails
+
+First run a local `publish-run --dry-run`. For a real push, verify ORAS is
+installed, registry authentication is valid, destination permissions exist,
+and `verify` succeeds.
+
+# 15. Official Run Checklist
+
+Before execution:
+
+1. Install the controller version matching the intended image release.
+2. Use a dedicated workspace and protected `.env`.
+3. Export and review experiment/framework configs.
+4. Confirm dataset, sampling, selection, answerer, judge, memory-internal
+   models, retries, CPU, threads, and expected cost.
+5. Run `prepare` with a unique batch ID.
+6. Review image digest, platform, revision, config hashes, dataset locks,
+   model names, run IDs, and download policy in the prepared context.
+
+During execution:
+
+7. Launch `run --prepared` and save the detached receipt.
+8. Monitor every run with `status`; use logs only for diagnosis.
+9. Resume using the same prepared context when needed.
+10. Run fair DMF/Mem0 timing comparisons sequentially.
+
+After execution:
+
+11. Require `COMPLETED` and successful `verify`.
+12. Read rigorous/judge metrics, usage, timing, resources, resolved config, and
+    dataset materialization manifest.
+13. Confirm compared frameworks used identical dataset manifests and limits.
+14. Optionally derive updated deterministic LoCoMo reports with `evaluate`.
+15. Build and inspect a local official bundle with `publish-run --dry-run`.
+16. Publish the run artifact with an image-digest subject when approved.
+17. Stop services with `stack down`; retain or back up volumes according to the
+    experiment's retention policy.
+
+# 16. Historical Version
+
+The previous benchmark architecture is available from Git tag `v0.1.0`.
+Version 0.2 does not provide compatibility protocols, legacy execution paths,
+state migration, or artifact migration. Current runs are Docker-native and use
+only the framework-native pipeline.

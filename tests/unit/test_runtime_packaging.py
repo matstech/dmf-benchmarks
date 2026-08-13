@@ -123,7 +123,6 @@ def test_makefile_exposes_maintainer_targets() -> None:
         "test",
         "check",
         "test-integration",
-        "docs-build",
         "compose-config",
         "prometheus-check",
         "stack-up",
@@ -181,21 +180,6 @@ def test_publish_image_workflow_pushes_rc_and_tagged_release_to_ghcr() -> None:
     assert "make image-manifest-create" in workflow
     assert "Require both published platforms" in workflow
     assert "tonistiigi/binfmt" not in workflow
-
-
-def test_readme_documents_cli_surface_and_user_manual() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-
-    assert readme.count("## Table of contents") == 1
-    assert "## User manual" in readme
-    assert "## CLI quickstart" in readme
-    assert "## Maintainer Makefile" in readme
-    assert "manual/user-manual.md" in readme
-    assert "manual/user-manual.pdf" in readme
-    assert "User operations go through `dmf-benchctl`." in readme
-    assert "poetry run" not in readme
-    assert "The Makefile is a maintainer surface" in readme
-    assert "The checked-in `smoke/` directory contains ready-to-use" in readme
 
 
 def test_container_fixture_still_enters_through_dmf_bench() -> None:

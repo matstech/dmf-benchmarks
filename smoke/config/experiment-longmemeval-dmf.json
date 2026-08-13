@@ -25,40 +25,14 @@
     "name": "longmemeval",
     "registry_id": "longmemeval-s-official-v1",
     "sampling": {
-      "fraction": 0.05,
+      "fraction": 0.005,
       "unit": "record",
       "seed": 7,
       "rounding": "ceil"
     }
   },
   "selection": {
-    "ordered_item_ids": [
-      "118b2229",
-      "8550ddae",
-      "76d63226",
-      "gpt4_e05b82a6",
-      "10d9b85a",
-      "d3ab962e",
-      "a1cc6108",
-      "3fdac837",
-      "27016adc",
-      "bc149d6b",
-      "09ba9854",
-      "87f22b4a",
-      "71017276",
-      "gpt4_45189cb4",
-      "gpt4_98f46fc6",
-      "0bb5a684",
-      "b29f3365",
-      "18bc8abd",
-      "0ddfec37_abs",
-      "4c36ccef",
-      "1903aded",
-      "8464fc84",
-      "ac031881",
-      "16c90bf4",
-      "65240037"
-    ],
+    "ordered_item_ids": ["*"],
     "seed": 7,
     "filters": {}
   },
