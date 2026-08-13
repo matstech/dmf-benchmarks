@@ -70,6 +70,7 @@ class BenchmarkMetrics:
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
         self.registry = registry or CollectorRegistry()
+        self._activity_stage_by_run: dict[tuple[str, str], str] = {}
         self.process_collector = ProcessCollector(registry=self.registry)
         self.expected_units = Gauge(
             "dmf_bench_run_expected_units",
@@ -105,6 +106,24 @@ class BenchmarkMetrics:
             "dmf_bench_run_item_progress_ratio",
             "Committed questions/items divided by expected questions/items.",
             RUN_LABELS,
+            registry=self.registry,
+        )
+        self.activity_expected = Gauge(
+            "dmf_bench_current_activity_expected_items",
+            "Expected work items in the current activity inside one input record.",
+            (*RUN_LABELS, "stage"),
+            registry=self.registry,
+        )
+        self.activity_completed = Gauge(
+            "dmf_bench_current_activity_completed_items",
+            "Completed work items in the current activity inside one input record.",
+            (*RUN_LABELS, "stage"),
+            registry=self.registry,
+        )
+        self.activity_progress_ratio = Gauge(
+            "dmf_bench_current_activity_progress_ratio",
+            "Current activity completion ratio inside one input record.",
+            (*RUN_LABELS, "stage"),
             registry=self.registry,
         )
         self.phase_active = Gauge(
@@ -194,6 +213,7 @@ class BenchmarkMetrics:
         state: str | None = None,
         expected_units: int | None = None,
         committed_units: int | None = None,
+        current_activity: dict[str, Any] | None = None,
     ) -> None:
         labels = _run_labels(benchmark, framework)
         resolved_expected_units = expected if expected_units is None else expected_units
@@ -210,6 +230,7 @@ class BenchmarkMetrics:
         self.item_progress_ratio.labels(*labels).set(
             (committed / expected) if expected else 0.0
         )
+        self._record_current_activity(labels, current_activity)
         for candidate in PHASES:
             self.phase_active.labels(*labels, candidate).set(1 if candidate == phase else 0)
         resolved_state = str(state or phase).upper()
@@ -243,7 +264,35 @@ class BenchmarkMetrics:
             state=str(status.get("state", "PREFLIGHT")),
             expected_units=int(units.get("expected", items.get("expected", 0))),
             committed_units=int(units.get("committed", items.get("committed", 0))),
+            current_activity=(
+                status.get("current_activity")
+                if isinstance(status.get("current_activity"), dict)
+                else None
+            ),
         )
+
+    def _record_current_activity(
+        self,
+        labels: tuple[str, str],
+        activity: dict[str, Any] | None,
+    ) -> None:
+        previous_stage = self._activity_stage_by_run.get(labels)
+        if previous_stage is not None:
+            self.activity_expected.labels(*labels, previous_stage).set(0)
+            self.activity_completed.labels(*labels, previous_stage).set(0)
+            self.activity_progress_ratio.labels(*labels, previous_stage).set(0)
+        if activity is None:
+            self._activity_stage_by_run.pop(labels, None)
+            return
+        stage = _bounded(str(activity.get("stage", "other")))
+        total = max(0, int(activity.get("total", 0)))
+        completed = min(total, max(0, int(activity.get("completed", 0))))
+        self.activity_expected.labels(*labels, stage).set(total)
+        self.activity_completed.labels(*labels, stage).set(completed)
+        self.activity_progress_ratio.labels(*labels, stage).set(
+            completed / total if total else 0.0
+        )
+        self._activity_stage_by_run[labels] = stage
 
     def record_attempt(self, *, benchmark: str, framework: str, outcome: str) -> None:
         self.attempts_total.labels(*_run_labels(benchmark, framework), _bounded(outcome)).inc()

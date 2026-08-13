@@ -45,6 +45,24 @@ def render_persisted_run_metrics(runs_dir: str | Path) -> bytes:
         RUN_LABELS,
         registry=registry,
     )
+    activity_expected = Gauge(
+        "dmf_bench_persisted_run_current_activity_expected_items",
+        "Expected work items in the latest persisted run's current activity.",
+        (*RUN_LABELS, "stage"),
+        registry=registry,
+    )
+    activity_completed = Gauge(
+        "dmf_bench_persisted_run_current_activity_completed_items",
+        "Completed work items in the latest persisted run's current activity.",
+        (*RUN_LABELS, "stage"),
+        registry=registry,
+    )
+    activity_progress = Gauge(
+        "dmf_bench_persisted_run_current_activity_progress_ratio",
+        "Current activity completion ratio in the latest persisted run.",
+        (*RUN_LABELS, "stage"),
+        registry=registry,
+    )
     state = Gauge(
         "dmf_bench_persisted_run_state",
         "One for the current state of the latest persisted run.",
@@ -117,6 +135,16 @@ def render_persisted_run_metrics(runs_dir: str | Path) -> bytes:
         progress.labels(*labels).set(
             completed_item_count / expected_item_count if expected_item_count else 0.0
         )
+        activity = status.get("current_activity") or {}
+        if isinstance(activity, dict) and activity:
+            stage = _bounded_stage(activity.get("stage", "unknown"))
+            activity_total = _integer(activity.get("total"))
+            activity_done = min(activity_total, _integer(activity.get("completed")))
+            activity_expected.labels(*labels, stage).set(activity_total)
+            activity_completed.labels(*labels, stage).set(activity_done)
+            activity_progress.labels(*labels, stage).set(
+                activity_done / activity_total if activity_total else 0.0
+            )
         state.labels(*labels, str(status.get("state", "UNKNOWN"))).set(1)
         updated.labels(*labels).set((run_path / "run-status.json").stat().st_mtime)
 
@@ -235,6 +263,15 @@ def _read_optional_object(path: Path) -> dict[str, Any]:
         return _read_object(path)
     except (OSError, TypeError, ValueError):
         return {}
+
+
+def _bounded_stage(value: object) -> str:
+    normalized = str(value).lower().replace("-", "_")
+    if not normalized or len(normalized) > 48:
+        return "other"
+    if not all(character.isalnum() or character == "_" for character in normalized):
+        return "other"
+    return normalized
 
 
 def _read_object(path: Path) -> dict[str, Any]:

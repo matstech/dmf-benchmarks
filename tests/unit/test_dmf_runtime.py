@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from dmf_bench.frameworks.dmf_context import DmfNativeContextSurface
-from dmf_bench.adapters.base import BenchmarkUnit, FrameworkRunContext
+from dmf_bench.adapters.base import BenchmarkUnit, FrameworkRunContext, ProgressUpdate
 from dmf_bench.adapters.dmf import (
     DefaultDmfEngineBuilder,
     DmfEngineBundle,
@@ -268,7 +268,13 @@ def test_locomo_runtime_ingests_once_retrieves_many_and_cleans_owned_resources(
 ) -> None:
     unit, conversation, questions = locomo_case()
     config = runtime_config(tmp_path, benchmark="locomo")
-    context = run_context(tmp_path)
+    updates: list[ProgressUpdate] = []
+    context = FrameworkRunContext(
+        run_id="run-a",
+        scientific_fingerprint="a" * 64,
+        run_dir=tmp_path / "runs" / "run-a",
+        progress_reporter=updates.append,
+    )
     client = FakeQdrantClient()
     builder = FakeEngineBuilder()
     native_queries: list[str] = []
@@ -318,6 +324,14 @@ def test_locomo_runtime_ingests_once_retrieves_many_and_cleans_owned_resources(
     bundle = builder.last_bundle
     assert bundle is not None
     assert builder.build_count == 1
+    assert [(update.stage, update.completed, update.total) for update in updates] == [
+        ("memory_initialization", 0, 1),
+        ("memory_initialization", 1, 1),
+        ("memory_ingestion", 0, 3),
+        ("memory_ingestion", 1, 3),
+        ("memory_ingestion", 2, 3),
+        ("memory_ingestion", 3, 3),
+    ]
     assert len(bundle.memory_engine.entries) == 3
     assert prepared["qdrant_commit_barrier"] == {
         "verified": True,

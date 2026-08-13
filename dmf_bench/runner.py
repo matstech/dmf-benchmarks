@@ -11,6 +11,7 @@ import hashlib
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -19,6 +20,7 @@ from dmf_bench.adapters.base import (
     AnswererRequest,
     BenchmarkUnit,
     FrameworkRunContext,
+    ProgressUpdate,
     RetrievalResult,
 )
 from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter, LoCoMoQuestion
@@ -65,6 +67,44 @@ from dmf_bench.state import (
 
 class InjectedInterrupt(RuntimeError):
     """Raised by tests to stop a run at a deterministic fault-injection point."""
+
+
+def _progress_context(
+    base: FrameworkRunContext,
+    reporter: Callable[[ProgressUpdate], None],
+) -> FrameworkRunContext:
+    return FrameworkRunContext(
+        run_id=base.run_id,
+        scientific_fingerprint=base.scientific_fingerprint,
+        run_dir=base.run_dir,
+        progress_reporter=reporter,
+    )
+
+
+def _current_activity(
+    update: ProgressUpdate,
+    *,
+    framework: str,
+    unit_index: int,
+    unit_total: int,
+) -> dict[str, Any]:
+    percentage = (update.completed / update.total * 100.0) if update.total else 0.0
+    return {
+        "stage": update.stage,
+        "label": update.label,
+        "memory_system": framework,
+        "completed": update.completed,
+        "total": update.total,
+        "percentage": round(min(100.0, max(0.0, percentage)), 1),
+        "item_label": update.item_label,
+        "input_record": {
+            "number": unit_index + 1,
+            "total": unit_total,
+        },
+        "updated_at": datetime.now(UTC).isoformat(timespec="milliseconds").replace(
+            "+00:00", "Z"
+        ),
+    }
 
 
 class LongMemEvalQuestionFramework(Protocol):
@@ -254,9 +294,23 @@ class LongMemEvalPredictOnlyRunner:
                 committed = self._committed_units(run_path, expected_unit_ids)
                 self._write_status(run_path, manifest, committed_units=committed)
                 restarted: list[str] = []
-                for unit in units:
+                for unit_index, unit in enumerate(units):
                     if unit.unit_id not in restart_ids:
                         continue
+                    unit_run_context = _progress_context(
+                        run_context,
+                        lambda update, committed_units=committed, current_index=unit_index: self._write_status(
+                            run_path,
+                            manifest,
+                            committed_units=committed_units,
+                            current_activity=_current_activity(
+                                update,
+                                framework=self.framework.name,
+                                unit_index=current_index,
+                                unit_total=len(units),
+                            ),
+                        ),
+                    )
                     _check_cancel(cancel_check)
                     _emit_unit_event(
                         self.events,
@@ -273,7 +327,7 @@ class LongMemEvalPredictOnlyRunner:
                         question,
                         config,
                         manifest,
-                        run_context,
+                        unit_run_context,
                     )
                     restarted.append(unit.unit_id)
                     if interrupt_at == "before-prediction-commit":
@@ -285,7 +339,7 @@ class LongMemEvalPredictOnlyRunner:
                         question,
                         config,
                         manifest,
-                        run_context,
+                        unit_run_context,
                         cancel_check,
                     )
                     self._write_committed_checkpoint(
@@ -457,6 +511,15 @@ class LongMemEvalPredictOnlyRunner:
         ingestion_ms = (time.perf_counter() - ingestion_started_at) * 1000
         _check_cancel(cancel_check)
         self._write_checkpoint(run_path, manifest, unit, UnitState.PREDICTING)
+        run_context.report_progress(
+            ProgressUpdate(
+                stage="answer_generation",
+                label="Generating benchmark answer",
+                completed=0,
+                total=1,
+                item_label="question",
+            )
+        )
         qa_started_at = time.perf_counter()
         retrieval = self.framework.retrieve(
             unit,
@@ -517,6 +580,15 @@ class LongMemEvalPredictOnlyRunner:
                 "question_id": str(prediction.get("question_id", unit.unit_id)),
                 "pipeline_timing": pipeline_timing,
             },
+        )
+        run_context.report_progress(
+            ProgressUpdate(
+                stage="answer_generation",
+                label="Generating benchmark answer",
+                completed=1,
+                total=1,
+                item_label="question",
+            )
         )
         cleanup_manifest_path = _persist_cleanup_manifest(run_path, unit, prepared)
         retention_path = _apply_unit_retention(
@@ -597,6 +669,7 @@ class LongMemEvalPredictOnlyRunner:
         *,
         committed_units: tuple[str, ...],
         state: str = "RUNNING",
+        current_activity: dict[str, Any] | None = None,
     ) -> None:
         expected = len(expected_terminal_item_ids(manifest))
         committed = len(committed_units)
@@ -608,6 +681,7 @@ class LongMemEvalPredictOnlyRunner:
             committed=committed,
             expected_units=len(manifest.expected_item_ids),
             committed_units=len(committed_units),
+            current_activity=current_activity,
         )
         write_json_atomic(run_path / "run-status.json", status.to_dict())
         if self.metrics is not None:
@@ -620,6 +694,7 @@ class LongMemEvalPredictOnlyRunner:
                 state=state,
                 expected_units=len(manifest.expected_item_ids),
                 committed_units=len(committed_units),
+                current_activity=current_activity,
             )
 
 
@@ -730,9 +805,23 @@ class LoCoMoPredictOnlyRunner:
                 committed = self._committed_units(run_path, expected_unit_ids)
                 self._write_status(run_path, manifest, committed_units=committed)
                 restarted: list[str] = []
-                for unit in units:
+                for unit_index, unit in enumerate(units):
                     if unit.unit_id not in restart_ids:
                         continue
+                    unit_run_context = _progress_context(
+                        run_context,
+                        lambda update, committed_units=committed, current_index=unit_index: self._write_status(
+                            run_path,
+                            manifest,
+                            committed_units=committed_units,
+                            current_activity=_current_activity(
+                                update,
+                                framework=self.framework.name,
+                                unit_index=current_index,
+                                unit_total=len(units),
+                            ),
+                        ),
+                    )
                     _check_cancel(cancel_check)
                     _emit_unit_event(
                         self.events,
@@ -749,7 +838,7 @@ class LoCoMoPredictOnlyRunner:
                         conversation,
                         config,
                         manifest,
-                        run_context,
+                        unit_run_context,
                     )
                     restarted.append(unit.unit_id)
                     ingestion_started_at = time.perf_counter()
@@ -757,7 +846,7 @@ class LoCoMoPredictOnlyRunner:
                         unit,
                         conversation,
                         config,
-                        run_context=run_context,
+                        run_context=unit_run_context,
                     )
                     ingestion_ms = (time.perf_counter() - ingestion_started_at) * 1000
                     _check_cancel(cancel_check)
@@ -772,6 +861,15 @@ class LoCoMoPredictOnlyRunner:
 
                     prediction_paths: list[Path] = []
                     timing_paths: list[Path] = []
+                    unit_run_context.report_progress(
+                        ProgressUpdate(
+                            stage="answer_generation",
+                            label="Generating benchmark answers",
+                            completed=0,
+                            total=len(questions),
+                            item_label="questions",
+                        )
+                    )
                     for question_offset, question in enumerate(questions):
                         prediction_path, timing_path = self._write_question_prediction(
                             run_path,
@@ -781,11 +879,20 @@ class LoCoMoPredictOnlyRunner:
                             config,
                             prepared,
                             ingestion_ms,
-                            run_context,
+                            unit_run_context,
                             cancel_check,
                         )
                         prediction_paths.append(prediction_path)
                         timing_paths.append(timing_path)
+                        unit_run_context.report_progress(
+                            ProgressUpdate(
+                                stage="answer_generation",
+                                label="Generating benchmark answers",
+                                completed=question_offset + 1,
+                                total=len(questions),
+                                item_label="questions",
+                            )
+                        )
                         if interrupt_at == "after-first-prediction" and question_offset == 0:
                             raise InjectedInterrupt("Interrupted after first LoCoMo prediction.")
 
@@ -796,7 +903,7 @@ class LoCoMoPredictOnlyRunner:
                         item=conversation,
                         config=config,
                         framework=self.framework,
-                        run_context=run_context,
+                        run_context=unit_run_context,
                     )
                     self._write_committed_checkpoint(
                         run_path,
@@ -1114,6 +1221,7 @@ class LoCoMoPredictOnlyRunner:
         *,
         committed_units: tuple[str, ...],
         state: str = "RUNNING",
+        current_activity: dict[str, Any] | None = None,
     ) -> None:
         terminal_ids = expected_terminal_item_ids(manifest)
         committed = _committed_terminal_item_count(run_path, manifest, committed_units)
@@ -1125,6 +1233,7 @@ class LoCoMoPredictOnlyRunner:
             committed=committed,
             expected_units=len(manifest.expected_item_ids),
             committed_units=len(committed_units),
+            current_activity=current_activity,
         )
         write_json_atomic(run_path / "run-status.json", status.to_dict())
         if self.metrics is not None:
@@ -1137,6 +1246,7 @@ class LoCoMoPredictOnlyRunner:
                 state=state,
                 expected_units=len(manifest.expected_item_ids),
                 committed_units=len(committed_units),
+                current_activity=current_activity,
             )
 
 

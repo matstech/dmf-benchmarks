@@ -830,9 +830,13 @@ The default output is designed for an operator and includes:
 
 - the persisted run state;
 - a plain-language description of the current lifecycle phase;
-- an ASCII progress bar and percentage;
+- an **overall progress** bar and percentage for the complete run;
 - **evaluation items**, meaning questions or records that receive a benchmark result;
 - **input records**, meaning source conversations or source records already processed;
+- while an input record is active, a **partial progress** bar for the current
+  activity, such as memory initialization, memory ingestion, or answer generation;
+- the number of work items completed in that activity and the position of the
+  current input record;
 - the appropriate next action (`status` again or `verify`).
 
 For agents and automation, request the stable JSON representation:
@@ -842,8 +846,13 @@ dmf-benchctl status --run-id RUN_ID --json
 ```
 
 The public JSON uses `evaluation_items` and `input_records` with the explicit
-fields `completed`, `total`, and `failed`. It deliberately does not expose the
-ambiguous internal `units` terminology used by persisted checkpoints.
+fields `completed`, `total`, and `failed`. During active processing it also
+contains `current_activity`, including `stage`, `label`, `memory_system`,
+`completed`, `total`, `percentage`, `item_label`, `input_record`, and
+`updated_at`. The activity contract is independent of DMF and Mem0, so another
+memory-system adapter can report progress through the same fields. The public
+schema deliberately does not expose the ambiguous internal `units` terminology
+used by persisted checkpoints.
 
 Resume an interrupted run:
 

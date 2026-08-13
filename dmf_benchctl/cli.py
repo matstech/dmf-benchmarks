@@ -41,7 +41,7 @@ RUN_LAYER_TYPE = "application/vnd.dmf-bench.run.layer.v1.tar+gzip"
 STATUS_BAR_WIDTH = 30
 PHASE_LABELS = {
     "PREFLIGHT": "Preparing runtime",
-    "RUNNING": "Generating benchmark answers",
+    "RUNNING": "Processing benchmark data",
     "JUDGING": "Judging generated answers",
     "EVALUATING": "Calculating evaluation metrics",
     "REPORTING": "Writing reports",
@@ -159,6 +159,38 @@ def _operator_status(payload: dict[str, object]) -> dict[str, object]:
         phase_label = PHASE_LABELS.get(phase)
     if phase_label is None:
         phase_label = phase.replace("_", " ").title()
+    current_activity_payload = payload.get("current_activity")
+    current_activity: dict[str, object] | None = None
+    if isinstance(current_activity_payload, dict):
+        activity_completed = _status_count(current_activity_payload, "completed")
+        activity_total = _status_count(current_activity_payload, "total")
+        activity_percentage = (
+            min(100.0, max(0.0, activity_completed / activity_total * 100.0))
+            if activity_total
+            else 0.0
+        )
+        input_record_payload = current_activity_payload.get("input_record")
+        input_record = (
+            {
+                "number": _status_count(input_record_payload, "number"),
+                "total": _status_count(input_record_payload, "total"),
+            }
+            if isinstance(input_record_payload, dict)
+            else {"number": 0, "total": total_records}
+        )
+        current_activity = {
+            "stage": str(current_activity_payload.get("stage", "unknown")),
+            "label": str(current_activity_payload.get("label", "Current activity")),
+            "memory_system": str(
+                current_activity_payload.get("memory_system", "unknown")
+            ),
+            "completed": activity_completed,
+            "total": activity_total,
+            "percentage": round(activity_percentage, 1),
+            "item_label": str(current_activity_payload.get("item_label", "items")),
+            "input_record": input_record,
+            "updated_at": str(current_activity_payload.get("updated_at", "")),
+        }
     return {
         "schema_version": 1,
         "run_id": str(payload.get("run_id", "")),
@@ -178,6 +210,7 @@ def _operator_status(payload: dict[str, object]) -> dict[str, object]:
             "total": total_records,
             "failed": failed_records,
         },
+        "current_activity": current_activity,
         "ready_for_verification": state == "COMPLETED",
     }
 
@@ -192,6 +225,7 @@ def _print_operator_status(status: dict[str, object]) -> None:
     progress = status["progress"]
     evaluation_items = status["evaluation_items"]
     records = status["input_records"]
+    current_activity = status.get("current_activity")
     assert isinstance(progress, dict)
     assert isinstance(evaluation_items, dict)
     assert isinstance(records, dict)
@@ -199,7 +233,7 @@ def _print_operator_status(status: dict[str, object]) -> None:
     print(f"Run:              {status['run_id']}")
     print(f"State:            {status['state']}")
     print(f"Current phase:    {status['phase_label']} ({status['phase']})")
-    print(f"Progress:         {_progress_bar(percentage)} {percentage:5.1f}%")
+    print(f"Overall progress: {_progress_bar(percentage)} {percentage:5.1f}%")
     print(
         "Evaluation items:"
         f" {evaluation_items['completed']} of {evaluation_items['total']} completed"
@@ -210,6 +244,24 @@ def _print_operator_status(status: dict[str, object]) -> None:
         f"{records['completed']} of {records['total']} processed"
         f"; {records['failed']} failed (source conversations or records)"
     )
+    if isinstance(current_activity, dict):
+        activity_percentage = float(current_activity["percentage"])
+        input_record = current_activity["input_record"]
+        assert isinstance(input_record, dict)
+        print(
+            "Current activity:"
+            f" {current_activity['label']} ({current_activity['stage']})"
+        )
+        print(
+            "Partial progress:"
+            f" {_progress_bar(activity_percentage)} {activity_percentage:5.1f}%"
+            f" — {current_activity['completed']} of {current_activity['total']}"
+            f" {current_activity['item_label']}"
+        )
+        print(
+            "Current record:  "
+            f" {input_record['number']} of {input_record['total']}"
+        )
     if bool(status["ready_for_verification"]):
         print("Next action:      run verify for this RUN_ID")
     else:

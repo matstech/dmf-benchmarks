@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 
 class ResumeCapability(str, Enum):
@@ -29,12 +29,44 @@ class BenchmarkUnit:
 
 
 @dataclass(frozen=True)
+class ProgressUpdate:
+    """Framework-neutral progress for the activity inside one atomic unit."""
+
+    stage: str
+    label: str
+    completed: int
+    total: int
+    item_label: str
+
+    def __post_init__(self) -> None:
+        if not self.stage or not self.label or not self.item_label:
+            raise ValueError("Progress stage, label, and item label cannot be empty.")
+        if self.completed < 0 or self.total < 0:
+            raise ValueError("Progress counts cannot be negative.")
+        if self.completed > self.total:
+            raise ValueError("Progress completed count cannot exceed total count.")
+
+
+ProgressReporter = Callable[[ProgressUpdate], None]
+
+
+@dataclass(frozen=True)
 class FrameworkRunContext:
     """Operational run identity required for isolated framework resources."""
 
     run_id: str
     scientific_fingerprint: str
     run_dir: Path
+    progress_reporter: ProgressReporter | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
+
+    def report_progress(self, update: ProgressUpdate) -> None:
+        """Publish optional live progress without coupling an adapter to storage."""
+        if self.progress_reporter is not None:
+            self.progress_reporter(update)
 
 
 @dataclass(frozen=True)
