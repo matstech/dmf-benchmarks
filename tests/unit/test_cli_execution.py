@@ -596,13 +596,19 @@ def test_metrics_are_scrapable_while_answerer_is_blocked(tmp_path: Path) -> None
     worker.start()
     try:
         assert entered.wait(timeout=5)
-        assert read_json(root / "runs" / "metrics-live" / "run-status.json")["state"] == "RUNNING"
+        status = read_json(root / "runs" / "metrics-live" / "run-status.json")
+        assert status["state"] == "RUNNING"
+        assert status["current_activity"]["stage"] == "answer_generation"
+        assert status["current_activity"]["completed"] == 0
+        assert status["current_activity"]["total"] == 1
         body = urllib.request.urlopen(
             f"http://127.0.0.1:{server.port}/metrics",
             timeout=2,
         ).read().decode("utf-8")
         assert "dmf_bench_run_progress_ratio" in body
         assert "dmf_bench_run_expected_items" in body
+        assert 'dmf_bench_current_activity_expected_items{benchmark="longmemeval",framework="dmf",stage="answer_generation"} 1.0' in body
+        assert 'dmf_bench_current_activity_progress_ratio{benchmark="longmemeval",framework="dmf",stage="answer_generation"} 0.0' in body
         assert "protocol=" not in body
     finally:
         release.set()

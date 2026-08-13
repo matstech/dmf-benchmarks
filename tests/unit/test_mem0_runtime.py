@@ -13,7 +13,7 @@ from dmf_bench.frameworks.mem0_runtime import (
     add_mem0_with_observation_timestamp,
     empty_memory_internal_usage,
 )
-from dmf_bench.adapters.base import BenchmarkUnit, FrameworkRunContext
+from dmf_bench.adapters.base import BenchmarkUnit, FrameworkRunContext, ProgressUpdate
 from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
 from dmf_bench.benchmarks.longmemeval.adapter import LongMemEvalAdapter
 from dmf_bench.adapters.mem0 import (
@@ -252,7 +252,13 @@ def test_locomo_runtime_ingests_once_reuses_memory_and_preserves_provenance(
 ) -> None:
     unit, conversation, questions = locomo_case()
     config = runtime_config(tmp_path, benchmark="locomo")
-    context = run_context(tmp_path)
+    updates: list[ProgressUpdate] = []
+    context = FrameworkRunContext(
+        run_id="run-a",
+        scientific_fingerprint="a" * 64,
+        run_dir=tmp_path / "runs" / "run-a",
+        progress_reporter=updates.append,
+    )
     client = FakeQdrantClient()
     builder = FakeMem0EngineBuilder()
     adapter = adapter_for(benchmark="locomo", client=client, builder=builder)
@@ -261,6 +267,14 @@ def test_locomo_runtime_ingests_once_reuses_memory_and_preserves_provenance(
     backend = builder.backend
     assert backend is not None
     assert builder.build_count == 1
+    assert [(update.stage, update.completed, update.total) for update in updates] == [
+        ("memory_initialization", 0, 1),
+        ("memory_initialization", 1, 1),
+        ("memory_ingestion", 0, 3),
+        ("memory_ingestion", 1, 3),
+        ("memory_ingestion", 2, 3),
+        ("memory_ingestion", 3, 3),
+    ]
     assert [call["messages"][0]["role"] for call in backend.add_calls] == [
         "user",
         "assistant",

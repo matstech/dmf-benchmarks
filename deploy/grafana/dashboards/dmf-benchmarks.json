@@ -26,9 +26,10 @@
       "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
       "targets": [
         {"expr": "dmf_bench_persisted_run_completed_input_records{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"} / clamp_min(dmf_bench_persisted_run_expected_input_records{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}, 1)", "legendFormat": "{{benchmark}}/{{framework}} input records"},
-        {"expr": "dmf_bench_persisted_run_progress_ratio{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "{{benchmark}}/{{framework}} evaluation items"}
+        {"expr": "dmf_bench_persisted_run_progress_ratio{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "{{benchmark}}/{{framework}} evaluation items"},
+        {"expr": "dmf_bench_persisted_run_current_activity_progress_ratio{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "{{benchmark}}/{{framework}} current {{stage}}"}
       ],
-      "title": "Run progress",
+      "title": "Overall and current activity progress",
       "type": "timeseries"
     },
     {

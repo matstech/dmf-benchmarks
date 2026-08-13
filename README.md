@@ -159,17 +159,22 @@ dmf-benchctl verify --run-id local-locomo-dmf-001
 dmf-benchctl stack down
 ```
 
-`status` is human-oriented by default. It shows the current lifecycle phase, an
-ASCII progress bar, completed evaluation items (questions or scored records),
-and processed input records (source conversations or records). Automation can
-request the stable renamed schema with:
+`status` is human-oriented by default. It shows the current lifecycle phase,
+an overall ASCII progress bar, completed evaluation items (questions or scored
+records), and processed input records (source conversations or records). While
+one input record is being processed, it also shows a second bar for the current
+activity, such as memory initialization, memory ingestion, or answer generation.
+This partial progress is framework-neutral and works for any memory system that
+reports progress through the adapter contract. Automation can request the stable
+renamed schema with:
 
 ```bash
 dmf-benchctl status --run-id local-locomo-dmf-001 --json
 ```
 
-The controller status schema exposes `evaluation_items` and `input_records`;
-the internal checkpoint term `units` is not part of this user-facing format.
+The controller status schema exposes `evaluation_items`, `input_records`, and an
+optional `current_activity`; the internal checkpoint term `units` is not part
+of this user-facing format.
 
 The checked-in `smoke/` directory contains ready-to-use restricted configs for
 LoCoMo and LongMemEval across DMF and Mem0. They are substantial smoke checks,

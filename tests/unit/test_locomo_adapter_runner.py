@@ -5,7 +5,13 @@ from typing import Any
 
 import pytest
 
-from dmf_bench.adapters.base import AnswererRequest, BenchmarkUnit, FrameworkRunContext, RetrievalResult
+from dmf_bench.adapters.base import (
+    AnswererRequest,
+    BenchmarkUnit,
+    FrameworkRunContext,
+    ProgressUpdate,
+    RetrievalResult,
+)
 from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json
@@ -45,8 +51,16 @@ class FakeLoCoMoFramework:
         *,
         run_context: FrameworkRunContext,
     ) -> dict[str, Any]:
-        del run_context
         self.prepare_calls.append(unit.unit_id)
+        run_context.report_progress(
+            ProgressUpdate(
+                stage="memory_ingestion",
+                label="Ingesting source memory",
+                completed=2,
+                total=5,
+                item_label="fixture records",
+            )
+        )
         return {
             "qdrant_commit_barrier": True,
             "cleanup_manifest": {
@@ -373,6 +387,12 @@ def test_locomo_interrupt_after_ingestion_restarts_entire_conversation(tmp_path:
         run_dir / "items" / "conversation-0001" / "cleanup-manifest.json"
     )
     assert read_json(cleanup_manifest_path)["unit_hash"] == "conversation-0001"
+    activity = read_json(run_dir / "run-status.json")["current_activity"]
+    assert activity["stage"] == "memory_ingestion"
+    assert activity["completed"] == 2
+    assert activity["total"] == 5
+    assert activity["memory_system"] == "dmf"
+    assert activity["input_record"] == {"number": 1, "total": 1}
 
     resumed_framework = FakeLoCoMoFramework()
     resumed = LoCoMoPredictOnlyRunner(

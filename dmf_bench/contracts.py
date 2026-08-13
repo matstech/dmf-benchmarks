@@ -423,6 +423,7 @@ class RunStatus:
     expected_units: int | None = None
     committed_units: int | None = None
     failed_units: int = 0
+    current_activity: dict[str, Any] | None = None
     schema_version: int = RUN_STATUS_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -435,7 +436,7 @@ class RunStatus:
     def to_dict(self) -> dict[str, Any]:
         expected_units = self.expected if self.expected_units is None else self.expected_units
         committed_units = self.committed if self.committed_units is None else self.committed_units
-        return {
+        payload: dict[str, Any] = {
             "schema_version": self.schema_version,
             "run_id": self.run_id,
             "state": self.state,
@@ -451,6 +452,9 @@ class RunStatus:
                 "failed": self.failed_units,
             },
         }
+        if self.current_activity is not None:
+            payload["current_activity"] = dict(self.current_activity)
+        return payload
 
 
 @dataclass(frozen=True)

@@ -280,6 +280,16 @@ def test_operator_status_renames_internal_units_and_renders_progress(
             "phase": "RUNNING",
             "items": {"committed": 42, "expected": 103, "failed": 0},
             "units": {"committed": 4, "expected": 10, "failed": 0},
+            "current_activity": {
+                "stage": "memory_ingestion",
+                "label": "Ingesting source memory",
+                "memory_system": "mem0",
+                "completed": 15,
+                "total": 60,
+                "item_label": "conversation turns",
+                "input_record": {"number": 5, "total": 10},
+                "updated_at": "2026-08-13T07:00:00.000Z",
+            },
         }
     )
 
@@ -294,6 +304,17 @@ def test_operator_status_renames_internal_units_and_renders_progress(
         "total": 10,
         "failed": 0,
     }
+    assert status["current_activity"] == {
+        "stage": "memory_ingestion",
+        "label": "Ingesting source memory",
+        "memory_system": "mem0",
+        "completed": 15,
+        "total": 60,
+        "percentage": 25.0,
+        "item_label": "conversation turns",
+        "input_record": {"number": 5, "total": 10},
+        "updated_at": "2026-08-13T07:00:00.000Z",
+    }
     assert "items" not in status
     assert "units" not in status
 
@@ -304,6 +325,11 @@ def test_operator_status_renames_internal_units_and_renders_progress(
     assert "4 of 10 processed" in output
     assert "questions or scored records" in output
     assert "source conversations or records" in output
+    assert "Overall progress:" in output
+    assert "Current activity: Ingesting source memory (memory_ingestion)" in output
+    assert "[########----------------------]  25.0%" in output
+    assert "15 of 60 conversation turns" in output
+    assert "Current record:   5 of 10" in output
 
 
 def test_run_detaches_worker_and_prints_inspection_commands(

@@ -22,6 +22,11 @@ def test_persisted_metrics_project_progress_usage_timing_and_results(tmp_path: P
             "state": "COMPLETED",
             "items": {"expected": 10, "committed": 10},
             "units": {"expected": 2, "committed": 2},
+            "current_activity": {
+                "stage": "memory_ingestion",
+                "completed": 3,
+                "total": 12,
+            },
         },
     )
     write_json_atomic(
@@ -84,6 +89,9 @@ def test_persisted_metrics_project_progress_usage_timing_and_results(tmp_path: P
     body = render_persisted_run_metrics(tmp_path).decode("utf-8")
 
     assert 'dmf_bench_persisted_run_progress_ratio{benchmark="locomo",framework="dmf"} 1.0' in body
+    assert 'dmf_bench_persisted_run_current_activity_expected_items{benchmark="locomo",framework="dmf",stage="memory_ingestion"} 12.0' in body
+    assert 'dmf_bench_persisted_run_current_activity_completed_items{benchmark="locomo",framework="dmf",stage="memory_ingestion"} 3.0' in body
+    assert 'dmf_bench_persisted_run_current_activity_progress_ratio{benchmark="locomo",framework="dmf",stage="memory_ingestion"} 0.25' in body
     assert 'role="answerer",token_type="total"} 120.0' in body
     assert 'dmf_bench_persisted_run_execution_seconds{benchmark="locomo",framework="dmf"} 12.5' in body
     assert 'stage="judge"} 2.5' in body
