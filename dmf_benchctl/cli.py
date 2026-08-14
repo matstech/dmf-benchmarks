@@ -230,15 +230,23 @@ def _print_operator_status(status: dict[str, object]) -> None:
     assert isinstance(evaluation_items, dict)
     assert isinstance(records, dict)
     percentage = float(progress["percentage"])
+    judging = status["phase"] == "JUDGING"
     print(f"Run:              {status['run_id']}")
     print(f"State:            {status['state']}")
     print(f"Current phase:    {status['phase_label']} ({status['phase']})")
     print(f"Overall progress: {_progress_bar(percentage)} {percentage:5.1f}%")
-    print(
-        "Evaluation items:"
-        f" {evaluation_items['completed']} of {evaluation_items['total']} completed"
-        f"; {evaluation_items['failed']} failed (questions or scored records)"
-    )
+    if judging:
+        print(
+            "Judging progress:"
+            f" {evaluation_items['completed']} of {evaluation_items['total']} answers judged"
+            f"; {evaluation_items['failed']} failed"
+        )
+    else:
+        print(
+            "Evaluation items:"
+            f" {evaluation_items['completed']} of {evaluation_items['total']} completed"
+            f"; {evaluation_items['failed']} failed (questions or scored records)"
+        )
     print(
         "Input records:   "
         f"{records['completed']} of {records['total']} processed"

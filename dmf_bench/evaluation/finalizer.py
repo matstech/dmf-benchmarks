@@ -187,6 +187,18 @@ class OfflineLifecycleFinalizer:
                     phase="JUDGING",
                     committed=0,
                 )
+
+                def record_judging_progress(completed: int) -> None:
+                    nonlocal committed_items
+                    committed_items = completed
+                    self._write_status(
+                        run_dir,
+                        manifest,
+                        state="JUDGING",
+                        phase="JUDGING",
+                        committed=completed,
+                    )
+
                 evaluations, judgment_paths, item_digests = self._judge_predictions(
                     run_dir,
                     manifest,
@@ -195,6 +207,7 @@ class OfflineLifecycleFinalizer:
                     attempt=active_attempt,
                     interrupt_at=interrupt_at,
                     cancel_check=cancel_check,
+                    progress=record_judging_progress,
                 )
                 evaluations_path = run_dir / "evaluations" / "evaluations.json"
                 write_json_atomic(evaluations_path, evaluations)
@@ -703,6 +716,7 @@ class OfflineLifecycleFinalizer:
         attempt: Attempt,
         interrupt_at: str | None,
         cancel_check: Callable[[], None] | None,
+        progress: Callable[[int], None],
     ) -> tuple[list[dict[str, Any]], tuple[Path, ...], dict[str, str]]:
         judged: list[dict[str, Any]] = []
         judgment_paths: list[Path] = []
@@ -826,6 +840,7 @@ class OfflineLifecycleFinalizer:
             if timing_path.is_file():
                 judgment_paths.append(timing_path)
             item_digests[question_id] = item_checkpoint.checkpoint_digest
+            progress(len(judged))
             if interrupt_at == "after-first-judgment" and offset == 0:
                 raise InjectedTerminalInterrupt("Interrupted after first judgment commit.")
         return judged, tuple(judgment_paths), item_digests

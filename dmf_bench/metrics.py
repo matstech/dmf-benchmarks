@@ -315,10 +315,27 @@ class BenchmarkMetrics:
         outcome: str,
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
+        total_tokens: int | None = None,
+        request_count: int = 1,
     ) -> None:
-        self.llm_requests_total.labels(_role(role), _provider(provider), _bounded(outcome)).inc()
-        self.llm_tokens_total.labels(_role(role), _provider(provider), "prompt").inc(max(prompt_tokens, 0))
-        self.llm_tokens_total.labels(_role(role), _provider(provider), "completion").inc(max(completion_tokens, 0))
+        safe_role = _role(role)
+        safe_provider = _provider(provider)
+        prompt = max(prompt_tokens, 0)
+        completion = max(completion_tokens, 0)
+        total = max(
+            prompt + completion if total_tokens is None else total_tokens,
+            0,
+        )
+        self.llm_requests_total.labels(
+            safe_role,
+            safe_provider,
+            _bounded(outcome),
+        ).inc(max(request_count, 0))
+        self.llm_tokens_total.labels(safe_role, safe_provider, "prompt").inc(prompt)
+        self.llm_tokens_total.labels(safe_role, safe_provider, "completion").inc(
+            completion
+        )
+        self.llm_tokens_total.labels(safe_role, safe_provider, "total").inc(total)
 
     def record_llm_retry(self, *, role: str, provider: str) -> None:
         self.llm_retries_total.labels(_role(role), _provider(provider)).inc()
@@ -406,7 +423,12 @@ def _phase(value: str) -> str:
 
 def _role(value: str) -> str:
     normalized = str(value).lower()
-    return normalized if normalized in {"answerer", "judge", "embedding", "reranker"} else "other"
+    return (
+        normalized
+        if normalized
+        in {"answerer", "judge", "memory_internal", "embedding", "reranker"}
+        else "other"
+    )
 
 
 def _provider(value: str) -> str:

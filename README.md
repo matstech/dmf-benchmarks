@@ -30,6 +30,10 @@ dmf-benchctl --help
 dmf-benchctl COMMAND --help
 ```
 
+`dmf-benchctl` is the public operator interface. The bundled `dmf-bench`
+executable is the container runtime invoked by the controller and is not a
+separate user workflow.
+
 ## Repository development
 
 The Makefile is the maintainer interface for local quality checks, packaging,
@@ -52,6 +56,7 @@ Common targets are:
 | `make image-manifest-create` | Assemble the multi-platform image reference |
 | `make run-oci-dry-run` | Build a local OCI run bundle without publishing it |
 | `make run-oci-push` | Publish an official run artifact |
+| `make release` | Tag `VERSION` and create the GitHub Release after prompting for notes |
 
 Run `make help` for the complete target list and required variables.
 

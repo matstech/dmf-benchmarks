@@ -426,6 +426,7 @@ def _record_llm(
         outcome=outcome,
         prompt_tokens=usage.prompt_tokens_total if usage else 0,
         completion_tokens=usage.completion_tokens if usage else 0,
+        total_tokens=usage.total_tokens if usage else 0,
     )
 
 

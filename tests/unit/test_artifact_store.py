@@ -120,18 +120,14 @@ def test_artifact_api_lists_verifies_and_downloads_json(tmp_path: Path) -> None:
     assert landing.headers["content-type"].startswith("text/html")
     assert "DMF Benchmarks" in landing.text
     assert 'id="run-result"' in landing.text
+    assert 'id="live-status"' in landing.text
+    assert 'id="overall-progress"' in landing.text
     assert 'id="artifact-browser"' in landing.text
     assert 'id="run-list"' in landing.text
     assert 'id="artifact-list"' in landing.text
-    assert 'async function loadRunResource' in landing.text
+    assert 'async function loadRunStatus' in landing.text
     assert 'async function loadArtifacts' in landing.text
-    assert '<button class="run-link"' in landing.text
-    assert '<a class="run-link"' not in landing.text
-    assert '>Rigorous</button>' not in landing.text
-    assert '>Ablation</button>' not in landing.text
-    assert 'id="browse-artifacts"' not in landing.text
-    for label in ("Inspect", "Verify", "Summary", "Tokens", "Timing", "Resources"):
-        assert f">{label}</button>" in landing.text
+    assert 'data-run-path=' not in landing.text
     assert openapi.json()["info"]["version"] == "0.2.0"
     assert health.json() == {
         "status": "ok",
@@ -149,6 +145,7 @@ def test_artifact_api_lists_verifies_and_downloads_json(tmp_path: Path) -> None:
         "path": "/d/dmf-benchmarks-evaluation/dmf-benchmarks-evaluation",
     }
     assert runs.json()["runs"][0]["run_id"] == "run-001"
+    assert runs.json()["runs"][0]["state"] == "COMPLETED"
     assert runs.json()["runs"][0]["artifact_count"] > 0
     assert run.json()["completed"] is True
     assert artifacts.json()["artifacts"]
@@ -159,6 +156,34 @@ def test_artifact_api_lists_verifies_and_downloads_json(tmp_path: Path) -> None:
     assert attachment.headers["content-disposition"] == (
         'attachment; filename="summary.json"'
     )
+
+
+def test_artifact_api_exposes_live_run_status_read_only(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "shared-runs"
+    run_dir = LocalArtifactStore(runs_dir).create_run(make_manifest("run-live"))
+    write_json_atomic(
+        run_dir / "run-status.json",
+        {
+            "schema_version": 2,
+            "run_id": "run-live",
+            "state": "JUDGING",
+            "phase": "JUDGING",
+            "items": {"expected": 2, "committed": 1, "failed": 0},
+            "units": {"expected": 1, "committed": 1, "failed": 0},
+        },
+    )
+    client = TestClient(create_app(runs_dir))
+
+    status = client.get("/runs/run-live/status")
+    runs = client.get("/runs").json()["runs"]
+
+    assert status.status_code == 200
+    assert status.json()["state"] == "JUDGING"
+    assert status.json()["items"]["committed"] == 1
+    assert runs[0]["run_id"] == "run-live"
+    assert runs[0]["state"] == "JUDGING"
+    assert runs[0]["completed"] is False
+    assert runs[0]["artifact_count"] == 0
 
 
 def test_artifact_api_service_catalog_uses_published_ports(

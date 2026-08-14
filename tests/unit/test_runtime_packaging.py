@@ -137,6 +137,7 @@ def test_makefile_exposes_maintainer_targets() -> None:
         "image-manifest-create",
         "run-oci-dry-run",
         "run-oci-push",
+        "release",
         "gh-workflows",
         "gh-workflow-run",
         "gh-workflow-watch",

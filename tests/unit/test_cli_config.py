@@ -241,3 +241,15 @@ def test_module_entrypoint_matches_cli() -> None:
 
     assert result.returncode == 0
     assert "supported combinations:" in result.stdout
+
+
+@pytest.mark.parametrize("removed_command", ["report", "publish"])
+def test_runtime_cli_does_not_advertise_placeholder_commands(
+    removed_command: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main([removed_command])
+
+    assert exc_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err

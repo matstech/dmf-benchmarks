@@ -25,6 +25,7 @@ from dmf_bench.adapters.mem0 import (
     mem0_framework_factories,
 )
 from dmf_bench.adapters.qdrant_lifecycle import CollectionRole
+from dmf_bench.metrics import BenchmarkMetrics
 from dmf_bench.provenance import build_run_provenance
 
 
@@ -235,6 +236,7 @@ def adapter_for(
     benchmark: str,
     client: FakeQdrantClient,
     builder: FakeMem0EngineBuilder,
+    metrics: BenchmarkMetrics | None = None,
 ) -> Mem0QdrantFrameworkAdapter:
     mem0_config = load_mem0_config(
         CONFIG_DIR / f"{benchmark}_mem0_qdrant_settings.yaml"
@@ -244,6 +246,7 @@ def adapter_for(
         qdrant_client=client,
         mem0_config=mem0_config,
         engine_builder=builder,
+        metrics=metrics,
     )
 
 
@@ -364,6 +367,56 @@ def test_longmemeval_runtime_preserves_pair_order_and_native_surface(
     assert set(client.deleted) == owned_names
     assert client.collections == {"foreign_collection": 4}
     assert not history_path.exists()
+
+
+def test_mem0_internal_llm_usage_is_emitted_live_per_operation(
+    tmp_path: Path,
+) -> None:
+    unit, conversation, questions = locomo_case()
+    config = runtime_config(tmp_path, benchmark="locomo")
+    context = run_context(tmp_path)
+    client = FakeQdrantClient()
+    builder = FakeMem0EngineBuilder()
+    metrics = BenchmarkMetrics()
+    adapter = adapter_for(
+        benchmark="locomo",
+        client=client,
+        builder=builder,
+        metrics=metrics,
+    )
+
+    prepared = adapter.prepare_unit(
+        unit,
+        conversation,
+        config,
+        run_context=context,
+    )
+    adapter.retrieve_question(
+        unit,
+        conversation,
+        questions[0],
+        config,
+        prepared,
+        run_context=context,
+    )
+
+    body = metrics.render().decode("utf-8")
+    assert (
+        'dmf_bench_llm_requests_total{outcome="completed",provider="openai",'
+        'role="memory_internal"} 4.0'
+    ) in body
+    assert (
+        'dmf_bench_llm_tokens_total{provider="openai",role="memory_internal",'
+        'token_type="prompt"} 11.0'
+    ) in body
+    assert (
+        'dmf_bench_llm_tokens_total{provider="openai",role="memory_internal",'
+        'token_type="completion"} 3.0'
+    ) in body
+    assert (
+        'dmf_bench_llm_tokens_total{provider="openai",role="memory_internal",'
+        'token_type="total"} 14.0'
+    ) in body
 
 
 def test_mem0_resources_are_isolated_by_run_and_unit(tmp_path: Path) -> None:
