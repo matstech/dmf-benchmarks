@@ -21,6 +21,11 @@ All normal user operations go through `dmf-benchctl`. Do not invoke Docker
 Compose directly. The controller is the stable external interface; Docker
 Compose is only its current orchestration implementation.
 
+Do not invoke the bundled `dmf-bench` executable directly for normal
+operations. It is the internal runtime executed inside the benchmark image.
+The controller exposes supported runtime diagnostics through its advanced
+`runtime` command.
+
 ## What do you want to do?
 
 | Goal | Command |

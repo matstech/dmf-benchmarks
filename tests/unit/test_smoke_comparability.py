@@ -54,4 +54,5 @@ def test_smoke_sampling_bounds_complete_ingestion_and_answering_records() -> Non
 
 def test_smoke_judges_use_bounded_response_recovery() -> None:
     for config in _load_configs():
+        assert config["models"]["judge"]["requested_model"] == "gpt-4.1"
         assert config["models"]["judge"]["runtime"]["response_max_retries"] == 1

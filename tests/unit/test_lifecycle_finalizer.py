@@ -431,6 +431,27 @@ def test_terminal_resume_does_not_regenerate_valid_judgments(tmp_path: Path) -> 
     assert second_judge.calls == []
 
 
+def test_judging_updates_status_after_each_committed_judgment(tmp_path: Path) -> None:
+    config = make_longmemeval_config(tmp_path)
+    store = LocalArtifactStore(tmp_path / "runs")
+    LongMemEvalPredictOnlyRunner(
+        artifact_store=store,
+        framework=FakeLongMemEvalFramework(),
+        answerer=FakeAnswerer(["almonds", "the Rome trip"]),
+    ).run(config)
+
+    with pytest.raises(InjectedTerminalInterrupt, match="first judgment"):
+        OfflineLifecycleFinalizer(artifact_store=store, judge=FakeJudge()).finalize(
+            "lifecycle-longmemeval",
+            interrupt_at="after-first-judgment",
+        )
+
+    status = read_json(store.run_dir("lifecycle-longmemeval") / "run-status.json")
+    assert status["state"] == "JUDGING"
+    assert status["phase"] == "JUDGING"
+    assert status["items"] == {"expected": 2, "committed": 1, "failed": 0}
+
+
 def test_required_evaluator_failure_sets_failed_evaluation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

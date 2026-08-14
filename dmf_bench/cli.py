@@ -44,7 +44,7 @@ ApplicationBuilder = Callable[..., RuntimeApplication]
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dmf-bench",
-        description="DMF benchmark harness.",
+        description="Internal benchmark runtime invoked by dmf-benchctl.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -168,15 +168,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory containing committed runs and derived reports.",
     )
 
-    future_commands = {
+    runtime_state_commands = {
         "resume": "Resume an existing run from its persisted resolved config.",
         "status": "Inspect persisted run status without mutating it.",
         "health": "Check the local runner volume without mutating it.",
         "inspect": "Inspect manifest and local artifact state.",
-        "report": "Run report maintenance flow (not implemented yet).",
-        "publish": "Run publish maintenance flow (not implemented yet).",
     }
-    for name, help_text in future_commands.items():
+    for name, help_text in runtime_state_commands.items():
         command_parser = subparsers.add_parser(name, help=help_text)
         if name in {"inspect", "resume", "status"}:
             command_parser.add_argument("--run-id", required=True, help="Run id to inspect.")
@@ -396,7 +394,7 @@ def main(
 
     parser.exit(
         2,
-        f"dmf-bench: error: command {args.command!r} is not implemented yet\n",
+        f"dmf-bench: error: unsupported internal command {args.command!r}\n",
     )
     return 2
 

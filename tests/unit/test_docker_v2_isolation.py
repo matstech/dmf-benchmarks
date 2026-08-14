@@ -165,6 +165,20 @@ def test_operations_and_evaluation_dashboards_are_separate() -> None:
     assert "dmf_bench_persisted_run_result" in evaluation_queries
     assert "process_cpu_seconds_total" in operations_queries
     assert "process_resident_memory_bytes" in operations_queries
+    assert "rest_responses_total" in operations_queries
+    assert 'endpoint="/collections/{collection_name}/points"' in operations_queries
+
+    live_targets = [
+        target
+        for panel in operations["panels"]
+        for target in panel.get("targets", [])
+        if 'job="benchmark"' in target.get("expr", "")
+        or 'job="qdrant"' in target.get("expr", "")
+    ]
+    assert live_targets
+    for target in live_targets:
+        assert "group_left(benchmark, framework)" in target["expr"]
+        assert "{{benchmark}}/{{framework}}" in target["legendFormat"]
 
     for dashboard in (operations, evaluation):
         variables = dashboard["templating"]["list"]
@@ -173,11 +187,21 @@ def test_operations_and_evaluation_dashboards_are_separate() -> None:
             "memory_system",
         ]
         assert all(variable["multi"] is False for variable in variables)
-        assert all(variable["includeAll"] is False for variable in variables)
         for panel in dashboard["panels"]:
             for target in panel.get("targets", []):
                 assert "$benchmark_framework" in target["expr"]
                 assert "$memory_system" in target["expr"]
+
+    operations_variables = {
+        variable["name"]: variable for variable in operations["templating"]["list"]
+    }
+    evaluation_variables = {
+        variable["name"]: variable for variable in evaluation["templating"]["list"]
+    }
+    assert operations_variables["benchmark_framework"]["includeAll"] is False
+    assert operations_variables["memory_system"]["includeAll"] is True
+    assert operations_variables["memory_system"]["allValue"] == ".*"
+    assert all(variable["includeAll"] is False for variable in evaluation_variables.values())
 
     for panel in operations["panels"]:
         if panel["type"] == "timeseries":

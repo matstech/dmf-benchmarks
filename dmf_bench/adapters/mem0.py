@@ -532,17 +532,19 @@ class Mem0QdrantFrameworkAdapter:
         question_text: str,
         prepared: Mem0PreparedUnit,
     ) -> RetrievalResult:
-        baseline = prepared.engine.backend.get_usage()
         started = time.perf_counter()
-        surface = self.native_surface_builder(
-            mem0_backend=prepared.engine.backend,
-            query_text=question_text,
-            user_id=prepared.user_id,
-            top_k=self._config().top_k,
+        surface, retrieval_delta = self._observe_memory_internal_operation(
+            prepared.engine.backend,
+            lambda: self.native_surface_builder(
+                mem0_backend=prepared.engine.backend,
+                query_text=question_text,
+                user_id=prepared.user_id,
+                top_k=self._config().top_k,
+            ),
         )
         elapsed_seconds = time.perf_counter() - started
         search_results = normalize_mem0_search_response(surface.raw_search_output)
-        usage = self._question_usage(question_id, prepared, baseline)
+        usage = self._question_usage(question_id, prepared, retrieval_delta)
         self._record_retrieval_metric("retrieve", elapsed_seconds)
         return RetrievalResult(
             cutoff_label="native",
@@ -572,10 +574,8 @@ class Mem0QdrantFrameworkAdapter:
         self,
         question_id: str,
         prepared: Mem0PreparedUnit,
-        baseline: dict[str, Any],
+        retrieval_delta: dict[str, Any],
     ) -> dict[str, Any]:
-        current = prepared.engine.backend.get_usage()
-        retrieval_delta = subtract_memory_internal_usage(current, baseline)
         ingestion_share = prepared.ingestion_usage_shares.get(
             question_id,
             empty_memory_internal_usage(available=True, framework="mem0"),
@@ -592,17 +592,35 @@ class Mem0QdrantFrameworkAdapter:
         user_id: str,
         progress: ProgressReporter,
     ) -> tuple[dict[str, dict[str, Any]], int, int]:
+        def add_memory(
+            messages: list[dict[str, str]],
+            *,
+            user_id: str,
+            timestamp: int | None,
+            metadata: dict[str, Any],
+        ) -> int:
+            result, _usage = self._observe_memory_internal_operation(
+                backend,
+                lambda: backend.add(
+                    messages,
+                    user_id=user_id,
+                    timestamp=timestamp,
+                    metadata=metadata,
+                ),
+            )
+            return int(result)
+
         if benchmark == "locomo":
             return _ingest_locomo(
                 item,
-                backend,
+                add_memory,
                 user_id=user_id,
                 conversation_idx=int(unit.metadata.get("conversation_idx", 0)),
                 progress=progress,
             )
         return _ingest_longmemeval(
             item,
-            backend,
+            add_memory,
             user_id=user_id,
             progress=progress,
         )
@@ -693,6 +711,62 @@ class Mem0QdrantFrameworkAdapter:
             if path.exists():
                 path.unlink()
 
+    def _observe_memory_internal_operation(
+        self,
+        backend: Mem0RuntimeBackend,
+        callback: Callable[[], Any],
+    ) -> tuple[Any, dict[str, Any]]:
+        baseline = backend.get_usage()
+        try:
+            result = callback()
+        except Exception:
+            try:
+                failed_delta = subtract_memory_internal_usage(
+                    backend.get_usage(),
+                    baseline,
+                )
+            except Exception:
+                pass
+            else:
+                self._record_memory_internal_usage(
+                    failed_delta,
+                    outcome="failed",
+                )
+            raise
+        delta = subtract_memory_internal_usage(backend.get_usage(), baseline)
+        self._record_memory_internal_usage(delta, outcome="completed")
+        return result, delta
+
+    def _record_memory_internal_usage(
+        self,
+        usage: dict[str, Any],
+        *,
+        outcome: str,
+    ) -> None:
+        if self.metrics is None:
+            return
+        calls = int(usage.get("calls", 0) or 0)
+        prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+        completion_tokens = int(usage.get("completion_tokens", 0) or 0)
+        total_tokens = int(usage.get("total_tokens", 0) or 0)
+        if not any((calls, prompt_tokens, completion_tokens, total_tokens)):
+            return
+        llm = self._config().memory_config.get("llm")
+        provider = (
+            str(llm.get("provider", "")).strip()
+            if isinstance(llm, dict)
+            else ""
+        )
+        self.metrics.record_llm_request(
+            role="memory_internal",
+            provider=provider or "mem0",
+            outcome=outcome,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            request_count=calls,
+        )
+
     def _observe_qdrant(self, operation: str, callback: Callable[[], Any]) -> Any:
         started = time.perf_counter()
         try:
@@ -759,7 +833,7 @@ def mem0_framework_factories(
 
 def _ingest_locomo(
     conversation: dict[str, Any],
-    backend: Mem0RuntimeBackend,
+    add_memory: Callable[..., int],
     *,
     user_id: str,
     conversation_idx: int,
@@ -804,7 +878,7 @@ def _ingest_locomo(
     for current_ts, session_key, time_str, turn, ingest_text in work_rows:
         dia_id = _required_string(turn, "dia_id")
         role = "user" if str(turn.get("speaker", "")) == speaker_a else "assistant"
-        persisted_memory_count += backend.add(
+        persisted_memory_count += add_memory(
             [{"role": role, "content": ingest_text}],
             user_id=user_id,
             timestamp=int(current_ts),
@@ -846,7 +920,7 @@ def _ingest_locomo(
 
 def _ingest_longmemeval(
     question: dict[str, Any],
-    backend: Mem0RuntimeBackend,
+    add_memory: Callable[..., int],
     *,
     user_id: str,
     progress: ProgressReporter,
@@ -886,7 +960,7 @@ def _ingest_longmemeval(
             "source_unit_type": "session",
             "source_unit_id": session_id,
         }
-        persisted_memory_count += backend.add(
+        persisted_memory_count += add_memory(
             messages,
             user_id=user_id,
             timestamp=session_ts,

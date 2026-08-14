@@ -42,7 +42,7 @@ CANARY_CONFIRM ?=
 	compose-config prometheus-check stack-up stack-down \
 	image-build image-build-ghcr image-inspect image-smoke image-push image-buildx-push image-manifest-create ghcr-login \
 	run-oci-dry-run run-oci-push \
-	gh-workflows gh-workflow-run gh-workflow-watch gh-release-dry-run gh-container-smoke gh-scientific-canary
+	release gh-workflows gh-workflow-run gh-workflow-watch gh-release-dry-run gh-container-smoke gh-scientific-canary
 
 help:
 	@printf "Maintainer targets for $(PROJECT)\n\n"
@@ -70,6 +70,7 @@ help:
 	@printf "  make run-oci-dry-run RUN_ID=id GHCR_OWNER=org [RUN_SUBJECT=image@sha256:...]\n"
 	@printf "  make run-oci-push RUN_ID=id GHCR_OWNER=org RUN_SUBJECT=image@sha256:...\n\n"
 	@printf "GitHub Actions:\n"
+	@printf "  make release                         Tag VERSION and create the GitHub release (asks for notes)\n"
 	@printf "  make gh-workflows                    List workflows\n"
 	@printf "  make gh-workflow-run WORKFLOW=file.yml\n"
 	@printf "  make gh-release-dry-run              Trigger release dry-run workflow\n"
@@ -198,6 +199,33 @@ run-oci-push: require-RUN_ID require-GHCR_OWNER require-RUN_SUBJECT
 	args=(publish-run-oci --run-id "$(RUN_ID)" --runs-dir "$(RUNS_DIR)" --ref "$(RUN_REF)"); \
 	args+=(--subject "$(RUN_SUBJECT)" --oras-bin "$(ORAS)"); \
 	$(POETRY) run dmf-bench "$${args[@]}"
+
+release:
+	@set -euo pipefail; \
+	branch="$$(git branch --show-current)"; \
+	test "$$branch" = main || { printf "release must run from branch main (current: %s)\n" "$$branch" >&2; exit 2; }; \
+	git diff --quiet || { printf "release requires no unstaged tracked changes\n" >&2; exit 2; }; \
+	git diff --cached --quiet || { printf "release requires no staged changes\n" >&2; exit 2; }; \
+	tag="v$(VERSION)"; \
+	test "$(VERSION)" != 0.0.0 || { printf "could not determine the project version\n" >&2; exit 2; }; \
+	if git rev-parse --verify --quiet "refs/tags/$$tag" >/dev/null; then \
+		printf "tag already exists locally: %s\n" "$$tag" >&2; exit 2; \
+	fi; \
+	if git ls-remote --exit-code --tags origin "refs/tags/$$tag" >/dev/null 2>&1; then \
+		printf "tag already exists on origin: %s\n" "$$tag" >&2; exit 2; \
+	fi; \
+	read -r -p "Release notes for $$tag (single line): " notes; \
+	test -n "$$notes" || { printf "release notes cannot be empty\n" >&2; exit 2; }; \
+	notes_file="$$(mktemp)"; \
+	trap 'rm -f "$$notes_file"' EXIT; \
+	printf '%s\n' "$$notes" > "$$notes_file"; \
+	git tag -a "$$tag" -m "$$notes"; \
+	git push origin "$$tag"; \
+	if ! $(GH) release create "$$tag" --verify-tag --title "DMF Benchmarks $$tag" --notes-file "$$notes_file"; then \
+		$(GH) release view "$$tag" >/dev/null 2>&1 || exit 1; \
+	fi; \
+	$(GH) release edit "$$tag" --title "DMF Benchmarks $$tag" --notes-file "$$notes_file"; \
+	printf "Released %s\n" "$$tag"
 
 gh-workflows:
 	$(GH) workflow list

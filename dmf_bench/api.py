@@ -17,7 +17,7 @@ from dmf_bench.atomic_io import read_json
 from dmf_bench.derived_evaluation import derived_evaluation_dir
 from dmf_bench.metrics import BenchmarkMetrics
 from dmf_bench.persisted_metrics import render_persisted_run_metrics
-from dmf_bench.state import StateError
+from dmf_bench.state import StateError, load_manifest, load_run_status
 
 
 LANDING_PAGE_PATH = Path(__file__).with_name("static") / "index.html"
@@ -51,9 +51,20 @@ def create_app(runs_dir: str | Path, metrics: BenchmarkMetrics | None = None) ->
     @app.get("/runs")
     def list_runs() -> dict[str, Any]:
         return {
-            "runs": list_committed_runs(runs_path),
+            "runs": list_available_runs(runs_path),
             "mode": "read-only",
         }
+
+    @app.get("/runs/{run_id}/status")
+    def run_status(run_id: str) -> dict[str, Any]:
+        try:
+            run_dir = store.run_dir(run_id)
+            load_manifest(run_dir)
+            status = load_run_status(run_dir)
+            assert status is not None
+            return status
+        except (StateError, ValueError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/runs/{run_id}")
     def inspect_run(run_id: str) -> dict[str, Any]:
@@ -136,8 +147,8 @@ def create_default_app() -> FastAPI:
     return create_app(os.getenv("DMF_BENCH_RUNS_DIR", "/bench/runs"))
 
 
-def list_committed_runs(runs_path: Path) -> list[dict[str, Any]]:
-    """Return lightweight metadata for committed runs without rehashing artifacts."""
+def list_available_runs(runs_path: Path) -> list[dict[str, Any]]:
+    """Return lightweight metadata for active and committed runs."""
 
     if not runs_path.is_dir():
         return []
@@ -147,18 +158,26 @@ def list_committed_runs(runs_path: Path) -> list[dict[str, Any]]:
             continue
         completion_path = run_path / "final" / "COMPLETED.json"
         manifest_path = run_path / "run-manifest.json"
-        if not completion_path.is_file() or not manifest_path.is_file():
+        status_path = run_path / "run-status.json"
+        if not manifest_path.is_file():
             continue
         try:
-            manifest = read_json(manifest_path)
-            completion = read_json(completion_path)
-            if not isinstance(manifest, dict) or not isinstance(completion, dict):
+            manifest = load_manifest(run_path)
+            status = load_run_status(run_path, required=False)
+            completion = read_json(completion_path) if completion_path.is_file() else None
+            if completion is not None and not isinstance(completion, dict):
                 continue
-            inputs = manifest.get("fingerprint_inputs") or {}
-            if not isinstance(inputs, dict):
-                inputs = {}
-            modified = completion_path.stat().st_mtime
-        except (OSError, TypeError, ValueError):
+            inputs = manifest.fingerprint_inputs
+            completed = completion_path.is_file()
+            state = str((status or {}).get("state") or ("COMPLETED" if completed else "CREATED"))
+            phase = str((status or {}).get("phase") or state)
+            modified_path = (
+                completion_path
+                if completed
+                else status_path if status_path.is_file() else manifest_path
+            )
+            modified = modified_path.stat().st_mtime
+        except (OSError, StateError, TypeError, ValueError):
             continue
         runs.append(
             (
@@ -167,11 +186,21 @@ def list_committed_runs(runs_path: Path) -> list[dict[str, Any]]:
                     "run_id": run_path.name,
                     "benchmark": str(inputs.get("benchmark", "unknown")),
                     "framework": str(inputs.get("framework", "unknown")),
-                    "completed_at": datetime.fromtimestamp(modified, UTC)
+                    "state": state,
+                    "phase": phase,
+                    "completed": completed,
+                    "updated_at": datetime.fromtimestamp(modified, UTC)
                     .isoformat()
                     .replace("+00:00", "Z"),
+                    "completed_at": (
+                        datetime.fromtimestamp(completion_path.stat().st_mtime, UTC)
+                        .isoformat()
+                        .replace("+00:00", "Z")
+                        if completed
+                        else None
+                    ),
                     "artifact_count": int(
-                        ((completion.get("verification") or {}).get("verified_artifact_count") or 0)
+                        (((completion or {}).get("verification") or {}).get("verified_artifact_count") or 0)
                     ),
                 },
             )

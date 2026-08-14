@@ -48,19 +48,21 @@
       "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
       "targets": [
         {"expr": "dmf_bench_persisted_run_llm_tokens{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "persisted {{benchmark}}/{{framework}} {{role}} {{token_type}}"},
-        {"expr": "dmf_bench_llm_tokens_total{job=\"benchmark\"} and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "live {{role}}/{{provider}} {{token_type}}"}
+        {"expr": "dmf_bench_llm_tokens_total{job=\"benchmark\"} * on() group_left(benchmark, framework) (dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"} >= bool 0)", "legendFormat": "live {{benchmark}}/{{framework}} {{role}}/{{provider}} {{token_type}}"}
       ],
       "title": "LLM token usage",
       "type": "timeseries"
     },
     {
       "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "description": "Client-side benchmark operations plus Qdrant server availability and point-upsert request throughput. Server upserts are HTTP requests, not the number of individual points written.",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
       "id": 4,
       "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
       "targets": [
-        {"expr": "rate(dmf_bench_qdrant_client_operations_total{job=\"benchmark\"}[$__rate_interval]) and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "{{operation}}/{{outcome}}"},
-        {"expr": "up{job=\"qdrant\"} and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "qdrant up"}
+        {"expr": "rate(dmf_bench_qdrant_client_operations_total{job=\"benchmark\"}[$__rate_interval]) * on() group_left(benchmark, framework) (dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"} >= bool 0)", "legendFormat": "{{benchmark}}/{{framework}} client {{operation}}/{{outcome}}"},
+        {"expr": "sum by (status) (rate(rest_responses_total{job=\"qdrant\",method=\"PUT\",endpoint=\"/collections/{collection_name}/points\"}[$__rate_interval])) * on() group_left(benchmark, framework) (dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"} >= bool 0)", "legendFormat": "{{benchmark}}/{{framework}} server upsert HTTP {{status}}"},
+        {"expr": "up{job=\"qdrant\"} * on() group_left(benchmark, framework) (dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"} >= bool 0)", "legendFormat": "{{benchmark}}/{{framework}} qdrant up"}
       ],
       "title": "Qdrant client and server",
       "type": "timeseries"
@@ -86,7 +88,7 @@
       "description": "Live process utilization plus the final attempt average. One fully used logical CPU is 100%; 1200% means twelve logical CPUs. The benchmark container is capped by DMF_BENCH_CPUS.",
       "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
       "targets": [
-        {"expr": "100 * rate(process_cpu_seconds_total{job=\"benchmark\"}[$__rate_interval]) and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "live benchmark process"},
+        {"expr": "100 * rate(process_cpu_seconds_total{job=\"benchmark\"}[$__rate_interval]) * on() group_left(benchmark, framework) (dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"} >= bool 0)", "legendFormat": "live {{benchmark}}/{{framework}} benchmark process"},
         {"expr": "dmf_bench_persisted_run_average_cpu_percent{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "completed attempt average"}
       ],
       "title": "Benchmark CPU usage",
@@ -100,9 +102,9 @@
       "description": "Live benchmark/Qdrant memory plus the persisted peak RSS of the latest completed attempt.",
       "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "right", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
       "targets": [
-        {"expr": "process_resident_memory_bytes{job=\"benchmark\"} and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "benchmark RSS"},
-        {"expr": "memory_resident_bytes{job=\"qdrant\"} and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "qdrant resident"},
-        {"expr": "memory_allocated_bytes{job=\"qdrant\"} and on() dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "qdrant allocated"},
+        {"expr": "process_resident_memory_bytes{job=\"benchmark\"} * on() group_left(benchmark, framework) (dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"} >= bool 0)", "legendFormat": "{{benchmark}}/{{framework}} benchmark RSS"},
+        {"expr": "memory_resident_bytes{job=\"qdrant\"} * on() group_left(benchmark, framework) (dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"} >= bool 0)", "legendFormat": "{{benchmark}}/{{framework}} qdrant resident"},
+        {"expr": "memory_allocated_bytes{job=\"qdrant\"} * on() group_left(benchmark, framework) (dmf_bench_run_expected_items{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"} >= bool 0)", "legendFormat": "{{benchmark}}/{{framework}} qdrant allocated"},
         {"expr": "dmf_bench_persisted_run_peak_rss_bytes{benchmark=~\"$benchmark_framework\",framework=~\"$memory_system\"}", "legendFormat": "completed attempt peak RSS"}
       ],
       "title": "Memory usage",
@@ -136,7 +138,8 @@
         "datasource": {"type": "prometheus", "uid": "Prometheus"},
         "definition": "label_values(dmf_bench_persisted_run_state{benchmark=~\"$benchmark_framework\"}, framework)",
         "hide": 0,
-        "includeAll": false,
+        "includeAll": true,
+        "allValue": ".*",
         "label": "Memory system",
         "multi": false,
         "name": "memory_system",
@@ -154,6 +157,6 @@
   "timezone": "browser",
   "title": "DMF Benchmarks — Operations",
   "uid": "dmf-benchmarks",
-  "version": 4,
+  "version": 5,
   "weekStart": ""
 }

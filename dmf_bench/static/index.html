@@ -16,6 +16,7 @@
       --ok: #58c99a;
       --pending: #d5a95f;
       --error: #e0737f;
+      --progress: #6d9fca;
     }
 
     * { box-sizing: border-box; }
@@ -29,38 +30,70 @@
     }
 
     main {
-      width: min(1040px, calc(100% - 32px));
+      width: min(1120px, calc(100% - 32px));
       margin: 0 auto;
-      padding: 24px 0;
+      padding: 20px 0;
+    }
+
+    button,
+    input { font: inherit; }
+
+    button {
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      color: var(--text);
+      background: transparent;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    button:hover,
+    button:focus-visible {
+      border-color: var(--muted);
+      background: var(--surface-hover);
+      outline: none;
+    }
+
+    button:disabled { cursor: default; opacity: 0.4; }
+
+    .status-bar,
+    .service-strip,
+    .run-panel,
+    .live-status,
+    .browser-column,
+    .run-result {
+      border: 1px solid var(--border);
+      background: var(--surface);
     }
 
     .status-bar {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
       min-height: 42px;
-      padding: 0 12px;
-      border: 1px solid var(--border);
-      background: var(--surface);
+      padding: 7px 10px;
     }
 
-    .system-name {
-      font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+    .system-name,
+    .run-code,
+    .result-endpoint {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
-    .mode {
-      color: var(--muted);
-      font-size: 12px;
-    }
+    .system-name { font-weight: 650; }
+    .mode { color: var(--muted); font-size: 12px; }
 
-    .api-state {
+    .api-state,
+    .service-status {
       display: inline-flex;
       align-items: center;
-      gap: 7px;
-      margin-left: auto;
+      gap: 6px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
+      white-space: nowrap;
     }
+
+    .api-state { margin-left: auto; }
 
     .api-state::before,
     .service-status::before {
@@ -74,101 +107,41 @@
     .online::before { background: var(--ok); }
     .offline::before { background: var(--error); }
 
-    button {
-      padding: 6px 9px;
-      border: 1px solid var(--border);
-      color: var(--text);
-      background: transparent;
-      font: inherit;
-      font-size: 12px;
-      cursor: pointer;
-    }
-
-    button:hover,
-    button:focus-visible {
-      border-color: var(--muted);
-      outline: none;
-    }
-
-    .services {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      margin-top: 16px;
+    .service-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 18px;
+      margin-top: 8px;
+      padding: 8px 10px;
     }
 
     .service {
-      display: block;
-      min-width: 0;
-      padding: 14px;
-      border: 1px solid var(--border);
-      color: inherit;
-      background: var(--surface);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      font-size: 12px;
       text-decoration: none;
     }
 
     .service:hover,
-    .service:focus-visible {
-      border-color: var(--muted);
-      background: var(--surface-hover);
-      outline: none;
-    }
-
-    .service-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .service-name { font-weight: 650; }
-
-    .service-status {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      color: var(--muted);
-      font-size: 11px;
-    }
-
-    .service-description {
-      display: block;
-      margin-top: 6px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .service-url {
-      display: block;
-      margin-top: 12px;
-      overflow: hidden;
-      color: #b8c2cd;
-      font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+    .service:focus-visible { color: white; outline: none; text-decoration: underline; }
 
     .run-panel {
-      margin-top: 16px;
-      padding: 14px;
-      border: 1px solid var(--border);
-      background: var(--surface);
+      margin-top: 12px;
+      padding: 12px;
     }
 
-    .run-input {
+    .run-toolbar {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
-      gap: 12px;
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      gap: 8px;
       align-items: center;
     }
 
-    label {
-      color: var(--muted);
-      font-size: 12px;
-    }
+    label { color: var(--muted); font-size: 12px; }
 
-    input,
-    select {
+    input {
       width: 100%;
       min-width: 0;
       padding: 9px 10px;
@@ -179,102 +152,111 @@
       font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
-    input:focus,
-    select:focus { border-color: var(--muted); }
+    input:focus { border-color: var(--muted); }
 
-    .run-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 12px;
-    }
-
-    .run-link {
-      padding: 7px 9px;
-      border: 1px solid var(--border);
-      background: transparent;
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .run-link.ready { color: var(--text); }
-    .run-link:disabled { cursor: default; opacity: 0.45; }
-
-    .run-link.ready:hover,
-    .run-link.ready:focus-visible {
-      border-color: var(--muted);
-      background: var(--surface-hover);
-      outline: none;
-    }
-
-    .run-link.active {
-      border-color: var(--muted);
-      background: var(--surface-hover);
-    }
-
-    .run-result {
-      margin-top: 12px;
-      border: 1px solid var(--border);
+    .live-status {
+      margin-top: 10px;
+      padding: 12px;
       background: var(--background);
     }
 
-    .result-bar {
+    .live-header {
       display: flex;
       align-items: center;
       gap: 10px;
-      min-height: 36px;
-      padding: 6px 8px 6px 10px;
+      padding-bottom: 10px;
       border-bottom: 1px solid var(--border);
     }
 
-    .result-endpoint {
+    .run-code {
       min-width: 0;
       overflow: hidden;
-      color: var(--muted);
-      font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    .result-status {
+    .state-badge {
       margin-left: auto;
-      color: var(--muted);
-      font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
-      white-space: nowrap;
+      padding: 2px 6px;
+      border: 1px solid var(--border);
+      color: var(--pending);
+      font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
-    .result-status.success { color: var(--ok); }
-    .result-status.error { color: var(--error); }
+    .state-badge.completed { color: var(--ok); }
+    .state-badge.failed { color: var(--error); }
+    .phase-label { color: var(--muted); font-size: 11px; }
 
-    .result-body {
-      max-height: 560px;
-      min-height: 72px;
-      margin: 0;
-      padding: 12px;
-      overflow: auto;
-      color: var(--text);
-      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-      tab-size: 2;
-    }
-
-    .artifact-browser {
+    .progress-grid {
       display: grid;
-      grid-template-columns: minmax(220px, 0.8fr) minmax(0, 2fr);
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .progress-row {
+      display: grid;
+      grid-template-columns: 90px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .progress-name,
+    .progress-value { color: var(--muted); font-size: 11px; }
+    .progress-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .progress-track {
+      height: 9px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .progress-fill {
+      width: 0;
+      height: 100%;
+      background: var(--progress);
+      transition: width 180ms linear;
+    }
+
+    .run-counters {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 8px;
       margin-top: 12px;
     }
 
-    .browser-column {
+    .counter {
       min-width: 0;
+      padding: 8px;
       border: 1px solid var(--border);
-      background: var(--background);
+      background: var(--surface);
     }
+
+    .counter-label { display: block; color: var(--muted); font-size: 10px; }
+    .counter-value { display: block; margin-top: 3px; font-size: 12px; }
+
+    .status-message {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .status-message.error { color: var(--error); }
+
+    .artifact-browser {
+      display: grid;
+      grid-template-columns: minmax(250px, 0.85fr) minmax(0, 2fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .browser-column { min-width: 0; background: var(--background); }
 
     .browser-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
       min-height: 36px;
       padding: 6px 8px 6px 10px;
       border-bottom: 1px solid var(--border);
@@ -282,16 +264,8 @@
       font-size: 11px;
     }
 
-    .browser-list {
-      max-height: 440px;
-      overflow: auto;
-    }
-
-    .browser-empty {
-      padding: 12px;
-      color: var(--muted);
-      font-size: 12px;
-    }
+    .browser-list { max-height: 430px; overflow: auto; }
+    .browser-empty { padding: 12px; color: var(--muted); font-size: 12px; }
 
     .run-entry,
     .artifact-entry {
@@ -308,13 +282,14 @@
 
     .run-entry:last-child,
     .artifact-entry:last-child { border-bottom: 0; }
-
     .run-entry:hover,
-    .run-entry:focus-visible { background: var(--surface-hover); }
-
+    .run-entry:focus-visible,
     .run-entry.active { background: var(--surface-hover); }
 
+    .entry-stack { min-width: 0; }
+
     .entry-main {
+      display: block;
       min-width: 0;
       overflow: hidden;
       font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -322,18 +297,22 @@
       white-space: nowrap;
     }
 
+    .entry-sub {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .entry-state,
     .entry-meta {
       margin-left: auto;
       color: var(--muted);
-      font-size: 10px;
+      font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
       white-space: nowrap;
     }
 
-    .artifact-actions {
-      display: flex;
-      gap: 5px;
-      margin-left: auto;
-    }
+    .artifact-actions { display: flex; gap: 5px; margin-left: auto; }
 
     .artifact-action {
       padding: 4px 7px;
@@ -346,22 +325,63 @@
     }
 
     .artifact-action:hover,
-    .artifact-action:focus-visible {
-      border-color: var(--muted);
-      color: var(--text);
-      outline: none;
+    .artifact-action:focus-visible { border-color: var(--muted); color: var(--text); outline: none; }
+
+    .run-result {
+      margin-top: 10px;
+      background: var(--background);
     }
 
-    @media (max-width: 680px) {
-      main { width: min(100% - 20px, 1040px); padding: 10px 0; }
-      .status-bar { flex-wrap: wrap; padding: 10px; }
+    .run-result summary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 36px;
+      padding: 7px 10px;
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .run-result summary::-webkit-details-marker { display: none; }
+    .run-result summary::before { content: "+"; }
+    .run-result[open] summary::before { content: "−"; }
+
+    .result-endpoint {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .result-status { margin-left: auto; white-space: nowrap; }
+    .result-status.success { color: var(--ok); }
+    .result-status.error { color: var(--error); }
+
+    .result-body {
+      max-height: 520px;
+      min-height: 72px;
+      margin: 0;
+      padding: 12px;
+      overflow: auto;
+      border-top: 1px solid var(--border);
+      color: var(--text);
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      tab-size: 2;
+    }
+
+    @media (max-width: 720px) {
+      main { width: min(100% - 20px, 1120px); padding: 10px 0; }
+      .status-bar { flex-wrap: wrap; }
       .api-state { margin-left: 0; }
-      .services { grid-template-columns: 1fr; }
-      .run-input { grid-template-columns: 1fr; gap: 6px; }
+      .run-toolbar { grid-template-columns: 1fr 1fr; }
+      .run-toolbar label,
+      .run-toolbar input { grid-column: 1 / -1; }
       .artifact-browser { grid-template-columns: 1fr; }
-      .result-bar { flex-wrap: wrap; }
-      .result-status { margin-left: 0; }
-      .result-endpoint { flex-basis: 100%; }
+      .run-counters { grid-template-columns: 1fr; }
+      .progress-row { grid-template-columns: 70px minmax(0, 1fr); }
+      .progress-value { grid-column: 2; }
     }
   </style>
 </head>
@@ -371,141 +391,148 @@
       <span class="system-name">dmf-benchmarks</span>
       <span class="mode">local · read-only</span>
       <span class="api-state" id="api-state" aria-live="polite">checking API</span>
-      <button id="refresh" type="button">Refresh</button>
+      <button id="refresh-all" type="button">Refresh</button>
     </div>
 
-    <nav class="services" aria-label="Local services">
-      <a class="service" data-service="grafana" href="http://127.0.0.1:3000/d/dmf-benchmarks/dmf-benchmarks" target="_blank" rel="noopener">
-        <span class="service-row">
-          <span class="service-name">Grafana Operations</span>
-          <span class="service-status">checking</span>
-        </span>
-        <span class="service-description">Benchmark progress and operational dashboards</span>
-        <code class="service-url">127.0.0.1:3000</code>
-      </a>
-
-      <a class="service" data-service="grafana_evaluation" href="http://127.0.0.1:3000/d/dmf-benchmarks-evaluation/dmf-benchmarks-evaluation" target="_blank" rel="noopener">
-        <span class="service-row">
-          <span class="service-name">Grafana Evaluation</span>
-          <span class="service-status">checking</span>
-        </span>
-        <span class="service-description">Final scientific metrics from completed runs</span>
-        <code class="service-url">127.0.0.1:3000</code>
-      </a>
-
-      <a class="service" data-service="prometheus" href="http://127.0.0.1:9090" target="_blank" rel="noopener">
-        <span class="service-row">
-          <span class="service-name">Prometheus</span>
-          <span class="service-status">checking</span>
-        </span>
-        <span class="service-description">Metrics, targets and alerts</span>
-        <code class="service-url">127.0.0.1:9090</code>
-      </a>
-
-      <a class="service" data-service="qdrant" href="http://127.0.0.1:6333/dashboard" target="_blank" rel="noopener">
-        <span class="service-row">
-          <span class="service-name">Qdrant</span>
-          <span class="service-status">checking</span>
-        </span>
-        <span class="service-description">Collections and vector storage</span>
-        <code class="service-url">127.0.0.1:6333/dashboard</code>
-      </a>
-
-      <a class="service" data-service="artifact_api" href="/docs" target="_blank" rel="noopener">
-        <span class="service-row">
-          <span class="service-name">Artifact API</span>
-          <span class="service-status">checking</span>
-        </span>
-        <span class="service-description">Read-only API documentation</span>
-        <code class="service-url">/docs</code>
-      </a>
+    <nav class="service-strip" aria-label="Local services">
+      <a class="service" data-service="grafana" href="http://127.0.0.1:3000/d/dmf-benchmarks/dmf-benchmarks" target="_blank" rel="noopener"><span>Grafana Operations</span><span class="service-status">checking</span></a>
+      <a class="service" data-service="grafana_evaluation" href="http://127.0.0.1:3000/d/dmf-benchmarks-evaluation/dmf-benchmarks-evaluation" target="_blank" rel="noopener"><span>Grafana Evaluation</span><span class="service-status">checking</span></a>
+      <a class="service" data-service="prometheus" href="http://127.0.0.1:9090" target="_blank" rel="noopener"><span>Prometheus</span><span class="service-status">checking</span></a>
+      <a class="service" data-service="qdrant" href="http://127.0.0.1:6333/dashboard" target="_blank" rel="noopener"><span>Qdrant</span><span class="service-status">checking</span></a>
+      <a class="service" data-service="artifact_api" href="/docs" target="_blank" rel="noopener"><span>Artifact API</span><span class="service-status">checking</span></a>
     </nav>
 
-    <section class="run-panel" aria-label="Committed run artifacts">
-      <div class="run-input">
+    <section class="run-panel" aria-label="Run operations">
+      <div class="run-toolbar">
         <label for="run-id">Run ID</label>
-        <input id="run-id" type="text" list="run-id-options" autocomplete="off" spellcheck="false" placeholder="local-locomo-dmf-001">
+        <input id="run-id" type="text" list="run-id-options" autocomplete="off" spellcheck="false" placeholder="20260814T041405Z-locomo-mem0">
         <datalist id="run-id-options"></datalist>
+        <button id="load-run" type="button" disabled>Load</button>
+        <button id="refresh-run" type="button" disabled>Refresh run</button>
       </div>
-      <nav class="run-links" aria-label="Run artifacts">
-        <button class="run-link" type="button" data-run-path="" disabled>Inspect</button>
-        <button class="run-link" type="button" data-run-path="/verify" disabled>Verify</button>
-        <button class="run-link" type="button" data-run-path="/artifacts/reports/summary.json" disabled>Summary</button>
-        <button class="run-link" type="button" data-run-path="/artifacts/reports/usage.json" disabled>Tokens</button>
-        <button class="run-link" type="button" data-run-path="/artifacts/reports/timing.json" disabled>Timing</button>
-        <button class="run-link" type="button" data-run-path="/artifacts/reports/resources.json" disabled>Resources</button>
-      </nav>
+
+      <section class="live-status" id="live-status" aria-live="polite" hidden>
+        <div class="live-header">
+          <code class="run-code" id="live-run-id"></code>
+          <span class="phase-label" id="phase-label"></span>
+          <span class="state-badge" id="state-badge"></span>
+        </div>
+        <div class="progress-grid">
+          <div class="progress-row">
+            <span class="progress-name">Overall</span>
+            <div class="progress-track" role="progressbar" id="overall-progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="progress-fill" id="overall-progress-fill"></div></div>
+            <span class="progress-value" id="overall-progress-value">0.0%</span>
+          </div>
+          <div class="progress-row" id="activity-progress-row" hidden>
+            <span class="progress-name" id="activity-name">Current</span>
+            <div class="progress-track" role="progressbar" id="activity-progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="progress-fill" id="activity-progress-fill"></div></div>
+            <span class="progress-value" id="activity-progress-value">0.0%</span>
+          </div>
+        </div>
+        <div class="run-counters">
+          <div class="counter"><span class="counter-label" id="items-label">Evaluation items</span><span class="counter-value" id="items-value">0 of 0</span></div>
+          <div class="counter"><span class="counter-label">Input records</span><span class="counter-value" id="records-value">0 of 0</span></div>
+          <div class="counter"><span class="counter-label">Current activity</span><span class="counter-value" id="activity-value">Waiting for status</span></div>
+        </div>
+        <div class="status-message" id="status-message"></div>
+      </section>
+
       <section class="artifact-browser" id="artifact-browser">
         <div class="browser-column">
-          <div class="browser-bar">
-            <span>Committed runs</span>
-            <button id="refresh-runs" type="button">Refresh</button>
-          </div>
-          <div class="browser-list" id="run-list">
-            <div class="browser-empty">Loading…</div>
-          </div>
+          <div class="browser-bar"><span>Recent runs</span><button id="refresh-runs" type="button">Refresh</button></div>
+          <div class="browser-list" id="run-list"><div class="browser-empty">Loading…</div></div>
         </div>
         <div class="browser-column">
-          <div class="browser-bar">
-            <span id="artifact-list-label">Artifacts</span>
-          </div>
-          <div class="browser-list" id="artifact-list">
-            <div class="browser-empty">Select a committed run.</div>
-          </div>
+          <div class="browser-bar"><span id="artifact-list-label">Artifacts</span></div>
+          <div class="browser-list" id="artifact-list"><div class="browser-empty">Load a run to inspect its artifacts.</div></div>
         </div>
       </section>
-      <section class="run-result" id="run-result" aria-label="API response" aria-live="polite" hidden>
-        <div class="result-bar">
-          <code class="result-endpoint" id="result-endpoint"></code>
-          <span class="result-status" id="result-status"></span>
-          <button id="clear-result" type="button">Clear</button>
-        </div>
+
+      <details class="run-result" id="run-result">
+        <summary><span>Technical details</span><code class="result-endpoint" id="result-endpoint"></code><span class="result-status" id="result-status"></span></summary>
         <pre class="result-body" id="result-body" tabindex="0"></pre>
-      </section>
+      </details>
     </section>
   </main>
 
   <script>
+    const POLL_INTERVAL_MS = 2500;
+    const PHASE_LABELS = {
+      PREFLIGHT: "Checking configuration",
+      RUNNING: "Processing benchmark data",
+      JUDGING: "Judging generated answers",
+      EVALUATING: "Calculating final evaluation",
+      REPORTING: "Writing reports",
+      PUBLISHING: "Publishing artifacts",
+      VERIFYING: "Verifying artifacts",
+      COMPLETED: "Completed",
+    };
+
     const apiState = document.getElementById("api-state");
-    const refreshButton = document.getElementById("refresh");
-    const serviceCards = new Map(
-      [...document.querySelectorAll("[data-service]")].map((card) => [card.dataset.service, card])
-    );
+    const refreshAllButton = document.getElementById("refresh-all");
+    const serviceCards = new Map([...document.querySelectorAll("[data-service]")].map((card) => [card.dataset.service, card]));
+    const runInput = document.getElementById("run-id");
+    const loadRunButton = document.getElementById("load-run");
+    const refreshRunButton = document.getElementById("refresh-run");
+    const refreshRunsButton = document.getElementById("refresh-runs");
+    const runIdOptions = document.getElementById("run-id-options");
+    const runList = document.getElementById("run-list");
+    const artifactList = document.getElementById("artifact-list");
+    const artifactListLabel = document.getElementById("artifact-list-label");
+    const liveStatus = document.getElementById("live-status");
+    const liveRunId = document.getElementById("live-run-id");
+    const phaseLabel = document.getElementById("phase-label");
+    const stateBadge = document.getElementById("state-badge");
+    const overallProgress = document.getElementById("overall-progress");
+    const overallProgressFill = document.getElementById("overall-progress-fill");
+    const overallProgressValue = document.getElementById("overall-progress-value");
+    const activityProgressRow = document.getElementById("activity-progress-row");
+    const activityProgress = document.getElementById("activity-progress");
+    const activityProgressFill = document.getElementById("activity-progress-fill");
+    const activityProgressValue = document.getElementById("activity-progress-value");
+    const activityName = document.getElementById("activity-name");
+    const itemsLabel = document.getElementById("items-label");
+    const itemsValue = document.getElementById("items-value");
+    const recordsValue = document.getElementById("records-value");
+    const activityValue = document.getElementById("activity-value");
+    const statusMessage = document.getElementById("status-message");
+    const runResult = document.getElementById("run-result");
+    const resultEndpoint = document.getElementById("result-endpoint");
+    const resultStatus = document.getElementById("result-status");
+    const resultBody = document.getElementById("result-body");
+
+    let activeRunId = "";
+    let pollTimer = null;
+    let latestStatus = null;
+    let detailsMode = "status";
+    let detailsRequest = null;
 
     function serviceUrl(service) {
       if (service.same_origin) return service.path;
       return `${window.location.protocol}//${window.location.hostname}:${service.port}${service.path}`;
     }
 
-    function displayUrl(service) {
-      if (service.same_origin) return service.path;
-      return `${window.location.hostname}:${service.port}${service.path}`;
-    }
-
-    function setStatus(element, state) {
+    function setServiceStatus(element, state) {
       element.textContent = state;
       element.classList.remove("online", "offline");
-      if (state === "online") element.classList.add("online");
+      if (state === "online" || state === "API online") element.classList.add("online");
       if (state === "unavailable") element.classList.add("offline");
     }
 
     async function probeService(card, url, sameOrigin) {
       const status = card.querySelector(".service-status");
-      setStatus(status, "checking");
+      setServiceStatus(status, "checking");
       try {
-        await fetch(url, {
-          cache: "no-store",
-          mode: sameOrigin ? "same-origin" : "no-cors",
-        });
-        setStatus(status, "online");
+        await fetch(url, {cache: "no-store", mode: sameOrigin ? "same-origin" : "no-cors"});
+        setServiceStatus(status, "online");
       } catch (_error) {
-        setStatus(status, "unavailable");
+        setServiceStatus(status, "unavailable");
       }
     }
 
     async function loadServices() {
       try {
-        const response = await fetch("/services", { cache: "no-store" });
+        const response = await fetch("/services", {cache: "no-store"});
         if (!response.ok) throw new Error("service catalog unavailable");
         const catalog = await response.json();
         for (const [name, service] of Object.entries(catalog.services)) {
@@ -513,66 +540,190 @@
           if (!card) continue;
           const url = serviceUrl(service);
           card.href = url;
-          card.querySelector(".service-url").textContent = displayUrl(service);
+          card.title = `${window.location.hostname}:${service.port}${service.path}`;
           probeService(card, url, Boolean(service.same_origin));
         }
       } catch (_error) {
-        for (const card of serviceCards.values()) {
-          setStatus(card.querySelector(".service-status"), "unavailable");
-        }
+        for (const card of serviceCards.values()) setServiceStatus(card.querySelector(".service-status"), "unavailable");
       }
     }
 
     async function loadApiHealth() {
-      setStatus(apiState, "checking API");
+      setServiceStatus(apiState, "checking API");
       try {
-        const response = await fetch("/health", { cache: "no-store" });
+        const response = await fetch("/health", {cache: "no-store"});
         const health = await response.json();
         if (!response.ok || health.writable !== false) throw new Error("unexpected health response");
-        setStatus(apiState, "API online");
+        setServiceStatus(apiState, "API online");
       } catch (_error) {
-        setStatus(apiState, "unavailable");
+        setServiceStatus(apiState, "unavailable");
       }
     }
 
-    async function refreshStatus() {
-      refreshButton.disabled = true;
-      await Promise.all([loadServices(), loadApiHealth(), loadRuns()]);
-      refreshButton.disabled = false;
+    function count(payload, key) {
+      const value = payload && typeof payload === "object" ? Number(payload[key]) : 0;
+      return Number.isFinite(value) ? value : 0;
     }
 
-    const runInput = document.getElementById("run-id");
-    const runLinks = [...document.querySelectorAll("[data-run-path]")];
-    const runResult = document.getElementById("run-result");
-    const resultEndpoint = document.getElementById("result-endpoint");
-    const resultStatus = document.getElementById("result-status");
-    const resultBody = document.getElementById("result-body");
-    const clearResultButton = document.getElementById("clear-result");
-    const refreshRunsButton = document.getElementById("refresh-runs");
-    const runIdOptions = document.getElementById("run-id-options");
-    const runList = document.getElementById("run-list");
-    const artifactList = document.getElementById("artifact-list");
-    const artifactListLabel = document.getElementById("artifact-list-label");
-    let activeRequest = null;
-
-    function clearRunResult() {
-      if (activeRequest) activeRequest.abort();
-      activeRequest = null;
-      runResult.hidden = true;
-      runResult.removeAttribute("aria-busy");
-      resultEndpoint.textContent = "";
-      resultStatus.textContent = "";
-      resultStatus.classList.remove("success", "error");
-      resultBody.textContent = "";
-      for (const link of runLinks) link.classList.remove("active");
+    function percentage(completed, total) {
+      return total > 0 ? Math.min(100, Math.max(0, completed / total * 100)) : 0;
     }
 
-    function formatResponseBody(rawBody) {
-      if (!rawBody) return "(empty response)";
+    function updateProgress(element, fill, valueElement, value) {
+      const normalized = Math.min(100, Math.max(0, value));
+      element.setAttribute("aria-valuenow", normalized.toFixed(1));
+      fill.style.width = `${normalized}%`;
+      valueElement.textContent = `${normalized.toFixed(1)}%`;
+    }
+
+    function terminalState(state) {
+      return state === "COMPLETED" || state === "PARTIAL" || state === "INTERRUPTED" || state.startsWith("FAILED_");
+    }
+
+    function renderStatus(payload) {
+      latestStatus = payload;
+      const state = String(payload.state || "UNKNOWN");
+      const phase = String(payload.phase || state);
+      const items = payload.items || {};
+      const units = payload.units || {};
+      const itemCompleted = count(items, "committed");
+      const itemTotal = count(items, "expected");
+      const unitCompleted = count(units, "committed");
+      const unitTotal = count(units, "expected");
+      const itemFailed = count(items, "failed");
+      const unitFailed = count(units, "failed");
+
+      liveStatus.hidden = false;
+      liveRunId.textContent = String(payload.run_id || activeRunId);
+      phaseLabel.textContent = PHASE_LABELS[phase] || phase.replaceAll("_", " ").toLowerCase();
+      stateBadge.textContent = state;
+      stateBadge.className = "state-badge";
+      if (state === "COMPLETED") stateBadge.classList.add("completed");
+      if (state.startsWith("FAILED_") || state === "INTERRUPTED") stateBadge.classList.add("failed");
+
+      updateProgress(overallProgress, overallProgressFill, overallProgressValue, percentage(itemCompleted, itemTotal));
+      itemsLabel.textContent = phase === "JUDGING" ? "Answers judged" : "Evaluation items";
+      itemsValue.textContent = `${itemCompleted} of ${itemTotal}${itemFailed ? ` · ${itemFailed} failed` : ""}`;
+      recordsValue.textContent = `${unitCompleted} of ${unitTotal}${unitFailed ? ` · ${unitFailed} failed` : ""}`;
+
+      const activity = payload.current_activity;
+      if (activity && typeof activity === "object") {
+        const completed = count(activity, "completed");
+        const total = count(activity, "total");
+        activityProgressRow.hidden = false;
+        activityName.textContent = String(activity.label || "Current");
+        updateProgress(activityProgress, activityProgressFill, activityProgressValue, percentage(completed, total));
+        activityValue.textContent = `${activity.label || activity.stage || "Current"}: ${completed} of ${total} ${activity.item_label || "items"}`;
+      } else {
+        activityProgressRow.hidden = true;
+        activityValue.textContent = PHASE_LABELS[phase] || phase;
+      }
+
+      statusMessage.classList.remove("error");
+      statusMessage.textContent = terminalState(state) ? "Live polling stopped: run reached a terminal state." : `Live · refresh every ${(POLL_INTERVAL_MS / 1000).toFixed(1)} seconds`;
+      if (detailsMode === "status") setTechnicalDetails(`/runs/${encodeURIComponent(activeRunId)}/status`, "200 OK", payload, false);
+      updateRunEntryState(activeRunId, state);
+    }
+
+    function setTechnicalDetails(endpoint, status, body, open) {
+      resultEndpoint.textContent = endpoint;
+      resultStatus.textContent = status;
+      resultStatus.className = `result-status ${status.startsWith("2") ? "success" : status ? "error" : ""}`;
+      resultBody.textContent = typeof body === "string" ? body : JSON.stringify(body, null, 2);
+      if (open) runResult.open = true;
+    }
+
+    function stopPolling() {
+      if (pollTimer) window.clearTimeout(pollTimer);
+      pollTimer = null;
+    }
+
+    function schedulePolling(runId) {
+      stopPolling();
+      pollTimer = window.setTimeout(() => loadRunStatus(runId, true), POLL_INTERVAL_MS);
+    }
+
+    async function loadRunStatus(runId = runInput.value.trim(), poll = false) {
+      if (!runId || runId !== activeRunId) return;
+      refreshRunButton.disabled = true;
       try {
-        return JSON.stringify(JSON.parse(rawBody), null, 2);
-      } catch (_error) {
-        return rawBody;
+        const endpoint = `/runs/${encodeURIComponent(runId)}/status`;
+        const response = await fetch(endpoint, {cache: "no-store"});
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || `${response.status} ${response.statusText}`);
+        renderStatus(payload);
+        if (terminalState(String(payload.state || ""))) {
+          stopPolling();
+          await Promise.all([loadRuns(), loadArtifacts(runId)]);
+        } else {
+          schedulePolling(runId);
+        }
+      } catch (error) {
+        liveStatus.hidden = false;
+        liveRunId.textContent = runId;
+        phaseLabel.textContent = "Waiting for run status";
+        stateBadge.textContent = "WAITING";
+        stateBadge.className = "state-badge";
+        statusMessage.classList.add("error");
+        statusMessage.textContent = error instanceof Error ? error.message : String(error);
+        if (detailsMode === "status") setTechnicalDetails(`/runs/${encodeURIComponent(runId)}/status`, "not available", statusMessage.textContent, false);
+        if (poll) schedulePolling(runId);
+      } finally {
+        refreshRunButton.disabled = false;
+      }
+    }
+
+    function updateRunEntryState(runId, state) {
+      const entry = [...document.querySelectorAll(".run-entry")].find((candidate) => candidate.dataset.runId === runId);
+      if (!entry) return;
+      const label = entry.querySelector(".entry-state");
+      if (label) label.textContent = state;
+    }
+
+    async function loadRuns() {
+      refreshRunsButton.disabled = true;
+      try {
+        const response = await fetch("/runs", {cache: "no-store"});
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const payload = await response.json();
+        const runs = Array.isArray(payload.runs) ? payload.runs : [];
+        runIdOptions.replaceChildren();
+        runList.replaceChildren();
+        if (!runs.length) {
+          runList.innerHTML = '<div class="browser-empty">No runs found.</div>';
+          return;
+        }
+        for (const run of runs) {
+          const option = document.createElement("option");
+          option.value = run.run_id;
+          runIdOptions.append(option);
+
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "run-entry";
+          button.dataset.runId = run.run_id;
+          button.classList.toggle("active", run.run_id === activeRunId);
+          const stack = document.createElement("span");
+          stack.className = "entry-stack";
+          const name = document.createElement("span");
+          name.className = "entry-main";
+          name.textContent = run.run_id;
+          const meta = document.createElement("span");
+          meta.className = "entry-sub";
+          meta.textContent = `${run.benchmark}/${run.framework}`;
+          const state = document.createElement("span");
+          state.className = "entry-state";
+          state.textContent = run.state;
+          stack.append(name, meta);
+          button.append(stack, state);
+          button.addEventListener("click", () => selectRun(run.run_id));
+          runList.append(button);
+        }
+      } catch (error) {
+        runList.innerHTML = `<div class="browser-empty"></div>`;
+        runList.firstElementChild.textContent = error instanceof Error ? error.message : String(error);
+      } finally {
+        refreshRunsButton.disabled = false;
       }
     }
 
@@ -587,76 +738,26 @@
       return /\.(json|jsonl|txt|md|log|prom|csv|ya?ml|toml)$/i.test(path);
     }
 
-    async function loadRuns() {
-      refreshRunsButton.disabled = true;
-      try {
-        const response = await fetch("/runs", { cache: "no-store" });
-        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-        const payload = await response.json();
-        const runs = Array.isArray(payload.runs) ? payload.runs : [];
-        runIdOptions.replaceChildren();
-        runList.replaceChildren();
-        if (!runs.length) {
-          const empty = document.createElement("div");
-          empty.className = "browser-empty";
-          empty.textContent = "No committed runs found.";
-          runList.append(empty);
-          return;
-        }
-        for (const run of runs) {
-          const option = document.createElement("option");
-          option.value = run.run_id;
-          runIdOptions.append(option);
-
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "run-entry";
-          button.dataset.runId = run.run_id;
-          const name = document.createElement("span");
-          name.className = "entry-main";
-          name.textContent = run.run_id;
-          const meta = document.createElement("span");
-          meta.className = "entry-meta";
-          meta.textContent = `${run.benchmark}/${run.framework}`;
-          button.append(name, meta);
-          button.addEventListener("click", () => {
-            runInput.value = run.run_id;
-            updateRunLinks();
-            loadArtifacts();
-          });
-          runList.append(button);
-        }
-      } catch (error) {
-        runList.innerHTML = "";
-        const empty = document.createElement("div");
-        empty.className = "browser-empty";
-        empty.textContent = error instanceof Error ? error.message : String(error);
-        runList.append(empty);
-      } finally {
-        refreshRunsButton.disabled = false;
-      }
-    }
-
     function renderArtifacts(runId, artifacts) {
       artifactList.replaceChildren();
       artifactListLabel.textContent = `${runId} · ${artifacts.length} artifacts`;
       if (!artifacts.length) {
-        const empty = document.createElement("div");
-        empty.className = "browser-empty";
-        empty.textContent = "No artifacts found.";
-        artifactList.append(empty);
+        artifactList.innerHTML = '<div class="browser-empty">No artifacts found.</div>';
         return;
       }
       for (const artifact of artifacts) {
         const row = document.createElement("div");
         row.className = "artifact-entry";
+        const stack = document.createElement("span");
+        stack.className = "entry-stack";
         const path = document.createElement("span");
         path.className = "entry-main";
         path.title = artifact.path;
         path.textContent = artifact.path;
         const size = document.createElement("span");
-        size.className = "entry-meta";
+        size.className = "entry-sub";
         size.textContent = formatBytes(artifact.bytes);
+        stack.append(path, size);
         const actions = document.createElement("span");
         actions.className = "artifact-actions";
         const endpoint = `/runs/${encodeURIComponent(runId)}/artifacts/${artifact.path.split("/").map(encodeURIComponent).join("/")}`;
@@ -674,111 +775,89 @@
         download.download = artifact.path.split("/").pop();
         download.textContent = "Download";
         actions.append(download);
-        row.append(path, size, actions);
+        row.append(stack, actions);
         artifactList.append(row);
       }
     }
 
-    async function loadArtifacts() {
-      const runId = runInput.value.trim();
+    async function loadArtifacts(runId = activeRunId) {
       if (!runId) return;
-      artifactList.setAttribute("aria-busy", "true");
+      artifactListLabel.textContent = `${runId} · artifacts`;
       artifactList.innerHTML = '<div class="browser-empty">Loading…</div>';
       try {
-        const response = await fetch(`/runs/${encodeURIComponent(runId)}/artifacts`, {
-          cache: "no-store",
-        });
+        const response = await fetch(`/runs/${encodeURIComponent(runId)}/artifacts`, {cache: "no-store"});
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || `${response.status} ${response.statusText}`);
-        renderArtifacts(runId, Array.isArray(payload.artifacts) ? payload.artifacts : []);
-        for (const entry of document.querySelectorAll(".run-entry")) {
-          entry.classList.toggle("active", entry.dataset.runId === runId);
+        if (!response.ok) {
+          artifactList.innerHTML = '<div class="browser-empty">Artifacts become available after the run completes.</div>';
+          return;
         }
+        renderArtifacts(runId, Array.isArray(payload.artifacts) ? payload.artifacts : []);
       } catch (error) {
-        artifactList.innerHTML = "";
-        const empty = document.createElement("div");
-        empty.className = "browser-empty";
-        empty.textContent = error instanceof Error ? error.message : String(error);
-        artifactList.append(empty);
-      } finally {
-        artifactList.removeAttribute("aria-busy");
+        artifactList.innerHTML = '<div class="browser-empty"></div>';
+        artifactList.firstElementChild.textContent = error instanceof Error ? error.message : String(error);
       }
     }
 
     async function loadEndpoint(endpoint) {
-      if (activeRequest) activeRequest.abort();
-      activeRequest = new AbortController();
-      const request = activeRequest;
-      runResult.hidden = false;
-      runResult.setAttribute("aria-busy", "true");
-      resultEndpoint.textContent = endpoint;
-      resultStatus.textContent = "loading";
-      resultStatus.classList.remove("success", "error");
-      resultBody.textContent = "Loading…";
+      if (detailsRequest) detailsRequest.abort();
+      detailsRequest = new AbortController();
+      const request = detailsRequest;
+      detailsMode = "artifact";
+      setTechnicalDetails(endpoint, "loading", "Loading…", true);
       try {
-        const response = await fetch(endpoint, {
-          cache: "no-store",
-          headers: { Accept: "application/json, text/plain" },
-          signal: request.signal,
-        });
+        const response = await fetch(endpoint, {cache: "no-store", headers: {Accept: "application/json, text/plain"}, signal: request.signal});
         const rawBody = await response.text();
-        if (request !== activeRequest) return;
-        resultStatus.textContent = `${response.status} ${response.statusText}`.trim();
-        resultStatus.classList.add(response.ok ? "success" : "error");
-        resultBody.textContent = formatResponseBody(rawBody);
+        if (request !== detailsRequest) return;
+        let body = rawBody;
+        try { body = JSON.parse(rawBody); } catch (_error) { /* keep text */ }
+        setTechnicalDetails(endpoint, `${response.status} ${response.statusText}`.trim(), body, true);
       } catch (error) {
-        if (error.name === "AbortError" || request !== activeRequest) return;
-        resultStatus.textContent = "request failed";
-        resultStatus.classList.add("error");
-        resultBody.textContent = error instanceof Error ? error.message : String(error);
+        if (error.name !== "AbortError") setTechnicalDetails(endpoint, "request failed", error instanceof Error ? error.message : String(error), true);
       } finally {
-        if (request === activeRequest) {
-          activeRequest = null;
-          runResult.removeAttribute("aria-busy");
-        }
+        if (request === detailsRequest) detailsRequest = null;
       }
     }
 
-    async function loadRunResource(link) {
-      const runId = runInput.value.trim();
+    async function selectRun(runId = runInput.value.trim()) {
       if (!runId) return;
-
-      const endpoint = `/runs/${encodeURIComponent(runId)}${link.dataset.runPath}`;
-
-      for (const item of runLinks) item.classList.toggle("active", item === link);
-      await loadEndpoint(endpoint);
+      stopPolling();
+      activeRunId = runId;
+      latestStatus = null;
+      detailsMode = "status";
+      runInput.value = runId;
+      loadRunButton.disabled = false;
+      refreshRunButton.disabled = false;
+      runResult.open = false;
+      for (const entry of document.querySelectorAll(".run-entry")) entry.classList.toggle("active", entry.dataset.runId === runId);
+      await Promise.all([loadRunStatus(runId, true), loadArtifacts(runId)]);
     }
 
-    function updateRunLinks() {
-      const runId = runInput.value.trim();
-      for (const link of runLinks) {
-        link.disabled = !runId;
-        link.classList.toggle("ready", Boolean(runId));
-      }
-      clearRunResult();
-      artifactListLabel.textContent = "Artifacts";
-      artifactList.innerHTML = '<div class="browser-empty">Select a committed run.</div>';
-      for (const entry of document.querySelectorAll(".run-entry")) {
-        entry.classList.remove("active");
-      }
+    async function refreshAll() {
+      refreshAllButton.disabled = true;
+      await Promise.all([loadServices(), loadApiHealth(), loadRuns()]);
+      if (activeRunId) await loadRunStatus(activeRunId, true);
+      refreshAllButton.disabled = false;
     }
 
-    runInput.addEventListener("input", updateRunLinks);
-    runInput.addEventListener("change", loadArtifacts);
-    runInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !runLinks[0].disabled) {
-        event.preventDefault();
-        loadRunResource(runLinks[0]);
-        loadArtifacts();
+    runInput.addEventListener("input", () => {
+      const hasRunId = Boolean(runInput.value.trim());
+      loadRunButton.disabled = !hasRunId;
+      if (runInput.value.trim() !== activeRunId) {
+        stopPolling();
+        refreshRunButton.disabled = true;
       }
     });
-    for (const link of runLinks) {
-      link.addEventListener("click", () => loadRunResource(link));
-    }
+    runInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && runInput.value.trim()) {
+        event.preventDefault();
+        selectRun();
+      }
+    });
+    loadRunButton.addEventListener("click", () => selectRun());
+    refreshRunButton.addEventListener("click", () => loadRunStatus(activeRunId, true));
     refreshRunsButton.addEventListener("click", loadRuns);
-    clearResultButton.addEventListener("click", clearRunResult);
-    refreshButton.addEventListener("click", refreshStatus);
-    refreshStatus();
+    refreshAllButton.addEventListener("click", refreshAll);
+    refreshAll();
   </script>
 </body>
 </html>

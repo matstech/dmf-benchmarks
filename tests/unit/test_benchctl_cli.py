@@ -332,6 +332,26 @@ def test_operator_status_renames_internal_units_and_renders_progress(
     assert "Current record:   5 of 10" in output
 
 
+def test_operator_status_labels_judging_progress(capsys) -> None:
+    status = _operator_status(
+        {
+            "schema_version": 2,
+            "run_id": "judging-run",
+            "state": "JUDGING",
+            "phase": "JUDGING",
+            "items": {"committed": 40, "expected": 160, "failed": 0},
+            "units": {"committed": 1, "expected": 1, "failed": 0},
+        }
+    )
+
+    _print_operator_status(status)
+
+    output = capsys.readouterr().out
+    assert "Overall progress: [########----------------------]  25.0%" in output
+    assert "Judging progress: 40 of 160 answers judged; 0 failed" in output
+    assert "Evaluation items:" not in output
+
+
 def test_run_detaches_worker_and_prints_inspection_commands(
     tmp_path: Path,
     monkeypatch,
