@@ -102,6 +102,52 @@ pipx install --force dmf-benchctl-*-RC/*.whl
 Tagged releases retain their wheel permanently. RC workflow artifacts are
 temporary.
 
+### Install a tagged release
+
+For a reproducible installation, download the wheel attached to the GitHub
+release that matches the benchmark image. For example, for `v0.2.0`:
+
+```text
+VERSION=v0.2.0
+mkdir -p dmf-bench-$VERSION
+cd dmf-bench-$VERSION
+
+gh release download "$VERSION" \
+  --repo matstech/dmf-benchmarks \
+  --pattern 'dmf_benchmarks-*.whl' \
+  --pattern 'dmf_benchmarks-*.tar.gz'
+
+pipx install --force dmf_benchmarks-*.whl
+```
+
+The release wheel contains the controller and its Docker/Compose resources.
+The source archive is optional and is useful only when inspecting the release
+contents. No repository clone is required for normal operation.
+
+Download the matching multi-platform benchmark image by tag:
+
+```text
+docker pull ghcr.io/matstech/dmf-benchmarks:$VERSION
+```
+
+For an official reproducible run, resolve the tag to its immutable registry
+digest and use that digest in the workspace configuration. The digest can be
+read with:
+
+```text
+docker buildx imagetools inspect ghcr.io/matstech/dmf-benchmarks:$VERSION
+```
+
+Then configure, for example:
+
+```dotenv
+DMF_BENCH_IMAGE=ghcr.io/matstech/dmf-benchmarks@sha256:IMAGE_MANIFEST_DIGEST
+```
+
+The image manifest selects `linux/amd64` or `linux/arm64` for the local Docker
+engine. Do not commit the provider key or local `.env` file. Release images do
+not contain private API keys or the complete real benchmark datasets.
+
 ## Choose a workspace
 
 Run controller commands from a dedicated operator directory:
