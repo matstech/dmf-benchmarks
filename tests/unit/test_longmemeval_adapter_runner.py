@@ -436,7 +436,10 @@ def test_cli_run_predict_only_plan_is_read_only(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config = make_longmemeval_config(tmp_path)
+    from test_retrieval_qa_runner import config_v3
+
+    config = config_v3(tmp_path, "longmemeval", "dmf")
+    config["selection"]["ordered_item_ids"] = ["lme-001", "lme-002"]
     config_path = tmp_path / "experiment.json"
     config_path.write_text(json.dumps(config), encoding="utf-8")
 

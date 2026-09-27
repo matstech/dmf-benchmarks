@@ -22,6 +22,24 @@ def write_valid_config(tmp_path: Path, *, dataset_path: Path | None = None) -> P
     if dataset_path is None:
         selected_dataset_path.write_bytes((FIXTURE_DIR / "locomo-mini.json").read_bytes())
     config = json.loads((FIXTURE_DIR / "experiment-valid.json").read_text(encoding="utf-8"))
+    config["schema_version"] = 3
+    config["scientific_profile"] = "retrieval-controlled-v1"
+    config["storage"] = {
+        "kind": "qdrant-server", "profile": "qdrant-v1", **config.pop("qdrant"),
+    }
+    config["retrieval"] = {"max_results": 20}
+    config["context_budget"] = {
+        "max_tokens": 128,
+        "tokenizer": "tiktoken-cl100k_base-v1",
+        "renderer": "retrieved-memory-v1",
+        "packing": "ranked-whole-items-v1",
+    }
+    config["models"]["judges"] = [{"id": "primary", **config["models"].pop("judge")}]
+    config["evaluation"] = {
+        "primary_judge_id": "primary",
+        "required": ["primary_judge_score", "rigorous_report", "analysis_rows"],
+        "optional": ["retrieval_report", "ablation_report", "judge_agreement"],
+    }
     config["runtime"] = {
         "root": str(tmp_path),
         "runs_dir": str(tmp_path / "runs"),
@@ -163,9 +181,13 @@ def test_resolved_config_persists_redacted_canonical_artifact(
     assert "must-not-leak" not in target.read_text(encoding="utf-8")
 
 
-def test_validate_rejects_invalid_config_before_runtime_io() -> None:
+def test_validate_rejects_invalid_config_before_runtime_io(tmp_path: Path) -> None:
+    config_path = write_valid_config(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["runtime"]["root"] = "relative-root"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
     with pytest.raises(ValueError, match="root must be absolute"):
-        resolve_config(FIXTURE_DIR / "experiment-invalid.json")
+        resolve_config(config_path)
 
 
 def test_validate_rejects_unknown_top_level_field(tmp_path: Path) -> None:
@@ -189,8 +211,18 @@ def test_validate_rejects_v1_config_before_preflight(tmp_path: Path) -> None:
 
     with pytest.raises(
         ValueError,
-        match="schema_version=2; v1 configs are not supported",
+        match="schema_version=3; v1 configs are not supported",
     ):
+        resolve_config(config_path)
+
+
+def test_validate_rejects_v2_config_before_preflight(tmp_path: Path) -> None:
+    config_path = write_valid_config(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["schema_version"] = 2
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="schema_version=3; v2 configs are not supported"):
         resolve_config(config_path)
 
 

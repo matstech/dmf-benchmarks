@@ -18,7 +18,7 @@ from prometheus_client import (
 from prometheus_client import generate_latest, start_http_server
 
 from dmf_bench.atomic_io import read_json, write_json_atomic
-from dmf_bench.contracts import RUN_MANIFEST_SCHEMA_VERSION, RUN_STATUS_SCHEMA_VERSION
+from dmf_bench.contracts import RUN_MANIFEST_SCHEMA_VERSION, RUN_STATUS_SCHEMA_VERSION, V3_RUN_MANIFEST_SCHEMA_VERSION
 from dmf_bench.state import StateError
 
 
@@ -244,15 +244,20 @@ class BenchmarkMetrics:
         run_path = Path(run_dir)
         manifest = _read_object(run_path / "run-manifest.json")
         status = _read_object(run_path / "run-status.json")
-        if manifest.get("schema_version") != RUN_MANIFEST_SCHEMA_VERSION:
+        inputs = manifest.get("fingerprint_inputs") or {}
+        expected_manifest_version = (
+            V3_RUN_MANIFEST_SCHEMA_VERSION
+            if inputs.get("schema_version") == 3
+            else RUN_MANIFEST_SCHEMA_VERSION
+        )
+        if manifest.get("schema_version") != expected_manifest_version:
             raise StateError(
-                f"Run manifest must declare schema_version={RUN_MANIFEST_SCHEMA_VERSION}."
+                f"Run manifest must declare schema_version={expected_manifest_version}."
             )
         if status.get("schema_version") != RUN_STATUS_SCHEMA_VERSION:
             raise StateError(
                 f"Run status must declare schema_version={RUN_STATUS_SCHEMA_VERSION}."
             )
-        inputs = manifest.get("fingerprint_inputs") or {}
         items = status.get("items") or {}
         units = status.get("units") or {}
         self.record_run_status(

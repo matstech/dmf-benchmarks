@@ -38,7 +38,7 @@ FROM base AS runtime
 LABEL org.opencontainers.image.title="dmf-benchmarks" \
       org.opencontainers.image.description="DMF benchmark runner with local artifact API support" \
       org.opencontainers.image.source="https://github.com/matstech/dmf-benchmarks" \
-      org.opencontainers.image.version="0.2.0" \
+      org.opencontainers.image.version="0.3.0" \
       org.opencontainers.image.licenses="MIT"
 
 RUN groupadd --system --gid 10001 dmfbench \

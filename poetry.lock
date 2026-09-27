@@ -4558,9 +4558,9 @@ test = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more_it
 type = ["pytest-mypy"]
 
 [extras]
-runtime = ["dmf-memory", "en_core_web_sm", "fastapi", "mem0ai", "openai", "prometheus-client", "psutil", "pyyaml", "qdrant-client", "uvicorn"]
+runtime = ["dmf-memory", "en_core_web_sm", "fastapi", "mem0ai", "openai", "prometheus-client", "psutil", "pyyaml", "qdrant-client", "tiktoken", "uvicorn"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.15"
-content-hash = "300dacefa598b35388d51db40812dff2c89ac1489f2272fd8615397680dc82e4"
+content-hash = "6262f24e2d08a5575cc58fc57adb90b25eb340fe07b61c67ddf84cd444048272"

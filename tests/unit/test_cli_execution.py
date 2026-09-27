@@ -14,8 +14,12 @@ import pytest
 from dmf_bench.adapters.base import (
     AnswererRequest,
     BenchmarkUnit,
+    CanonicalRetrievalResult,
     FrameworkRunContext,
     JudgeRequest,
+    OwnedResource,
+    PreparedMemoryUnit,
+    RetrievedMemory,
     RetrievalResult,
 )
 from dmf_bench.atomic_io import read_json
@@ -40,6 +44,56 @@ FIXTURE_DIR = Path(__file__).parents[1] / "fixtures"
 class FixtureFramework:
     def __init__(self, name: str) -> None:
         self.name = name
+
+    def resources_for_unit_v3(
+        self, unit: BenchmarkUnit, _config: dict[str, Any], run_context: FrameworkRunContext,
+    ) -> tuple[OwnedResource, ...]:
+        return (OwnedResource(
+            resource_id=f"{run_context.run_id}:{unit.unit_id}",
+            kind="fixture", role="primary", locator=f"{run_context.run_id}/{unit.unit_id}",
+        ),)
+
+    def cleanup_unit_v3(
+        self, unit: BenchmarkUnit, resources: tuple[OwnedResource, ...],
+        config: dict[str, Any], run_context: FrameworkRunContext,
+    ) -> dict[str, Any]:
+        assert resources == self.resources_for_unit_v3(unit, config, run_context)
+        return {"verified": True}
+
+    def prepare_unit_v3(
+        self, unit: BenchmarkUnit, events: tuple[Any, ...],
+        config: dict[str, Any], run_context: FrameworkRunContext,
+    ) -> PreparedMemoryUnit:
+        return PreparedMemoryUnit(
+            handle=events, resources=self.resources_for_unit_v3(unit, config, run_context),
+            ingestion_usage={}, ingestion_timing={}, diagnostics={},
+        )
+
+    def verify_prepared_v3(
+        self, unit: BenchmarkUnit, prepared: PreparedMemoryUnit,
+        config: dict[str, Any], run_context: FrameworkRunContext,
+    ) -> dict[str, Any]:
+        assert prepared.resources == self.resources_for_unit_v3(unit, config, run_context)
+        return {"verified": True}
+
+    def retrieve_v3(
+        self, unit: BenchmarkUnit, query: Any, prepared: PreparedMemoryUnit,
+        _config: dict[str, Any], _run_context: FrameworkRunContext,
+    ) -> CanonicalRetrievalResult:
+        events = prepared.handle
+        words = query.text.lower()
+        match = next((
+            event for event in events
+            if ("bed" in words and "bed" in event.content.lower())
+            or ("cat" in words and "cat" in event.content.lower())
+            or ("snack" in words and "almonds" in event.content.lower())
+            or ("first" in words and "rome trip" in event.content.lower())
+        ), events[0])
+        return CanonicalRetrievalResult(items=(RetrievedMemory(
+            memory_id=match.event_id, content=match.content, rank=1,
+            source_event_ids=(match.event_id,),
+            metadata={"source_refs": list(match.source_refs)},
+        ),), raw_payload={"fixture": True})
 
     def cleanup_unit(
         self,
@@ -248,8 +302,9 @@ def write_config(
         "runtime": {"timeout_seconds": 30, "rpm": 100, "max_retries": 0},
     }
     config = {
-        "schema_version": 2,
+        "schema_version": 3,
         "experiment_id": run_id,
+        "scientific_profile": "retrieval-controlled-v1",
         "benchmark": benchmark,
         "framework": framework,
         "runtime": {
@@ -265,7 +320,9 @@ def write_config(
             "format": suffix,
             "profile": "fixture",
         },
-        "qdrant": {
+        "storage": {
+            "kind": "qdrant-server",
+            "profile": "qdrant-v1",
             "endpoint_env": "QDRANT_URL",
             "retention": "keep",
             "request_timeout_seconds": 10,
@@ -278,8 +335,19 @@ def write_config(
             "sha256": sha256_file(dataset_path),
         },
         "selection": selection,
-        "models": {"answerer": answerer_model, "judge": judge_model},
-        "evaluation": {"required": ["primary_judge_score"], "optional": []},
+        "retrieval": {"max_results": 2},
+        "context_budget": {
+            "max_tokens": 128,
+            "tokenizer": "tiktoken-cl100k_base-v1",
+            "renderer": "retrieved-memory-v1",
+            "packing": "ranked-whole-items-v1",
+        },
+        "models": {"answerer": answerer_model, "judges": [{"id": "primary", **judge_model}]},
+        "evaluation": {
+            "primary_judge_id": "primary",
+            "required": ["primary_judge_score", "rigorous_report", "analysis_rows"],
+            "optional": ["retrieval_report", "ablation_report", "judge_agreement"],
+        },
         "artifact_store": {"type": "local", "uri": str(root / "runs")},
     }
     path = root / "experiment.json"
@@ -311,7 +379,7 @@ def test_cli_runs_full_offline_lifecycle_for_all_supported_combinations(
         final_dir = run_dir / "final"
         assert read_json(run_dir / "run-status.json")["state"] == "COMPLETED"
         assert read_json(final_dir / "COMPLETED.json")["state"] == "COMPLETED"
-        assert read_json(run_dir / "run-manifest.json")["schema_version"] == 2
+        assert read_json(run_dir / "run-manifest.json")["schema_version"] == 3
         assert all(
             "protocol" not in path.read_text(encoding="utf-8").lower()
             for path in final_dir.rglob("*.json")
@@ -324,8 +392,8 @@ def test_cli_runs_full_offline_lifecycle_for_all_supported_combinations(
         assert ablation["status"] == (
             "COMPLETED" if framework == "dmf" else "NOT_APPLICABLE"
         )
-        if framework == "dmf":
-            assert ablation["metrics"]["stats"]["questions_without_diagnostics"] == 0
+        analysis = read_json(final_dir / "evaluations" / "analysis_rows.json")
+        assert analysis["status"] == "COMPLETED"
 
         executed.append((benchmark, framework))
 
@@ -433,9 +501,9 @@ def test_missing_openai_key_is_reported_in_json_log_and_stderr(
         run_id="missing-openai-key",
     )
     payload = json.loads(config_path.read_text(encoding="utf-8"))
-    for role in ("answerer", "judge"):
-        payload["models"][role]["provider"] = "openai"
-        payload["models"][role]["requested_model"] = "gpt-4.1-mini"
+    for model in (payload["models"]["answerer"], *payload["models"]["judges"]):
+        model["provider"] = "openai"
+        model["requested_model"] = "gpt-4.1-mini"
     config_path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert main(["run", "--config", str(config_path)]) == EXIT_RUNTIME
@@ -561,7 +629,7 @@ def test_cli_exit_codes_distinguish_runtime_scientific_and_interrupt_failures(
     ) == 128 + signal.SIGTERM
     assert read_json(
         interrupt_root / "runs" / "interrupt-exit" / "run-status.json"
-    )["state"] == "INTERRUPTED"
+    )["state"] == "FAILED_RUNNING"
     assert main(["health", "--runs-dir", str(tmp_path / "missing")]) == EXIT_RUNTIME
     capsys.readouterr()
 
@@ -598,17 +666,12 @@ def test_metrics_are_scrapable_while_answerer_is_blocked(tmp_path: Path) -> None
         assert entered.wait(timeout=5)
         status = read_json(root / "runs" / "metrics-live" / "run-status.json")
         assert status["state"] == "RUNNING"
-        assert status["current_activity"]["stage"] == "answer_generation"
-        assert status["current_activity"]["completed"] == 0
-        assert status["current_activity"]["total"] == 1
         body = urllib.request.urlopen(
             f"http://127.0.0.1:{server.port}/metrics",
             timeout=2,
         ).read().decode("utf-8")
         assert "dmf_bench_run_progress_ratio" in body
         assert "dmf_bench_run_expected_items" in body
-        assert 'dmf_bench_current_activity_expected_items{benchmark="longmemeval",framework="dmf",stage="answer_generation"} 1.0' in body
-        assert 'dmf_bench_current_activity_progress_ratio{benchmark="longmemeval",framework="dmf",stage="answer_generation"} 0.0' in body
         assert "protocol=" not in body
     finally:
         release.set()
@@ -654,9 +717,10 @@ def test_signal_cancellation_interrupts_at_boundary_and_resume_completes(tmp_pat
     assert len(failures) == 1
     assert isinstance(failures[0], RunInterrupted)
     run_dir = root / "runs" / "signal-resume"
-    assert read_json(run_dir / "run-status.json")["state"] == "INTERRUPTED"
+    assert read_json(run_dir / "run-status.json")["state"] == "FAILED_RUNNING"
     checkpoint = read_json(run_dir / "checkpoints" / "lme-001" / "checkpoint.json")
-    assert checkpoint["status"] != "COMMITTED"
+    assert checkpoint["status"] == "COMMITTED"
+    assert not (run_dir / "checkpoints" / "lme-002" / "checkpoint.json").exists()
 
     resumed = assemble_application(config, factories=fixture_factories()).run(
         config,

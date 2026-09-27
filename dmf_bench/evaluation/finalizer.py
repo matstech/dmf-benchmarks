@@ -2,25 +2,29 @@
 
 from __future__ import annotations
 
+import os
+import re
+import tempfile
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from dmf_bench.frameworks.mem0_runtime import normalize_memory_internal_usage
 from dmf_bench.reporting.reports import build_timing_report, normalize_answerer_usage
 from dmf_bench.reporting.resources import ResourceUsageTracker
 from dmf_bench.adapters.base import JudgeAdapter, JudgeRequest
 from dmf_bench.artifacts import LocalArtifactStore
-from dmf_bench.atomic_io import read_json, write_json_atomic
+from dmf_bench.atomic_io import fsync_directory, read_json, write_json_atomic
 from dmf_bench.contracts import (
     Attempt,
     EVALUATION_SCHEMA_VERSION,
     JUDGMENT_SCHEMA_VERSION,
     LifecycleCheckpoint,
     PREDICTION_SCHEMA_VERSION,
+    V3_PREDICTION_SCHEMA_VERSION,
     REPORT_SCHEMA_VERSION,
     RunManifest,
     RunStatus,
@@ -28,7 +32,12 @@ from dmf_bench.contracts import (
     hash_canonical_json,
     sha256_file,
 )
-from dmf_bench.evaluation.registry import EvaluationRequirement, evaluation_plan_for
+from dmf_bench.evaluation.registry import (
+    EvaluationRequirement,
+    evaluation_plan_for,
+    evaluation_plan_v3,
+)
+from dmf_bench.reporting.analysis import analysis_rows_jsonl, build_analysis_rows
 from dmf_bench.execution import RunInterrupted
 from dmf_bench.logging_config import JsonEventLogger
 from dmf_bench.metrics import BenchmarkMetrics
@@ -86,7 +95,9 @@ class OfflineLifecycleFinalizer:
         self,
         *,
         artifact_store: LocalArtifactStore,
-        judge: JudgeAdapter,
+        judge: JudgeAdapter | None = None,
+        judges: Mapping[str, JudgeAdapter] | None = None,
+        primary_judge_id: str | None = None,
         metrics: BenchmarkMetrics | None = None,
         events: JsonEventLogger | None = None,
         evaluation_plans: dict[tuple[str, str], tuple[EvaluationRequirement, ...]] | None = None,
@@ -94,7 +105,18 @@ class OfflineLifecycleFinalizer:
         evaluators: dict[str, Evaluator] | None = None,
     ) -> None:
         self.artifact_store = artifact_store
-        self.judge = judge
+        if judges is not None:
+            if not judges or not primary_judge_id or primary_judge_id not in judges:
+                raise ValueError("judges must contain the primary_judge_id.")
+            self.judges = dict(judges)
+            self.primary_judge_id = primary_judge_id
+            self.judge = self.judges[primary_judge_id]
+        else:
+            if judge is None:
+                raise ValueError("A judge or ordered judges map is required.")
+            self.judges = None
+            self.primary_judge_id = None
+            self.judge = judge
         self.metrics = metrics
         self.evaluation_plans = evaluation_plans
         self.prediction_loaders = dict(prediction_loaders or {})
@@ -146,7 +168,7 @@ class OfflineLifecycleFinalizer:
 
         terminal_ids = expected_terminal_item_ids(manifest)
         predictions = self._load_predictions(run_dir, manifest)
-        self._validate_prediction_set(predictions, terminal_ids)
+        self._validate_prediction_set(predictions, terminal_ids, manifest)
         metadata = self._metadata_from_manifest(manifest)
         active_attempt = attempt or new_attempt(
             run_id=run_id,
@@ -221,14 +243,7 @@ class OfflineLifecycleFinalizer:
                     artifacts=(
                         evaluations_path,
                         *judgment_paths,
-                        *(
-                            lifecycle_checkpoint_path(
-                                run_dir,
-                                "JUDGING",
-                                item_id=item_id,
-                            )
-                            for item_id in terminal_ids
-                        ),
+                        *self._judging_item_checkpoint_paths(run_dir, manifest, terminal_ids),
                     ),
                     predecessor_digest=None,
                     metadata={
@@ -317,7 +332,7 @@ class OfflineLifecycleFinalizer:
                 reports = _load_json_dict(
                     run_dir / "evaluations" / "evaluation-summary.json"
                 )
-                self._validate_evaluation_summary(reports)
+                self._validate_evaluation_summary(reports, manifest)
 
             phase = "REPORTING"
             phase_predecessor = evaluation_checkpoint.checkpoint_digest
@@ -385,7 +400,7 @@ class OfflineLifecycleFinalizer:
                     expected_item_ids=terminal_ids,
                     artifacts=report_paths,
                     predecessor_digest=evaluation_checkpoint.checkpoint_digest,
-                    metadata={"report_schema_version": REPORT_SCHEMA_VERSION},
+                    metadata={"report_schema_version": 3 if self._is_v3(manifest) else REPORT_SCHEMA_VERSION},
                 )
                 if interrupt_at == "after-report":
                     raise InjectedTerminalInterrupt("Interrupted after report phase.")
@@ -621,7 +636,10 @@ class OfflineLifecycleFinalizer:
     def _metadata_from_manifest(self, manifest: RunManifest) -> dict[str, Any]:
         inputs = manifest.fingerprint_inputs
         return {
-            "schema_version": REPORT_SCHEMA_VERSION,
+            "schema_version": 3 if inputs.get("schema_version") == 3 else REPORT_SCHEMA_VERSION,
+            "experiment_schema_version": inputs.get("schema_version", 2),
+            "judge_ids": [str(item.get("id", "")) for item in inputs.get("judges", [])]
+            if isinstance(inputs.get("judges"), list) else [],
             "run_id": manifest.run_id,
             "benchmark": str(inputs.get("benchmark", "")),
             "framework": str(inputs.get("framework", "")),
@@ -633,6 +651,14 @@ class OfflineLifecycleFinalizer:
         if benchmark in self.prediction_loaders:
             return self.prediction_loaders[benchmark](run_dir, manifest)
         predictions: list[dict[str, Any]] = []
+        if self._is_v3(manifest):
+            for unit_id in manifest.expected_item_ids:
+                aggregate = _load_json_dict(run_dir / "items" / unit_id / "predictions.json")
+                rows = aggregate.get("predictions")
+                if not isinstance(rows, list):
+                    raise StateError(f"V3 aggregate missing predictions list: {unit_id}")
+                predictions.extend(_ensure_dict_list(rows))
+            return predictions
         if benchmark == "longmemeval":
             for unit_id in manifest.expected_item_ids:
                 predictions.append(_load_json_dict(run_dir / "items" / unit_id / "prediction.json"))
@@ -651,14 +677,16 @@ class OfflineLifecycleFinalizer:
         self,
         predictions: list[dict[str, Any]],
         expected_item_ids: tuple[str, ...],
+        manifest: RunManifest,
     ) -> None:
-        if any(
-            prediction.get("schema_version") != PREDICTION_SCHEMA_VERSION
-            for prediction in predictions
-        ):
+        expected_schema = (
+            V3_PREDICTION_SCHEMA_VERSION
+            if self._is_v3(manifest) else PREDICTION_SCHEMA_VERSION
+        )
+        if any(prediction.get("schema_version") != expected_schema for prediction in predictions):
             raise StateError(
                 "Evaluation refused: prediction schema_version must be "
-                f"{PREDICTION_SCHEMA_VERSION}; v1 state is not supported."
+                f"{expected_schema}; v1 state is not supported."
             )
         observed = tuple(str(item.get("question_id", "")) for item in predictions)
         if not all(observed) or observed != expected_item_ids or len(set(observed)) != len(observed):
@@ -666,7 +694,72 @@ class OfflineLifecycleFinalizer:
                 "Evaluation refused: prediction question set/order does not match manifest."
             )
 
+    @staticmethod
+    def _is_v3(manifest: RunManifest) -> bool:
+        return manifest.fingerprint_inputs.get("schema_version") == 3
+
+    @staticmethod
+    def _evaluation_schema(manifest: RunManifest) -> int:
+        return 3 if manifest.fingerprint_inputs.get("schema_version") == 3 else EVALUATION_SCHEMA_VERSION
+
+    def _v3_judge_definitions(self, manifest: RunManifest) -> list[tuple[str, JudgeAdapter, dict[str, Any]]]:
+        definitions = manifest.fingerprint_inputs.get("judges")
+        if not isinstance(definitions, list) or not definitions:
+            raise StateError("V3 manifest is missing ordered judge identities.")
+        primary_id = manifest.fingerprint_inputs.get("evaluation", {}).get("primary_judge_id")
+        if not isinstance(primary_id, str) or not primary_id:
+            raise StateError("V3 manifest is missing primary judge ID.")
+        if self.judges is None or self.primary_judge_id != primary_id:
+            raise StateError("V3 finalizer judges differ from the manifest primary judge.")
+        ids = [str(item.get("id", "")) for item in definitions if isinstance(item, dict)]
+        if ids != list(self.judges) or len(ids) != len(definitions):
+            raise StateError("V3 finalizer judge order differs from the manifest.")
+        result: list[tuple[str, JudgeAdapter, dict[str, Any]]] = []
+        for item in definitions:
+            judge_id = str(item["id"])
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", judge_id) is None:
+                raise StateError(f"V3 judge ID is unsafe for artifact paths: {judge_id!r}")
+            identity = {"id": judge_id, "model": item.get("model"), "contract": item.get("contract")}
+            if item.get("fingerprint") != hash_canonical_json(identity):
+                raise StateError(f"V3 manifest judge fingerprint mismatch: {judge_id}")
+            adapter = self.judges[judge_id]
+            rubric = hash_canonical_json(item["contract"])
+            if getattr(adapter, "judge_fingerprint", rubric) != rubric:
+                raise StateError(f"V3 judge rubric fingerprint mismatch: {judge_id}")
+            result.append((judge_id, adapter, item))
+        return result
+
+    @staticmethod
+    def _v3_item_key(question_id: str, judge_id: str) -> str:
+        return hash_canonical_json({"query_id": question_id, "judge_id": judge_id})[:32]
+
+    def _judging_item_checkpoint_paths(
+        self, run_dir: Path, manifest: RunManifest, terminal_ids: tuple[str, ...],
+    ) -> tuple[Path, ...]:
+        if self._is_v3(manifest):
+            return tuple(
+                lifecycle_checkpoint_path(
+                    run_dir, "JUDGING", item_id=self._v3_item_key(query_id, judge_id),
+                )
+                for query_id in terminal_ids
+                for judge_id, _adapter, _identity in self._v3_judge_definitions(manifest)
+            )
+        return tuple(
+            lifecycle_checkpoint_path(run_dir, "JUDGING", item_id=item_id)
+            for item_id in terminal_ids
+        )
+
     def _judge_identity(self, manifest: RunManifest) -> tuple[str, str, str]:
+        if self._is_v3(manifest):
+            definitions = self._v3_judge_definitions(manifest)
+            _judge_id, _adapter, item = next(
+                row for row in definitions if row[0] == self.primary_judge_id
+            )
+            model = item["model"]
+            return (
+                str(model["provider"]), str(model["requested_model"]),
+                hash_canonical_json(item["contract"]),
+            )
         models = manifest.fingerprint_inputs.get("models")
         judge_model = models.get("judge", {}) if isinstance(models, dict) else {}
         judge_contract = manifest.fingerprint_inputs.get("judge_contract")
@@ -689,6 +782,17 @@ class OfflineLifecycleFinalizer:
         manifest: RunManifest,
         predictions: list[dict[str, Any]],
     ) -> str:
+        if self._is_v3(manifest):
+            return hash_canonical_json({
+                "schema_version": 3,
+                "scientific_fingerprint": manifest.scientific_fingerprint,
+                "predictions": [
+                    {"question_id": str(item["question_id"]),
+                     "sha256": hash_canonical_json(item)} for item in predictions
+                ],
+                "judges": [item["fingerprint"] for _id, _adapter, item in self._v3_judge_definitions(manifest)],
+                "primary_judge_id": self.primary_judge_id,
+            })
         provider, requested_model, rubric_fingerprint = self._judge_identity(manifest)
         return hash_canonical_json(
             {
@@ -718,6 +822,11 @@ class OfflineLifecycleFinalizer:
         cancel_check: Callable[[], None] | None,
         progress: Callable[[int], None],
     ) -> tuple[list[dict[str, Any]], tuple[Path, ...], dict[str, str]]:
+        if self._is_v3(manifest):
+            return self._judge_predictions_v3(
+                run_dir, manifest, predictions, metadata, attempt=attempt,
+                interrupt_at=interrupt_at, cancel_check=cancel_check, progress=progress,
+            )
         judged: list[dict[str, Any]] = []
         judgment_paths: list[Path] = []
         item_digests: dict[str, str] = {}
@@ -845,6 +954,158 @@ class OfflineLifecycleFinalizer:
                 raise InjectedTerminalInterrupt("Interrupted after first judgment commit.")
         return judged, tuple(judgment_paths), item_digests
 
+    def _judge_predictions_v3(
+        self,
+        run_dir: Path,
+        manifest: RunManifest,
+        predictions: list[dict[str, Any]],
+        metadata: dict[str, Any],
+        *,
+        attempt: Attempt,
+        interrupt_at: str | None,
+        cancel_check: Callable[[], None] | None,
+        progress: Callable[[int], None],
+    ) -> tuple[list[dict[str, Any]], tuple[Path, ...], dict[str, str]]:
+        definitions = self._v3_judge_definitions(manifest)
+        evaluations: list[dict[str, Any]] = []
+        paths: list[Path] = []
+        digests: dict[str, str] = {}
+        for prediction in predictions:
+            query_id = str(prediction["question_id"])
+            prediction_digest = hash_canonical_json(prediction)
+            by_judge: dict[str, dict[str, Any]] = {}
+            for judge_id, adapter, identity in definitions:
+                _check_cancel(cancel_check)
+                model = identity["model"]
+                rubric_fingerprint = hash_canonical_json(identity["contract"])
+                item_input = hash_canonical_json({
+                    "schema_version": 3,
+                    "scientific_fingerprint": manifest.scientific_fingerprint,
+                    "query_id": query_id,
+                    "judge_id": judge_id,
+                    "prediction_sha256": prediction_digest,
+                    "judge_fingerprint": identity["fingerprint"],
+                })
+                item_key = self._v3_item_key(query_id, judge_id)
+                judgment_path = run_dir / "judgments" / judge_id / f"{query_id}.json"
+                timing_path = run_dir / "judgments" / "timing" / judge_id / f"{query_id}.json"
+                checkpoint = self._load_valid_item_checkpoint(
+                    run_dir, manifest, phase="JUDGING", item_id=item_key,
+                    input_fingerprint=item_input, expected_item_ids=(query_id,),
+                    predecessor_digest=prediction_digest,
+                )
+                candidate: dict[str, Any] | None = None
+                if checkpoint is not None:
+                    try:
+                        candidate = _load_json_dict(judgment_path)
+                        self._validate_judgment_v3(
+                            candidate, manifest=manifest, query_id=query_id,
+                            judge_id=judge_id, prediction_digest=prediction_digest,
+                            identity=identity,
+                        )
+                    except (KeyError, TypeError, ValueError, StateError):
+                        checkpoint = None
+                if checkpoint is None:
+                    _emit_phase_event(self.events, "judge.started", manifest, attempt, "JUDGING")
+                    started = time.perf_counter()
+                    result = adapter.judge(JudgeRequest(
+                        prediction=dict(prediction),
+                        metadata={**metadata, "judge_id": judge_id},
+                    ))
+                    judge_ms = (time.perf_counter() - started) * 1000
+                    _check_cancel(cancel_check)
+                    candidate = {
+                        **prediction,
+                        "schema_version": 3,
+                        "scientific_fingerprint": manifest.scientific_fingerprint,
+                        "prediction_sha256": prediction_digest,
+                        "judge_input_fingerprint": item_input,
+                        "judge_id": judge_id,
+                        "judge_identity_fingerprint": identity["fingerprint"],
+                        "judgment": _normalized_judgment(result),
+                        "score": float(result.get("score", 0.0)),
+                        "reason": str(result.get("reason", "")),
+                        "judge_provider": str(result.get("judge_provider", "")),
+                        "judge_requested_model": str(result.get("judge_requested_model", "")),
+                        "judge_model": str(result.get("judge_model", "")),
+                        "judge_finish_reason": result.get("judge_finish_reason"),
+                        "judge_usage": dict(result.get("judge_usage", {})) if isinstance(result.get("judge_usage", {}), dict) else {},
+                        "judge_fingerprint": str(result.get("judge_fingerprint", "")),
+                    }
+                    self._validate_judgment_v3(
+                        candidate, manifest=manifest, query_id=query_id,
+                        judge_id=judge_id, prediction_digest=prediction_digest,
+                        identity=identity,
+                    )
+                    write_json_atomic(judgment_path, candidate)
+                    write_json_atomic(timing_path, {
+                        "schema_version": 3,
+                        "benchmark": str(prediction.get("benchmark", "")),
+                        "question_id": query_id,
+                        "judge_id": judge_id,
+                        "pipeline_timing": {"judge_ms": judge_ms, "judge_scope": "question"},
+                    })
+                    checkpoint = self._commit_phase_checkpoint(
+                        run_dir, manifest, attempt=attempt, phase="JUDGING",
+                        input_fingerprint=item_input, expected_item_ids=(query_id,),
+                        artifacts=(judgment_path, timing_path),
+                        predecessor_digest=prediction_digest,
+                        metadata={"question_id": query_id, "judge_id": judge_id,
+                                  "judge_fingerprint": identity["fingerprint"]},
+                        item_id=item_key,
+                    )
+                    _emit_phase_event(self.events, "judge.completed", manifest, attempt, "JUDGING")
+                assert candidate is not None and checkpoint is not None
+                by_judge[judge_id] = candidate
+                paths.extend((judgment_path, timing_path))
+                digests[f"{query_id}:{judge_id}"] = checkpoint.checkpoint_digest
+                if interrupt_at == "after-first-judgment" and len(digests) == 1:
+                    raise InjectedTerminalInterrupt("Interrupted after first judgment commit.")
+            primary = by_judge[self.primary_judge_id]
+            evaluations.append({
+                **primary,
+                "judges": {
+                    judge_id: {
+                        "judgment": item["judgment"], "score": item["score"],
+                        "judge_fingerprint": item["judge_identity_fingerprint"],
+                        "judge_usage": item["judge_usage"],
+                        "judge_provider": item["judge_provider"],
+                        "judge_model": item["judge_model"],
+                    }
+                    for judge_id, item in by_judge.items()
+                },
+                "primary_judge_id": self.primary_judge_id,
+            })
+            progress(len(evaluations))
+        return evaluations, tuple(paths), digests
+
+    def _validate_judgment_v3(
+        self,
+        judgment: dict[str, Any],
+        *,
+        manifest: RunManifest,
+        query_id: str,
+        judge_id: str,
+        prediction_digest: str,
+        identity: dict[str, Any],
+    ) -> None:
+        model = identity["model"]
+        if (
+            judgment.get("schema_version") != 3
+            or judgment.get("question_id") != query_id
+            or judgment.get("judge_id") != judge_id
+            or judgment.get("scientific_fingerprint") != manifest.scientific_fingerprint
+            or judgment.get("prediction_sha256") != prediction_digest
+            or judgment.get("judge_identity_fingerprint") != identity["fingerprint"]
+            or judgment.get("judge_provider") != model["provider"]
+            or judgment.get("judge_requested_model") != model["requested_model"]
+            or judgment.get("judge_fingerprint") != hash_canonical_json(identity["contract"])
+            or not str(judgment.get("judge_model", ""))
+        ):
+            raise StateError(f"V3 judgment identity mismatch: {query_id}/{judge_id}")
+        _normalized_judgment(judgment)
+        float(judgment["score"])
+
     def _validate_judgment(
         self,
         judgment: dict[str, Any],
@@ -882,6 +1143,18 @@ class OfflineLifecycleFinalizer:
         observed = tuple(str(item.get("question_id", "")) for item in evaluations)
         if observed != expected_item_ids:
             raise StateError("Judgment aggregate expected item set mismatch.")
+        if self._is_v3(manifest):
+            judge_ids = [judge_id for judge_id, _adapter, _identity in self._v3_judge_definitions(manifest)]
+            for item in evaluations:
+                by_judge = item.get("judges")
+                if not isinstance(by_judge, dict) or list(by_judge) != judge_ids:
+                    raise StateError("V3 judgment aggregate judge set/order mismatch.")
+                if item.get("primary_judge_id") != self.primary_judge_id:
+                    raise StateError("V3 judgment aggregate primary judge mismatch.")
+                primary = by_judge[self.primary_judge_id]
+                if primary.get("judgment") != item.get("judgment") or primary.get("score") != item.get("score"):
+                    raise StateError("V3 judgment aggregate primary score mismatch.")
+            return
         for item in evaluations:
             self._validate_judgment(
                 item,
@@ -901,13 +1174,9 @@ class OfflineLifecycleFinalizer:
         interrupt_at: str | None,
         cancel_check: Callable[[], None] | None,
     ) -> tuple[dict[str, Any], tuple[Path, ...], dict[str, str]]:
-        requirements = evaluation_plan_for(
-            benchmark=metadata["benchmark"],
-            framework=metadata["framework"],
-            plans=self.evaluation_plans,
-        )
+        requirements = self._requirements(manifest, metadata)
         reports: dict[str, Any] = {
-            "schema_version": EVALUATION_SCHEMA_VERSION,
+            "schema_version": self._evaluation_schema(manifest),
             "benchmark": metadata["benchmark"],
             "framework": metadata["framework"],
             "requirements": [requirement_to_dict(item) for item in requirements],
@@ -947,6 +1216,7 @@ class OfflineLifecycleFinalizer:
                         candidate,
                         requirement=requirement,
                         evaluator_version=evaluator_version,
+                        schema_version=self._evaluation_schema(manifest),
                     )
                     artifact = candidate
                 except (KeyError, TypeError, ValueError, StateError):
@@ -959,14 +1229,25 @@ class OfflineLifecycleFinalizer:
                     attempt,
                     "EVALUATING",
                 )
-                artifact = self._run_evaluator(requirement, evaluations, metadata)
+                artifact = self._run_evaluator(
+                    requirement, evaluations, metadata,
+                    run_dir=run_dir, manifest=manifest,
+                )
+                if self._is_v3(manifest):
+                    artifact = {**artifact, "schema_version": 3}
                 _check_cancel(cancel_check)
                 self._validate_evaluator_output(
                     artifact,
                     requirement=requirement,
                     evaluator_version=evaluator_version,
+                    schema_version=self._evaluation_schema(manifest),
                 )
                 write_json_atomic(output_path, artifact)
+                extra_paths = (
+                    (run_dir / "evaluations" / "analysis_rows.jsonl",)
+                    if requirement.name == "analysis_rows" and artifact["status"] == "COMPLETED"
+                    else ()
+                )
                 item_checkpoint = self._commit_phase_checkpoint(
                     run_dir,
                     manifest,
@@ -974,7 +1255,7 @@ class OfflineLifecycleFinalizer:
                     phase="EVALUATING",
                     input_fingerprint=item_input,
                     expected_item_ids=terminal_ids,
-                    artifacts=(output_path,),
+                    artifacts=(output_path, *extra_paths),
                     predecessor_digest=evaluations_digest,
                     metadata={
                         "evaluator": requirement.name,
@@ -997,6 +1278,8 @@ class OfflineLifecycleFinalizer:
             }
             reports["evaluator_versions"][requirement.name] = evaluator_version
             output_paths.append(output_path)
+            if requirement.name == "analysis_rows" and artifact["status"] == "COMPLETED":
+                output_paths.append(run_dir / "evaluations" / "analysis_rows.jsonl")
             item_digests[requirement.name] = item_checkpoint.checkpoint_digest
             if requirement.required and artifact["status"] != "COMPLETED":
                 raise StateError(f"Required evaluator failed: {requirement.name}")
@@ -1013,6 +1296,12 @@ class OfflineLifecycleFinalizer:
             return "not-applicable-v1"
         if requirement.name == "primary_judge_score":
             return "primary-judge-v1"
+        if requirement.name in {"analysis_rows", "retrieval_report", "judge_agreement"}:
+            return {
+                "analysis_rows": "analysis-rows-v3",
+                "retrieval_report": "retrieval-rank-v3",
+                "judge_agreement": "judge-agreement-v3",
+            }[requirement.name]
         if requirement.name in {"rigorous_report", "ablation_report"}:
             if metadata["benchmark"] == "locomo":
                 return locomo_evaluation.EVALUATOR_VERSION
@@ -1027,11 +1316,7 @@ class OfflineLifecycleFinalizer:
         return str(version)
 
     def _evaluation_identities(self, metadata: dict[str, Any]) -> list[dict[str, Any]]:
-        requirements = evaluation_plan_for(
-            benchmark=metadata["benchmark"],
-            framework=metadata["framework"],
-            plans=self.evaluation_plans,
-        )
+        requirements = self._requirements_from_metadata(metadata)
         return [
             {
                 "name": requirement.name,
@@ -1044,16 +1329,35 @@ class OfflineLifecycleFinalizer:
             for requirement in requirements
         ]
 
+    def _requirements_from_metadata(
+        self, metadata: dict[str, Any],
+    ) -> tuple[EvaluationRequirement, ...]:
+        pair = (metadata["benchmark"], metadata["framework"])
+        if self.evaluation_plans is not None:
+            return evaluation_plan_for(
+                benchmark=pair[0], framework=pair[1], plans=self.evaluation_plans,
+            )
+        if metadata.get("experiment_schema_version") == 3:
+            return evaluation_plan_v3(pair[0], pair[1], tuple(metadata["judge_ids"]))
+        return evaluation_plan_for(benchmark=pair[0], framework=pair[1])
+
+    def _requirements(
+        self, manifest: RunManifest, metadata: dict[str, Any],
+    ) -> tuple[EvaluationRequirement, ...]:
+        del manifest
+        return self._requirements_from_metadata(metadata)
+
     def _validate_evaluator_output(
         self,
         artifact: dict[str, Any],
         *,
         requirement: EvaluationRequirement,
         evaluator_version: str,
+        schema_version: int,
     ) -> None:
         if (
             not isinstance(artifact, dict)
-            or artifact.get("schema_version") != EVALUATION_SCHEMA_VERSION
+            or artifact.get("schema_version") != schema_version
         ):
             raise StateError(f"Evaluator schema mismatch: {requirement.name}")
         if artifact.get("evaluator") != requirement.name:
@@ -1071,6 +1375,9 @@ class OfflineLifecycleFinalizer:
         requirement: EvaluationRequirement,
         evaluations: list[dict[str, Any]],
         metadata: dict[str, Any],
+        *,
+        run_dir: Path | None = None,
+        manifest: RunManifest | None = None,
     ) -> dict[str, Any]:
         if requirement.not_applicable_reason:
             return {
@@ -1082,6 +1389,13 @@ class OfflineLifecycleFinalizer:
             }
         if requirement.name in self.evaluators:
             return self.evaluators[requirement.name](evaluations, metadata)
+        if manifest is not None and self._is_v3(manifest):
+            if requirement.name == "judge_agreement":
+                return self._judge_agreement_artifact(evaluations, metadata)
+            if requirement.name == "retrieval_report":
+                return self._retrieval_artifact(evaluations, metadata, run_dir, manifest)
+            if requirement.name == "analysis_rows":
+                return self._analysis_rows_artifact(evaluations, metadata, run_dir, manifest)
         if requirement.name == "primary_judge_score":
             return primary_judge_report(evaluations, metadata)
         if requirement.name == "rigorous_report":
@@ -1096,8 +1410,181 @@ class OfflineLifecycleFinalizer:
                 return longmemeval_evaluation.ablation_report(evaluations, metadata)
         raise StateError(f"Evaluator is not implemented: {requirement.name}")
 
-    def _validate_evaluation_summary(self, reports: dict[str, Any]) -> None:
-        if reports.get("schema_version") != EVALUATION_SCHEMA_VERSION:
+    @staticmethod
+    def _query_artifacts_v3(
+        run_dir: Path, manifest: RunManifest,
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+        retrievals: dict[str, dict[str, Any]] = {}
+        packed_contexts: dict[str, dict[str, Any]] = {}
+        ingestion: dict[str, dict[str, Any]] = {}
+        for unit_id in manifest.expected_item_ids:
+            unit_dir = run_dir / "items" / unit_id
+            aggregate = _load_json_dict(unit_dir / "predictions.json")
+            prepared = _load_json_dict(unit_dir / "prepared.json")
+            query_ids = aggregate.get("question_ids")
+            if not isinstance(query_ids, list):
+                raise StateError(f"V3 aggregate missing question IDs: {unit_id}")
+            for query_id in query_ids:
+                query_id = str(query_id)
+                if query_id in retrievals:
+                    raise StateError(f"Duplicate v3 query ID: {query_id}")
+                question_dir = unit_dir / "questions"
+                retrievals[query_id] = _load_json_dict(question_dir / f"{query_id}.retrieval.json")
+                packed_contexts[query_id] = _load_json_dict(question_dir / f"{query_id}.context.json")
+                ingestion[query_id] = prepared
+        return retrievals, packed_contexts, ingestion
+
+    def _retrieval_artifact(
+        self, evaluations: list[dict[str, Any]], metadata: dict[str, Any],
+        run_dir: Path | None, manifest: RunManifest,
+    ) -> dict[str, Any]:
+        if run_dir is None:
+            raise StateError("V3 retrieval evaluation requires a run directory.")
+        retrievals, _packed, _ingestion = self._query_artifacts_v3(run_dir, manifest)
+        rows: dict[str, dict[str, Any]] = {}
+        for item in evaluations:
+            query_id = str(item["question_id"])
+            gold = (
+                item.get("evidence") if metadata["benchmark"] == "locomo"
+                else item.get("answer_session_ids")
+            )
+            if not isinstance(gold, list) or not gold:
+                rows[query_id] = {"status": "NOT_APPLICABLE", "reason": "No official evidence IDs."}
+                continue
+            retrieved = retrievals[query_id].get("items")
+            if not isinstance(retrieved, list):
+                raise StateError(f"V3 retrieval items missing for {query_id}.")
+            source_lists: list[list[str]] = []
+            for memory in retrieved:
+                if not isinstance(memory, dict):
+                    raise StateError("V3 retrieved item must be an object.")
+                item_meta = memory.get("metadata")
+                refs = item_meta.get("source_refs") if isinstance(item_meta, dict) else None
+                if not isinstance(refs, list) and metadata["benchmark"] == "locomo":
+                    refs = memory.get("source_event_ids")
+                if not isinstance(refs, list):
+                    refs = []
+                source_lists.append([str(value) for value in refs])
+            if retrieved and not any(source_lists):
+                rows[query_id] = {"status": "NOT_APPLICABLE", "reason": "Retrieved memories have no source provenance."}
+                continue
+            expected = set(str(value) for value in gold)
+            seen: set[str] = set()
+            first_rank: int | None = None
+            for rank, refs in enumerate(source_lists, start=1):
+                matches = expected.intersection(refs)
+                if matches and first_rank is None:
+                    first_rank = rank
+                seen.update(matches)
+            rows[query_id] = {
+                "status": "COMPLETED",
+                "recall_at_k": len(seen) / len(expected),
+                "reciprocal_rank": 1 / first_rank if first_rank is not None else 0.0,
+                "retrieved_count": len(retrieved),
+            }
+        completed = [row for row in rows.values() if row["status"] == "COMPLETED"]
+        if not completed:
+            return {
+                "schema_version": EVALUATION_SCHEMA_VERSION,
+                "evaluator": "retrieval_report", "evaluator_version": "retrieval-rank-v3",
+                "status": "NOT_APPLICABLE",
+                "reason": "No query has both official evidence and retrieved source provenance.",
+                "queries": rows,
+            }
+        return {
+            "schema_version": EVALUATION_SCHEMA_VERSION,
+            "evaluator": "retrieval_report", "evaluator_version": "retrieval-rank-v3",
+            "status": "COMPLETED",
+            "queries": rows,
+            "metrics": {
+                "evaluated_count": len(completed),
+                "mean_recall_at_k": sum(row["recall_at_k"] for row in completed) / len(completed),
+                "mean_reciprocal_rank": sum(row["reciprocal_rank"] for row in completed) / len(completed),
+            },
+        }
+
+    def _judge_agreement_artifact(
+        self, evaluations: list[dict[str, Any]], metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        del metadata
+        agreement = _multi_judge_report(evaluations, self.primary_judge_id)["agreement"]
+        return {
+            "schema_version": EVALUATION_SCHEMA_VERSION,
+            "evaluator": "judge_agreement", "evaluator_version": "judge-agreement-v3",
+            **agreement,
+        }
+
+    def _analysis_rows_artifact(
+        self, evaluations: list[dict[str, Any]], metadata: dict[str, Any],
+        run_dir: Path | None, manifest: RunManifest,
+    ) -> dict[str, Any]:
+        if run_dir is None:
+            raise StateError("V3 analysis rows require a run directory.")
+        retrievals, packed, ingestion = self._query_artifacts_v3(run_dir, manifest)
+        requirement = next(
+            req for req in self._requirements(manifest, metadata)
+            if req.name == "retrieval_report"
+        )
+        retrieval_artifact = (
+            {"status": "NOT_APPLICABLE", "reason": requirement.not_applicable_reason}
+            if requirement.not_applicable_reason
+            else self._retrieval_artifact(evaluations, metadata, run_dir, manifest)
+        )
+        retrieval_metrics = (
+            retrieval_artifact.get("queries")
+            if retrieval_artifact["status"] == "COMPLETED"
+            else None
+        )
+        if retrieval_metrics is None:
+            requirement = EvaluationRequirement(
+                "retrieval_report", required=False,
+                not_applicable_reason=str(retrieval_artifact.get("reason", "Retrieval metric unavailable.")),
+            )
+        predictions = {str(item["question_id"]): item for item in evaluations}
+        references = {
+            query_id: {
+                "query_id": query_id,
+                "strata": (
+                    {"category": item.get("category")}
+                    if metadata["benchmark"] == "locomo"
+                    else {"question_type": item.get("question_type"),
+                          "is_abstention": item.get("is_abstention")}
+                ),
+            }
+            for query_id, item in predictions.items()
+        }
+        judgments = {
+            query_id: {
+                judge_id: {"question_id": query_id, "judge_id": judge_id, **value}
+                for judge_id, value in item["judges"].items()
+            }
+            for query_id, item in predictions.items()
+        }
+        rows = build_analysis_rows(
+            run_id=manifest.run_id,
+            scientific_fingerprint=manifest.scientific_fingerprint,
+            benchmark=metadata["benchmark"], framework=metadata["framework"],
+            expected_query_ids=expected_terminal_item_ids(manifest),
+            expected_judge_ids=tuple(metadata["judge_ids"]),
+            primary_judge_id=self.primary_judge_id,
+            predictions=predictions, retrievals=retrievals, packed_contexts=packed,
+            judgments=judgments, references=references,
+            retrieval_metrics=retrieval_metrics,
+            retrieval_requirement=requirement,
+            ingestion=ingestion,
+        )
+        jsonl_path = run_dir / "evaluations" / "analysis_rows.jsonl"
+        _write_bytes_atomic(jsonl_path, analysis_rows_jsonl(rows))
+        return {
+            "schema_version": EVALUATION_SCHEMA_VERSION,
+            "evaluator": "analysis_rows", "evaluator_version": "analysis-rows-v3",
+            "status": "COMPLETED", "row_count": len(rows),
+            "path": jsonl_path.relative_to(run_dir).as_posix(),
+            "sha256": sha256_file(jsonl_path),
+        }
+
+    def _validate_evaluation_summary(self, reports: dict[str, Any], manifest: RunManifest) -> None:
+        if reports.get("schema_version") != self._evaluation_schema(manifest):
             raise StateError("Evaluation summary schema mismatch.")
         if not isinstance(reports.get("artifacts"), dict):
             raise StateError("Evaluation summary artifacts must be an object.")
@@ -1121,8 +1608,12 @@ class OfflineLifecycleFinalizer:
             attempt_id=attempt.attempt_id,
             resume=attempt.resume,
         )
+        if self._is_v3(manifest):
+            usage["schema_version"] = 3
+            timing["schema_version"] = 3
+            resources["schema_version"] = 3
         summary = {
-            "schema_version": REPORT_SCHEMA_VERSION,
+            "schema_version": 3 if self._is_v3(manifest) else REPORT_SCHEMA_VERSION,
             "run_id": manifest.run_id,
             "scientific_fingerprint": manifest.scientific_fingerprint,
             "benchmark": metadata["benchmark"],
@@ -1143,6 +1634,8 @@ class OfflineLifecycleFinalizer:
                 "resources": "reports/resources.json",
             },
         }
+        if self._is_v3(manifest):
+            summary["judges"] = _multi_judge_report(evaluations, self.primary_judge_id)
         summary_path = run_dir / "reports" / "summary.json"
         markdown_path = run_dir / "reports" / "summary.md"
         usage_path = run_dir / "reports" / "usage.json"
@@ -1318,7 +1811,9 @@ class OfflineFullLifecycleRunner:
         *,
         prediction_runner: Any,
         artifact_store: LocalArtifactStore,
-        judge: JudgeAdapter,
+        judge: JudgeAdapter | None = None,
+        judges: Mapping[str, JudgeAdapter] | None = None,
+        primary_judge_id: str | None = None,
         metrics: BenchmarkMetrics | None = None,
         events: JsonEventLogger | None = None,
     ) -> None:
@@ -1328,6 +1823,8 @@ class OfflineFullLifecycleRunner:
         self.finalizer = OfflineLifecycleFinalizer(
             artifact_store=artifact_store,
             judge=judge,
+            judges=judges,
+            primary_judge_id=primary_judge_id,
             metrics=metrics,
             events=events,
         )
@@ -1413,12 +1910,27 @@ class InjectedTerminalInterrupt(RuntimeError):
 
 def _build_usage_report(evaluations: list[dict[str, Any]]) -> dict[str, Any]:
     answerer = _aggregate_provider_usage(evaluations, role="answerer")
-    judge = _aggregate_provider_usage(evaluations, role="judge")
+    judge_by_id: dict[str, dict[str, Any]] = {}
+    if evaluations and all(isinstance(item.get("judges"), dict) for item in evaluations):
+        judge_rows = [
+            judgment
+            for item in evaluations
+            for judgment in item["judges"].values()
+        ]
+        judge = _aggregate_provider_usage(judge_rows, role="judge")
+        judge_by_id = {
+            judge_id: _aggregate_provider_usage(
+                [item["judges"][judge_id] for item in evaluations], role="judge"
+            )
+            for judge_id in evaluations[0]["judges"]
+        }
+    else:
+        judge = _aggregate_provider_usage(evaluations, role="judge")
     memory_internal = _aggregate_memory_usage(evaluations)
     benchmark_total = _sum_usage(memory_internal, answerer)
     evaluation_total = _sum_usage(judge)
     overall_total = _sum_usage(benchmark_total, evaluation_total)
-    return {
+    report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "scope": "committed_successful_items",
         "item_count": len(evaluations),
@@ -1442,6 +1954,9 @@ def _build_usage_report(evaluations: list[dict[str, Any]]) -> dict[str, Any]:
             ),
         },
     }
+    if judge_by_id:
+        report["components"]["judges"] = judge_by_id
+    return report
 
 
 def _aggregate_provider_usage(
@@ -1570,6 +2085,7 @@ def _load_pipeline_timing_records(
         sorted((run_dir / "items").glob("*/timing/*.json"))
     )
     judgment_timing_paths = sorted((run_dir / "judgments" / "timing").glob("*.json"))
+    judgment_timing_paths.extend(sorted((run_dir / "judgments" / "timing").glob("*/*.json")))
 
     records = (
         [_load_json_dict(path) for path in prediction_timing_paths]
@@ -1605,6 +2121,59 @@ def primary_judge_report(
             }
         },
     }
+
+
+def _multi_judge_report(
+    evaluations: list[dict[str, Any]], primary_judge_id: str | None,
+) -> dict[str, Any]:
+    if not evaluations or primary_judge_id is None:
+        raise StateError("V3 multi-judge report requires evaluated items and a primary judge.")
+    judge_ids = tuple(evaluations[0]["judges"])
+    scores: dict[str, dict[str, Any]] = {}
+    for judge_id in judge_ids:
+        values = [float(item["judges"][judge_id]["score"]) for item in evaluations]
+        passes = sum(
+            item["judges"][judge_id]["judgment"] == "CORRECT"
+            for item in evaluations
+        )
+        scores[judge_id] = {
+            "judged_count": len(values),
+            "avg_judge_score": sum(values) / len(values),
+            "judge_pass_rate": passes / len(values),
+        }
+    discordant_ids = [
+        str(item["question_id"])
+        for item in evaluations
+        if len({entry["judgment"] for entry in item["judges"].values()}) > 1
+    ]
+    agreement = (
+        {"status": "COMPLETED", "exact_agreement_rate":
+         (len(evaluations) - len(discordant_ids)) / len(evaluations),
+         "discordant_query_ids": discordant_ids}
+        if len(judge_ids) > 1
+        else {"status": "NOT_APPLICABLE", "reason": "Only one judge is configured."}
+    )
+    return {
+        "primary_judge_id": primary_judge_id,
+        "primary": scores[primary_judge_id],
+        "secondary": {judge_id: scores[judge_id] for judge_id in judge_ids if judge_id != primary_judge_id},
+        "agreement": agreement,
+    }
+
+
+def _write_bytes_atomic(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def requirement_to_dict(requirement: EvaluationRequirement) -> dict[str, Any]:

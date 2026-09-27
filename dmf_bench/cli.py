@@ -21,7 +21,7 @@ from .execution import CancellationController, RunInterrupted
 from .logging_config import JsonEventLogger, redact
 from .metrics import BenchmarkMetrics, MetricsServer, start_metrics_endpoint, stop_metrics_endpoint
 from .oci import OciPublishError, publish_run_oci
-from .registry import BENCHMARKS, FRAMEWORKS, supported_combinations
+from .registry import BENCHMARKS, FRAMEWORKS, COMPATIBILITY, supported_combinations
 from .runtime import RuntimeApplication, assemble_application
 from .secrets import load_runtime_secret_files
 from .state import (
@@ -234,6 +234,7 @@ def main(
                 framework=args.framework,
                 materialize_datasets=bool(args.materialize_datasets),
                 dataset_registry_path=args.dataset_registry,
+                allow_dataset_downloads=bool(args.materialize_datasets),
             )
         except ValueError as exc:
             parser.exit(2, f"dmf-bench validate: error: {exc}\n")
@@ -328,10 +329,19 @@ def main(
         try:
             resolved = resolve_config(
                 args.config,
-                materialize_datasets=not bool(args.plan_only),
+                materialize_datasets=True,
                 dataset_registry_path=args.dataset_registry,
             )
-            if resolved.data["benchmark"] == "longmemeval":
+            if resolved.data.get("schema_version") == 3:
+                descriptor = BENCHMARKS[resolved.data["benchmark"]]
+                adapter = descriptor.factory(resolved.data)
+                units = adapter.enumerate_units(resolved.data)
+                expected_question_ids = [
+                    query.query_id
+                    for unit in units
+                    for query in adapter.load_case(unit, resolved.data).queries
+                ]
+            elif resolved.data["benchmark"] == "longmemeval":
                 units = LongMemEvalAdapter().enumerate_units(resolved.data)
                 expected_question_ids = [unit.unit_id for unit in units]
             elif resolved.data["benchmark"] == "locomo":
@@ -666,4 +676,9 @@ def print_list(stream: TextIO) -> None:
 
     print("supported combinations:", file=stream)
     for benchmark, framework in supported_combinations():
-        print(f"  {benchmark}/{framework}", file=stream)
+        record = COMPATIBILITY[(benchmark, framework)]
+        storage = ",".join(sorted(FRAMEWORKS[framework].storage_kinds))
+        print(
+            f"  {benchmark}/{framework}: status={record.status} storage={storage}",
+            file=stream,
+        )

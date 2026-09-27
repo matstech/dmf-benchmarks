@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 MAX_COLLECTION_NAME_LENGTH = 63
 QDRANT_COLLECTION_NAMESPACE = "dmf_bench_v2"
+QDRANT_COLLECTION_NAMESPACE_V3 = "dmf_bench_v3"
 
 
 class QdrantLifecycleError(RuntimeError):
@@ -39,9 +40,10 @@ class CleanupManifest:
     unit_hash: str
     collections: tuple[QdrantCollectionResource, ...]
     local_paths: tuple[str, ...] = ()
+    namespace: str = QDRANT_COLLECTION_NAMESPACE
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "run_hash": self.run_hash,
             "framework": self.framework,
             "unit_hash": self.unit_hash,
@@ -56,6 +58,9 @@ class CleanupManifest:
             ],
             "local_paths": list(self.local_paths),
         }
+        if self.namespace != QDRANT_COLLECTION_NAMESPACE:
+            payload["namespace"] = self.namespace
+        return payload
 
 
 class QdrantClientProtocol(Protocol):
@@ -78,11 +83,14 @@ def qdrant_collection_name(
     framework: str,
     unit_id: str,
     role: CollectionRole,
+    namespace: str = QDRANT_COLLECTION_NAMESPACE,
 ) -> str:
+    if namespace not in {QDRANT_COLLECTION_NAMESPACE, QDRANT_COLLECTION_NAMESPACE_V3}:
+        raise QdrantLifecycleError(f"Unsupported Qdrant namespace: {namespace!r}.")
     safe_framework = normalize_name_part(framework)
     unit_hash = stable_hash(unit_id)
     raw = (
-        f"{QDRANT_COLLECTION_NAMESPACE}_{run_hash[:16]}_"
+        f"{namespace}_{run_hash[:16]}_"
         f"{safe_framework}_{unit_hash}_{role.value}"
     )
     if len(raw) <= MAX_COLLECTION_NAME_LENGTH:
@@ -108,6 +116,7 @@ def build_cleanup_manifest(
     roles: tuple[CollectionRole, ...],
     vector_size: int,
     local_paths: tuple[str, ...] = (),
+    namespace: str = QDRANT_COLLECTION_NAMESPACE,
 ) -> CleanupManifest:
     return CleanupManifest(
         run_hash=run_hash[:16],
@@ -120,6 +129,7 @@ def build_cleanup_manifest(
                     framework=framework,
                     unit_id=unit_id,
                     role=role,
+                    namespace=namespace,
                 ),
                 role=role,
                 vector_size=vector_size,
@@ -127,19 +137,27 @@ def build_cleanup_manifest(
             for role in roles
         ),
         local_paths=local_paths,
+        namespace=namespace,
     )
 
 
 def validate_cleanup_manifest_namespace(manifest: CleanupManifest) -> None:
+    if manifest.namespace not in {QDRANT_COLLECTION_NAMESPACE, QDRANT_COLLECTION_NAMESPACE_V3}:
+        raise QdrantLifecycleError("Refusing an unregistered Qdrant namespace.")
     invalid_names = [
         collection.name
         for collection in manifest.collections
-        if not collection.name.startswith(f"{QDRANT_COLLECTION_NAMESPACE}_")
+        if not collection.name.startswith(f"{manifest.namespace}_")
     ]
     if invalid_names:
+        namespace_label = (
+            f"v2 namespace {manifest.namespace!r}"
+            if manifest.namespace == QDRANT_COLLECTION_NAMESPACE
+            else f"namespace {manifest.namespace!r}"
+        )
         raise QdrantLifecycleError(
             "Refusing to access Qdrant collections outside the required "
-            f"v2 namespace {QDRANT_COLLECTION_NAMESPACE!r}: "
+            f"{namespace_label}: "
             f"{', '.join(invalid_names)}."
         )
 

@@ -17,6 +17,8 @@ from dmf_bench.evaluation import OfflineFullLifecycleRunner
 from dmf_bench.logging_config import JsonEventLogger
 from dmf_bench.metrics import BenchmarkMetrics
 from dmf_bench.registry import validate_combination
+from dmf_bench.registry import BENCHMARKS
+from dmf_bench.retrieval_qa import RetrievalQAPredictOnlyRunner
 from dmf_bench.runner import LoCoMoPredictOnlyRunner, LongMemEvalPredictOnlyRunner
 
 
@@ -38,7 +40,17 @@ class RuntimeRequest:
     def from_config(cls, config: dict[str, Any]) -> "RuntimeRequest":
         models = _mapping(config.get("models"))
         answerer = _mapping(models.get("answerer"))
-        judge = _mapping(models.get("judge"))
+        if config.get("schema_version") == 3:
+            judges = models.get("judges")
+            if not isinstance(judges, list):
+                raise ValueError("models.judges must be a list.")
+            primary_id = _required_string(_mapping(config.get("evaluation")), "primary_judge_id")
+            selected = [judge for judge in judges if isinstance(judge, dict) and judge.get("id") == primary_id]
+            if len(selected) != 1:
+                raise ValueError("Primary judge ID must select exactly one configured judge.")
+            judge = selected[0]
+        else:
+            judge = _mapping(models.get("judge"))
         request = cls(
             benchmark=_required_string(config, "benchmark"),
             framework=_required_string(config, "framework"),
@@ -64,6 +76,7 @@ class RuntimeComponents:
     framework: Any
     answerer: AnswererAdapter
     judge: JudgeAdapter
+    judges: Mapping[str, JudgeAdapter] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -117,12 +130,29 @@ def assemble_runtime(
         config,
         "answerer provider",
     )
-    judge = _build(
-        factories.judges,
-        (request.benchmark, request.judge_provider),
-        config,
-        "judge",
-    )
+    if config.get("schema_version") == 3:
+        judges: dict[str, JudgeAdapter] = {}
+        for model in _mapping(config.get("models"))["judges"]:
+            judge_id = str(model["id"])
+            judge_config = {
+                **config,
+                "models": {**_mapping(config.get("models")), "judge": model},
+            }
+            judges[judge_id] = _build(
+                factories.judges,
+                (request.benchmark, str(model["provider"])),
+                judge_config,
+                "judge",
+            )
+        judge = judges[_required_string(_mapping(config.get("evaluation")), "primary_judge_id")]
+    else:
+        judge = _build(
+            factories.judges,
+            (request.benchmark, request.judge_provider),
+            config,
+            "judge",
+        )
+        judges = {"primary": judge}
     framework = _build(factories.frameworks, request.framework, config, "framework")
     return RuntimeComponents(
         request=request,
@@ -130,6 +160,7 @@ def assemble_runtime(
         framework=framework,
         answerer=answerer,
         judge=judge,
+        judges=judges,
     )
 
 
@@ -183,7 +214,18 @@ def assemble_application(
         factories=factories or default_runtime_factories(metrics=metrics_registry),
     )
     store = LocalArtifactStore(runs_dir)
-    if components.request.benchmark == "longmemeval":
+    if config.get("schema_version") == 3:
+        lifecycle = BENCHMARKS[components.request.benchmark].lifecycle
+        runner_factory = {"retrieval-qa-v1": RetrievalQAPredictOnlyRunner}.get(lifecycle)
+        if runner_factory is None:
+            raise RuntimeAssemblyError(f"Unsupported benchmark lifecycle: {lifecycle!r}.")
+        prediction_runner = runner_factory(
+            benchmark=components.benchmark,
+            artifact_store=store,
+            framework=components.framework,
+            answerer=components.answerer,
+        )
+    elif components.request.benchmark == "longmemeval":
         prediction_runner: Any = LongMemEvalPredictOnlyRunner(
             benchmark=components.benchmark,
             artifact_store=store,
@@ -205,12 +247,22 @@ def assemble_application(
         raise RuntimeAssemblyError(
             f"Unsupported executable benchmark: {components.request.benchmark!r}."
         )
+    finalizer_judges = (
+        {
+            "judges": components.judges,
+            "primary_judge_id": _required_string(
+                _mapping(config.get("evaluation")), "primary_judge_id"
+            ),
+        }
+        if config.get("schema_version") == 3
+        else {"judge": components.judge}
+    )
     full_runner = OfflineFullLifecycleRunner(
         prediction_runner=prediction_runner,
         artifact_store=store,
-        judge=components.judge,
         metrics=metrics_registry,
         events=events,
+        **finalizer_judges,
     )
     return RuntimeApplication(
         components=components,

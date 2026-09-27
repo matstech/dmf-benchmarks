@@ -125,7 +125,7 @@ def _package_version() -> str:
     try:
         return metadata.version("dmf-benchmarks")
     except metadata.PackageNotFoundError:
-        return "0.2.0"
+        return "0.3.0"
 
 
 def _framework_runtime_identity(framework: str) -> dict[str, str]:

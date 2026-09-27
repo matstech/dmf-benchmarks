@@ -33,10 +33,10 @@ def test_container_matrix_resolves_all_combinations_with_pinned_inputs() -> None
     for config in configs:
         framework_path = Path(config["framework_config"]["path"])
         dataset_path = Path(config["dataset"]["path"])
-        assert config["runtime"]["execution_profile"] == (
+        assert config["scientific_profile"] == (
             "docker-qdrant-fixture-v1"
         )
         assert config["models"]["answerer"]["provider"] == "fixture"
-        assert config["models"]["judge"]["provider"] == "fixture"
+        assert config["models"]["judges"][0]["provider"] == "fixture"
         assert config["framework_config"]["sha256"] == sha256_file(framework_path)
         assert config["dataset"]["sha256"] == sha256_file(dataset_path)

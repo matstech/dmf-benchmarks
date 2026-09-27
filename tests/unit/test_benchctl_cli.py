@@ -481,7 +481,7 @@ def test_prepare_locks_image_validates_smoke_suite_and_writes_context(
     )
 
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["schema_version"] == 2
+    assert state["schema_version"] == 3
     assert state["batch_id"] == "20260811T120000Z"
     assert state["image"] == {
         "digest": "sha256:abc123",
@@ -512,7 +512,7 @@ def test_run_prepared_executes_the_locked_batch_sequentially(
     state_path.write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 3,
                 "prepared_at": "2026-08-11T12:00:00Z",
                 "batch_id": "20260811T120000Z",
                 "project_dir": str(ROOT),
@@ -526,6 +526,8 @@ def test_run_prepared_executes_the_locked_batch_sequentially(
                 "experiments": [
                     {
                         "host_path": str(ROOT / path),
+                        "config_sha256": hashlib.sha256((ROOT / path).read_bytes()).hexdigest(),
+                        "dataset_lock": {"dataset_id": "fixture"},
                         "run_id": f"batch-{Path(path).stem.removeprefix('experiment-')}",
                         "requested_models": [
                             {
@@ -586,7 +588,7 @@ def test_run_prepared_executes_the_locked_batch_sequentially(
     assert all("--quiet" in call[0] for call in runner.calls[1:])
 
 
-def test_run_prepared_rejects_config_changed_after_v2_preparation(
+def test_run_prepared_rejects_config_changed_after_v3_preparation(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "project"
@@ -602,7 +604,7 @@ def test_run_prepared_rejects_config_changed_after_v2_preparation(
     state_path.write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "project_dir": str(project),
                 "batch_id": "locked-batch",
                 "image": {
@@ -651,7 +653,7 @@ def test_resume_prepared_uses_locked_image_and_quiet_output(
     state_path.write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 3,
                 "project_dir": str(ROOT),
                 "image": {
                     "resolved_ref": "ghcr.io/example/dmf-benchmarks@sha256:abc123",
@@ -664,6 +666,10 @@ def test_resume_prepared_uses_locked_image_and_quiet_output(
                         "host_path": str(
                             ROOT / "smoke/config/experiment-locomo-dmf.json"
                         ),
+                        "config_sha256": hashlib.sha256(
+                            (ROOT / "smoke/config/experiment-locomo-dmf.json").read_bytes()
+                        ).hexdigest(),
+                        "dataset_lock": {"dataset_id": "fixture"},
                         "run_id": run_id,
                         "requested_models": [
                             {

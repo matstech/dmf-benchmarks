@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 from dmf_bench.cli import main as cli_main
 from dmf_bench.container_fixture import fixture_application_builder
-from dmf_bench.contracts import REPORT_SCHEMA_VERSION, sha256_file
+from dmf_bench.contracts import sha256_file
 from dmf_bench.registry import supported_combinations
 
 
@@ -80,8 +80,9 @@ def build_matrix_configs(
             }
         )
         config["evaluation"] = {
-            "required": ["primary_judge_score", "rigorous_report"],
-            "optional": ["ablation_report"],
+            "primary_judge_id": "primary",
+            "required": ["primary_judge_score", "rigorous_report", "analysis_rows"],
+            "optional": ["retrieval_report", "judge_agreement", "ablation_report"],
         }
         configs.append(config)
     return configs
@@ -123,7 +124,7 @@ def run_matrix(
     print(
         json.dumps(
             {
-                "schema_version": REPORT_SCHEMA_VERSION,
+                "schema_version": 3,
                 "state": "COMPLETED",
                 "completed_count": len(completed),
                 "runs": completed,

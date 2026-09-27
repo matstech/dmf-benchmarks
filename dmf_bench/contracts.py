@@ -10,8 +10,9 @@ from typing import Any, Literal
 from .atomic_io import canonical_json_bytes
 
 
-EXPERIMENT_CONFIG_SCHEMA_VERSION = 2
+EXPERIMENT_CONFIG_SCHEMA_VERSION = 3
 RUN_MANIFEST_SCHEMA_VERSION = 2
+V3_RUN_MANIFEST_SCHEMA_VERSION = 3
 ATTEMPT_SCHEMA_VERSION = 2
 LIFECYCLE_CHECKPOINT_SCHEMA_VERSION = 2
 UNIT_CHECKPOINT_SCHEMA_VERSION = 2
@@ -19,6 +20,7 @@ EVALUATION_REF_SCHEMA_VERSION = 2
 RUN_STATUS_SCHEMA_VERSION = 2
 COMPLETION_MARKER_SCHEMA_VERSION = 2
 PREDICTION_SCHEMA_VERSION = 2
+V3_PREDICTION_SCHEMA_VERSION = 3
 JUDGMENT_SCHEMA_VERSION = 2
 EVALUATION_SCHEMA_VERSION = 2
 REPORT_SCHEMA_VERSION = 2
@@ -101,9 +103,14 @@ class RunManifest:
     schema_version: int = RUN_MANIFEST_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        if self.schema_version != RUN_MANIFEST_SCHEMA_VERSION:
+        expected_schema = (
+            V3_RUN_MANIFEST_SCHEMA_VERSION
+            if self.fingerprint_inputs.get("schema_version") == 3
+            else RUN_MANIFEST_SCHEMA_VERSION
+        )
+        if self.schema_version != expected_schema:
             raise ValueError(
-                f"RunManifest schema_version must be {RUN_MANIFEST_SCHEMA_VERSION}; "
+                f"RunManifest schema_version must be {expected_schema}; "
                 f"v{self.schema_version} state is not supported."
             )
         if not self.run_id:

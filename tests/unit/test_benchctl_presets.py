@@ -73,6 +73,9 @@ def test_config_export_creates_portable_editable_bundle(tmp_path: Path) -> None:
     experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
     assert framework_path.is_file()
     assert experiment["framework"] == "mem0"
+    assert experiment["schema_version"] == 3
+    assert experiment["storage"]["kind"] == "qdrant-server"
+    assert [judge["id"] for judge in experiment["models"]["judges"]] == ["primary"]
     assert experiment["framework_config"]["path"] == "mem0-settings.yaml"
     assert experiment["framework_config"]["sha256"] == hashlib.sha256(
         framework_path.read_bytes()

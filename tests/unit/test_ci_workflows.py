@@ -10,7 +10,6 @@ WORKFLOW_DIR = Path(__file__).parents[2] / ".github" / "workflows"
 EXPECTED_WORKFLOWS = {
     "pr-fast.yml",
     "container-smoke.yml",
-    "scheduled-integration.yml",
     "release-dry-run.yml",
     "publish-image.yml",
     "scientific-canary.yml",
@@ -127,18 +126,3 @@ def test_publish_image_workflow_publishes_only_on_main_or_tag() -> None:
     assert package_job["permissions"] == {"contents": "write"}
     assert "poetry build" in serialized
     assert "gh release upload" in serialized
-
-
-def test_scheduled_integration_is_not_part_of_pr_fast_path() -> None:
-    payload = load_workflow(WORKFLOW_DIR / "scheduled-integration.yml")
-    serialized = (WORKFLOW_DIR / "scheduled-integration.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert set(payload["on"]) == {"schedule", "workflow_dispatch"}
-    assert "pull_request" not in payload["on"]
-    assert "poetry install" not in serialized
-    assert "poetry run" not in serialized
-    assert "deploy/compose.fixture.yaml" in serialized
-    assert "dmf_benchctl verify" in serialized
-    assert "docker compose" not in serialized

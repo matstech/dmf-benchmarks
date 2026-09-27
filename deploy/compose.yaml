@@ -1,4 +1,4 @@
-name: dmf-benchmarks-v2
+name: dmf-benchmarks-v3
 
 x-benchmark-image: &benchmark_image
   image: ${DMF_BENCH_IMAGE:-dmf-benchmarks:local}
@@ -8,7 +8,7 @@ x-benchmark-image: &benchmark_image
 
 x-api-volumes: &api_volumes
   - type: volume
-    source: benchmark-runs-v2
+    source: benchmark-runs-v3
     target: /bench/runs
     read_only: true
 
@@ -22,10 +22,10 @@ x-job-volumes: &job_volumes
     target: /bench/datasets
     read_only: true
   - type: volume
-    source: benchmark-runs-v2
+    source: benchmark-runs-v3
     target: /bench/runs
   - type: volume
-    source: benchmark-cache-v2
+    source: benchmark-cache-v3
     target: /bench/cache
 
 services:
@@ -40,7 +40,7 @@ services:
       - "6334"
     volumes:
       - type: volume
-        source: qdrant-storage-v2
+        source: qdrant-storage-v3
         target: /qdrant/storage
     healthcheck:
       test:
@@ -115,7 +115,7 @@ services:
         target: /etc/prometheus/rules
         read_only: true
       - type: volume
-        source: prometheus-data-v2
+        source: prometheus-data-v3
         target: /prometheus
     stop_grace_period: 30s
 
@@ -142,7 +142,7 @@ services:
         target: /etc/grafana/dashboards
         read_only: true
       - type: volume
-        source: grafana-data-v2
+        source: grafana-data-v3
         target: /var/lib/grafana
     stop_grace_period: 30s
 
@@ -196,13 +196,13 @@ services:
     stop_grace_period: 30s
 
 volumes:
-  qdrant-storage-v2:
-    name: dmf-benchmarks-v2-qdrant
-  benchmark-runs-v2:
-    name: dmf-benchmarks-v2-runs
-  benchmark-cache-v2:
-    name: dmf-benchmarks-v2-cache
-  prometheus-data-v2:
-    name: dmf-benchmarks-v2-prometheus
-  grafana-data-v2:
-    name: dmf-benchmarks-v2-grafana
+  qdrant-storage-v3:
+    name: dmf-benchmarks-v3-qdrant
+  benchmark-runs-v3:
+    name: dmf-benchmarks-v3-runs
+  benchmark-cache-v3:
+    name: dmf-benchmarks-v3-cache
+  prometheus-data-v3:
+    name: dmf-benchmarks-v3-prometheus
+  grafana-data-v3:
+    name: dmf-benchmarks-v3-grafana
