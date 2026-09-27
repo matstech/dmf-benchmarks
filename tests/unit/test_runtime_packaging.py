@@ -26,7 +26,7 @@ LOCAL_SMOKE_CONFIG_FILES = {"experiment.json", "experiment-mem0.json"}
 def test_distribution_contains_the_runtime_package_and_entrypoint() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
-    assert project["project"]["version"] == "0.2.0"
+    assert project["project"]["version"] == "0.3.0"
     assert project["project"]["dependencies"] == []
     assert "runtime" in project["project"]["optional-dependencies"]
     assert project["tool"]["poetry"]["packages"] == [
@@ -67,18 +67,18 @@ def test_runtime_version_metadata_uses_the_distribution_name(monkeypatch) -> Non
 
     def installed_version(distribution: str) -> str:
         requested.append(distribution)
-        return "0.2.0"
+        return "0.3.0"
 
     monkeypatch.setattr(metadata, "version", installed_version)
-    assert dmf_bench.__version__ == "0.2.0"
-    assert provenance._package_version() == "0.2.0"
+    assert dmf_bench.__version__ == "0.3.0"
+    assert provenance._package_version() == "0.3.0"
     assert requested == ["dmf-benchmarks"]
 
     def missing_version(_distribution: str) -> str:
         raise metadata.PackageNotFoundError
 
     monkeypatch.setattr(metadata, "version", missing_version)
-    assert provenance._package_version() == "0.2.0"
+    assert provenance._package_version() == "0.3.0"
 
 
 def test_docker_context_and_runtime_exclude_repository_surfaces() -> None:
@@ -91,7 +91,7 @@ def test_docker_context_and_runtime_exclude_repository_surfaces() -> None:
     assert "COPY --from=builder --chown=dmfbench:dmfbench /opt/venv /opt/venv" in dockerfile
     assert "COPY --from=builder --chown=dmfbench:dmfbench /app /app" not in dockerfile
     assert "/opt/poetry /opt/poetry" not in dockerfile
-    assert 'org.opencontainers.image.version="0.2.0"' in dockerfile
+    assert 'org.opencontainers.image.version="0.3.0"' in dockerfile
     assert "image: ${DMF_BENCH_IMAGE:-dmf-benchmarks:local}" in compose
     assert "OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}" not in compose
     assert "OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}" not in compose

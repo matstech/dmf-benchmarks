@@ -100,9 +100,9 @@ package-build:
 	$(POETRY) build
 
 package-smoke: package-build
-	package_tmp="$$(mktemp -d)"; \
+	set -e; package_tmp="$$(mktemp -d)"; \
 	$(PYTHON) -m venv "$$package_tmp/venv"; \
-	"$$package_tmp/venv/bin/pip" install --no-deps dist/*.whl; \
+	"$$package_tmp/venv/bin/pip" install --no-deps "dist/dmf_benchmarks-$(VERSION)-py3-none-any.whl"; \
 	cd "$$package_tmp"; \
 	"$$package_tmp/venv/bin/dmf-benchctl" config list; \
 	"$$package_tmp/venv/bin/dmf-benchctl" config export locomo-mem0 ./exported; \

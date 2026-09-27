@@ -128,7 +128,7 @@ def test_artifact_api_lists_verifies_and_downloads_json(tmp_path: Path) -> None:
     assert 'async function loadRunStatus' in landing.text
     assert 'async function loadArtifacts' in landing.text
     assert 'data-run-path=' not in landing.text
-    assert openapi.json()["info"]["version"] == "0.2.0"
+    assert openapi.json()["info"]["version"] == "0.3.0"
     assert health.json() == {
         "status": "ok",
         "mode": "read-only",

@@ -156,6 +156,7 @@ def materialize_dataset_record(
     registry_path: str | Path | None = None,
     sampling: dict[str, Any] | None = None,
     allow_unpinned: bool = False,
+    allow_downloads: bool = True,
 ) -> MaterializedDataset:
     registry = load_dataset_registry(registry_path)
     try:
@@ -171,7 +172,7 @@ def materialize_dataset_record(
     target_dir = Path(output_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     source_path = target_dir / record.filename
-    source_sha256 = _ensure_source_dataset(record, source_path)
+    source_sha256 = _ensure_source_dataset(record, source_path, allow_downloads=allow_downloads)
 
     materialized_path = source_path
     sampling_manifest: dict[str, Any] | None = None
@@ -212,6 +213,7 @@ def materialize_dataset_for_config(
     data: dict[str, Any],
     *,
     registry_path: str | Path | None = None,
+    allow_downloads: bool = False,
 ) -> dict[str, Any]:
     """Return a config copy with source-based dataset entries materialized."""
     dataset = data.get("dataset")
@@ -233,6 +235,7 @@ def materialize_dataset_for_config(
         registry_path=registry_path,
         sampling=_dataset_sampling(dataset),
         allow_unpinned=bool(dataset.get("allow_unpinned", False)),
+        allow_downloads=allow_downloads,
     )
     updated = json.loads(json.dumps(data))
     updated_dataset = dict(updated["dataset"])
@@ -241,7 +244,9 @@ def materialize_dataset_for_config(
     return updated
 
 
-def _ensure_source_dataset(record: DatasetRecord, target: Path) -> str:
+def _ensure_source_dataset(
+    record: DatasetRecord, target: Path, *, allow_downloads: bool = True
+) -> str:
     target_dir = target.parent
     if target.exists():
         observed = sha256_file(target)
@@ -251,6 +256,12 @@ def _ensure_source_dataset(record: DatasetRecord, target: Path) -> str:
                 f"expected {record.sha256}."
             )
         return observed
+
+    if not allow_downloads:
+        raise ValueError(
+            f"Dataset {record.dataset_id!r} is not prepared at {target}; "
+            "run 'dmf-bench materialize-dataset' before starting the run."
+        )
 
     temp_path: Path | None = None
     fd = -1

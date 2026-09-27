@@ -22,10 +22,10 @@ def test_smoke_pairs_use_identical_scientific_inputs_except_memory_system() -> N
         pair = [config for config in configs if config["benchmark"] == benchmark]
         assert {config["framework"] for config in pair} == {"dmf", "mem0"}
         first, second = pair
-        for field in ("dataset", "selection", "models", "evaluation"):
+        for field in ("dataset", "selection", "retrieval", "context_budget", "models", "evaluation"):
             assert first[field] == second[field]
         assert all(
-            config["qdrant"]["retention"] == "delete-on-success"
+            config["storage"]["retention"] == "delete-on-success"
             for config in pair
         )
 
@@ -54,5 +54,7 @@ def test_smoke_sampling_bounds_complete_ingestion_and_answering_records() -> Non
 
 def test_smoke_judges_use_bounded_response_recovery() -> None:
     for config in _load_configs():
-        assert config["models"]["judge"]["requested_model"] == "gpt-4.1"
-        assert config["models"]["judge"]["runtime"]["response_max_retries"] == 1
+        judge = config["models"]["judges"][0]
+        assert judge["id"] == config["evaluation"]["primary_judge_id"]
+        assert judge["requested_model"] == "gpt-4.1"
+        assert judge["runtime"]["response_max_retries"] == 1

@@ -6,6 +6,7 @@ import os
 import sqlite3
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
 from typing import Any, Callable, Protocol
@@ -24,20 +25,19 @@ from dmf_bench.frameworks.mem0_runtime import (
 )
 from dmf_bench.frameworks.mem0_context import build_mem0_native_context_surface
 from dmf_bench.metrics import BenchmarkMetrics
-from dmf_bench.benchmarks.locomo import dataset as locomo_utils
-from dmf_bench.benchmarks.locomo.adapter import LoCoMoQuestion
-from dmf_bench.benchmarks.longmemeval.dataset import (
-    normalize_longmemeval_haystack,
-    render_longmemeval_pair_for_context,
-    serialize_longmemeval_pair_for_mem0,
-)
 
 from .base import (
     BenchmarkUnit,
+    CanonicalRetrievalResult,
     FrameworkCapability,
     FrameworkRunContext,
+    MemoryEvent,
+    MemoryQuery,
+    OwnedResource,
+    PreparedMemoryUnit,
     ProgressReporter,
     ProgressUpdate,
+    RetrievedMemory,
     ResumeCapability,
     RetrievalResult,
 )
@@ -47,6 +47,8 @@ from .qdrant_lifecycle import (
     QdrantClientProtocol,
     QdrantLifecycleError,
     QdrantLifecycleManager,
+    QDRANT_COLLECTION_NAMESPACE,
+    QDRANT_COLLECTION_NAMESPACE_V3,
     build_cleanup_manifest,
     stable_hash,
 )
@@ -61,6 +63,8 @@ _MEM0_USAGE_FIELDS = (
     "total_tokens",
     "calls",
 )
+MEM0_V3_PAIRING_POLICY = "adjacent-user-assistant-v1"
+MEM0_V3_ROLE_POLICY = "observation-as-user-v1"
 _FORBIDDEN_VECTOR_RUNTIME_FIELDS = frozenset(
     {
         "api_key",
@@ -257,6 +261,16 @@ class Mem0PreparedUnit:
     ingestion_usage_shares: dict[str, dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class Mem0V3Handle:
+    unit_id: str
+    resource_namespace: str
+    manifest: CleanupManifest
+    engine: Mem0EngineBundle
+    user_id: str
+    persisted_memory_count: int
+
+
 QdrantClientFactory = Callable[[str, str | None, float], QdrantClientProtocol]
 
 
@@ -297,7 +311,13 @@ class Mem0QdrantFrameworkAdapter:
         mem0_config = load_mem0_config(config_path)
         vector_size = _validate_mem0_qdrant_config(mem0_config)
 
-        qdrant = _mapping(config.get("qdrant"), "qdrant")
+        storage = config.get("storage")
+        if storage is not None:
+            qdrant = _mapping(storage, "storage")
+            if qdrant.get("kind") != "qdrant-server":
+                raise Mem0RuntimeError("Mem0 v3 requires storage.kind='qdrant-server'.")
+        else:
+            qdrant = _mapping(config.get("qdrant"), "qdrant")
         endpoint_env = _required_string(qdrant, "endpoint_env")
         endpoint = os.getenv(endpoint_env)
         if not endpoint or not endpoint.strip():
@@ -334,6 +354,211 @@ class Mem0QdrantFrameworkAdapter:
             vector_size=self.vector_size,
             local_paths=_sqlite_owned_paths(history_path),
         )
+
+    def resources_for_unit_v3(
+        self,
+        unit: BenchmarkUnit,
+        config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> tuple[OwnedResource, ...]:
+        manifest = self._manifest_for_context(unit, config, run_context)
+        cache_root = Path(_required_string(_mapping(config.get("runtime"), "runtime"), "cache_dir")).resolve()
+        collections = tuple(
+            OwnedResource(collection.name, "qdrant-collection", collection.role.value, collection.name)
+            for collection in manifest.collections
+        )
+        local = tuple(
+            OwnedResource(
+                f"sqlite:{Path(path).relative_to(cache_root).as_posix()}",
+                "sqlite-history",
+                "history" if index == 0 else ("wal" if index == 1 else "shm"),
+                Path(path).relative_to(cache_root).as_posix(),
+            )
+            for index, path in enumerate(manifest.local_paths)
+        )
+        return collections + local
+
+    def cleanup_unit_v3(
+        self,
+        unit: BenchmarkUnit,
+        resources: tuple[OwnedResource, ...],
+        config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> dict[str, Any]:
+        expected = self.resources_for_unit_v3(unit, config, run_context)
+        if resources != expected:
+            raise Mem0RuntimeError("Mem0 cleanup resources do not match the owned unit manifest.")
+        manifest = self._manifest_for_context(unit, config, run_context)
+        self._observe_qdrant("delete_collection", lambda: self._lifecycle().delete_and_wait(manifest))
+        self._delete_local_paths(manifest, config)
+        return {"verified": True, "resource_ids": [resource.resource_id for resource in expected]}
+
+    def prepare_unit_v3(
+        self,
+        unit: BenchmarkUnit,
+        events: tuple[MemoryEvent, ...],
+        config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> PreparedMemoryUnit:
+        if not isinstance(events, tuple) or any(not isinstance(event, MemoryEvent) for event in events):
+            raise Mem0RuntimeError("Mem0 v3 ingestion requires normalized MemoryEvent values.")
+        manifest = self._manifest_for_context(unit, config, run_context)
+        resources = self.resources_for_unit_v3(unit, config, run_context)
+        lifecycle = self._lifecycle()
+        lifecycle.assert_absent(manifest)
+        self._assert_local_paths_absent(manifest)
+        history_path = Path(manifest.local_paths[0])
+        batches = _pair_v3_events(events)
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        user_id = f"mem0_{self._resource_namespace(run_context)[:16]}_{stable_hash(unit.unit_id)}"
+        started = time.perf_counter()
+        try:
+            engine = self._engine_builder().build(
+                mem0_config=self._config(), cleanup_manifest=manifest,
+                qdrant_client=self._client(), history_path=history_path,
+            )
+            persisted = 0
+            for messages, batch_events in batches:
+                timestamp = next(
+                    (event.occurred_at for event in reversed(batch_events) if event.occurred_at is not None),
+                    None,
+                )
+                epoch = int(datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()) if timestamp else None
+                source_ids = [event.event_id for event in batch_events]
+                source_refs = list(dict.fromkeys(ref for event in batch_events for ref in event.source_refs))
+                result, _usage = self._observe_memory_internal_operation(
+                    engine.backend,
+                    lambda: engine.backend.add(
+                        messages,
+                        user_id=user_id,
+                        timestamp=epoch,
+                        metadata={
+                            "session_id": batch_events[0].session_id,
+                            "source_event_ids": source_ids,
+                            "source_refs": source_refs,
+                        },
+                    ),
+                )
+                if type(result) is not int or result < 0:
+                    raise Mem0RuntimeError("Mem0 add must report a non-negative persisted count.")
+                persisted += result
+            counts = self._observe_qdrant("count", lambda: lifecycle.collection_counts(manifest))
+            if counts.get(CollectionRole.PRIMARY) != persisted:
+                raise QdrantLifecycleError("Mem0 v3 ingestion count barrier mismatch.")
+            _verify_sqlite_history(history_path)
+            usage = engine.backend.get_usage()
+        except Exception:
+            lifecycle.delete_and_wait(manifest)
+            self._delete_local_paths(manifest, config)
+            raise
+        handle = Mem0V3Handle(unit.unit_id, self._resource_namespace(run_context), manifest,
+                              engine, user_id, persisted)
+        return PreparedMemoryUnit(
+            handle=handle,
+            resources=resources,
+            ingestion_usage=usage,
+            ingestion_timing={"seconds": time.perf_counter() - started},
+            diagnostics={"pairing_policy": MEM0_V3_PAIRING_POLICY,
+                         "role_policy": MEM0_V3_ROLE_POLICY,
+                         "ingested_batches": len(batches),
+                         "persisted_memory_count": persisted,
+                         "collection_counts": {role.value: count for role, count in counts.items()},
+                         "sqlite_history_integrity": "ok"},
+        )
+
+    def verify_prepared_v3(
+        self,
+        unit: BenchmarkUnit,
+        prepared: PreparedMemoryUnit,
+        config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> dict[str, Any]:
+        handle = self._v3_handle(unit, prepared, config, run_context)
+        counts = self._observe_qdrant("count", lambda: self._lifecycle().collection_counts(handle.manifest))
+        if counts.get(CollectionRole.PRIMARY) != handle.persisted_memory_count:
+            raise QdrantLifecycleError("Mem0 v3 commit barrier count mismatch.")
+        _verify_sqlite_history(Path(handle.manifest.local_paths[0]))
+        return {"verified": True,
+                "persisted_memory_count": handle.persisted_memory_count,
+                "collection_counts": {role.value: count for role, count in counts.items()},
+                "sqlite_history_integrity": "ok"}
+
+    def retrieve_v3(
+        self,
+        unit: BenchmarkUnit,
+        query: MemoryQuery,
+        prepared: PreparedMemoryUnit,
+        config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> CanonicalRetrievalResult:
+        handle = self._v3_handle(unit, prepared, config, run_context)
+        if not isinstance(query, MemoryQuery) or query.query_id not in unit.item_ids:
+            raise Mem0RuntimeError("Mem0 v3 query is not part of the prepared unit.")
+        retrieval = config.get("retrieval")
+        if retrieval is None:
+            top_k = self._config().top_k
+        else:
+            top_k = _positive_integer(_mapping(retrieval, "retrieval"), "max_results")
+        started = time.perf_counter()
+        raw, retrieval_usage = self._observe_memory_internal_operation(
+            handle.engine.backend,
+            lambda: handle.engine.backend.search_raw(
+                query.text, user_id=handle.user_id, top_k=top_k,
+            ),
+        )
+        rows = raw.get("results") if isinstance(raw, dict) else raw
+        if not isinstance(rows, list):
+            raise Mem0RuntimeError("Mem0 v3 search must return a results list.")
+        items: list[RetrievedMemory] = []
+        for rank, row in enumerate(rows, start=1):
+            if not isinstance(row, dict):
+                raise Mem0RuntimeError("Mem0 v3 search result must be an object.")
+            metadata = row.get("metadata") or {}
+            if not isinstance(metadata, dict):
+                raise Mem0RuntimeError("Mem0 v3 result metadata must be an object.")
+            source_ids = metadata.get("source_event_ids", ())
+            if not isinstance(source_ids, (list, tuple)):
+                raise Mem0RuntimeError("Mem0 v3 source_event_ids must be a list.")
+            score = row.get("score")
+            occurred_at = _v3_timestamp(row.get("created_at"))
+            items.append(RetrievedMemory(
+                memory_id=row.get("id"),
+                content=row.get("memory"),
+                rank=rank,
+                native_score=score,
+                native_score_kind="similarity" if score is not None else None,
+                occurred_at=occurred_at,
+                source_event_ids=tuple(source_ids),
+                metadata={
+                    "source_refs": list(metadata.get("source_refs", [])),
+                    **({"session_id": metadata["session_id"]} if "session_id" in metadata else {}),
+                },
+            ))
+        self._record_retrieval_metric("retrieve", time.perf_counter() - started)
+        return CanonicalRetrievalResult(
+            items=tuple(items), raw_payload=raw,
+            diagnostics={"mem0": {"result_count": len(items),
+                                   "pairing_policy": MEM0_V3_PAIRING_POLICY,
+                                   "role_policy": MEM0_V3_ROLE_POLICY}},
+            usage={"memory_internal": retrieval_usage},
+            timing={"retrieval_seconds": time.perf_counter() - started},
+        )
+
+    def _v3_handle(
+        self,
+        unit: BenchmarkUnit,
+        prepared: PreparedMemoryUnit,
+        config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> Mem0V3Handle:
+        if not isinstance(prepared, PreparedMemoryUnit) or not isinstance(prepared.handle, Mem0V3Handle):
+            raise Mem0RuntimeError("Missing Mem0 v3 prepared state.")
+        handle = prepared.handle
+        if handle.unit_id != unit.unit_id or handle.resource_namespace != self._resource_namespace(run_context):
+            raise Mem0RuntimeError("Mem0 v3 prepared state belongs to another unit or run.")
+        if prepared.resources != self.resources_for_unit_v3(unit, config, run_context):
+            raise Mem0RuntimeError("Mem0 v3 prepared resources do not match the unit manifest.")
+        return handle
 
     def validate_runtime(self) -> None:
         _require_mem0_telemetry_disabled()
@@ -502,7 +727,7 @@ class Mem0QdrantFrameworkAdapter:
         self,
         unit: BenchmarkUnit,
         _conversation: dict[str, Any],
-        question: LoCoMoQuestion,
+        question: Any,
         config: dict[str, Any],
         prepared: dict[str, Any],
         *,
@@ -592,6 +817,8 @@ class Mem0QdrantFrameworkAdapter:
         user_id: str,
         progress: ProgressReporter,
     ) -> tuple[dict[str, dict[str, Any]], int, int]:
+        from .legacy_v2_mem0 import _ingest_locomo, _ingest_longmemeval
+
         def add_memory(
             messages: list[dict[str, str]],
             *,
@@ -648,6 +875,11 @@ class Mem0QdrantFrameworkAdapter:
             roles=(CollectionRole.PRIMARY, CollectionRole.ENTITIES),
             vector_size=self.vector_size,
             local_paths=_sqlite_owned_paths(history_path),
+            namespace=(
+                QDRANT_COLLECTION_NAMESPACE_V3
+                if config.get("schema_version") == 3
+                else QDRANT_COLLECTION_NAMESPACE
+            ),
         )
 
     @staticmethod
@@ -831,165 +1063,53 @@ def mem0_framework_factories(
     return {"mem0": build}
 
 
-def _ingest_locomo(
-    conversation: dict[str, Any],
-    add_memory: Callable[..., int],
-    *,
-    user_id: str,
-    conversation_idx: int,
-    progress: ProgressReporter,
-) -> tuple[dict[str, dict[str, Any]], int, int]:
-    conversation_data = _mapping(conversation.get("conversation"), "conversation")
-    speaker_a = str(conversation_data.get("speaker_a", "") or "")
-    record_index: dict[str, dict[str, Any]] = {}
-    session_rows: list[tuple[float, str, str]] = []
-    for session_key, session_value in conversation_data.items():
-        if not session_key.startswith("session_") or session_key.endswith("_date_time"):
-            continue
-        if not isinstance(session_value, list):
-            raise Mem0RuntimeError(f"LoCoMo {session_key} must be a list.")
-        time_str = _required_string(conversation_data, f"{session_key}_date_time")
-        session_rows.append(
-            (locomo_utils.parse_locomo_date(date_str=time_str), session_key, time_str)
-        )
-    session_rows.sort(key=lambda row: row[0])
+def _pair_v3_events(
+    events: tuple[MemoryEvent, ...],
+) -> list[tuple[list[dict[str, str]], tuple[MemoryEvent, ...]]]:
+    """Pair adjacent user/assistant events in one session; retain all others."""
+    seen_ids: set[str] = set()
+    last_sequence: dict[str, int] = {}
+    for event in events:
+        if event.event_id in seen_ids:
+            raise Mem0RuntimeError("Mem0 v3 event IDs must be unique.")
+        seen_ids.add(event.event_id)
+        previous = last_sequence.get(event.session_id)
+        if previous is not None and event.sequence <= previous:
+            raise Mem0RuntimeError("Mem0 v3 events must be ordered within each session.")
+        last_sequence[event.session_id] = event.sequence
 
-    work_rows: list[tuple[float, str, str, dict[str, Any], str]] = []
-    for current_ts, session_key, time_str in session_rows:
-        for turn in conversation_data[session_key]:
-            if not isinstance(turn, dict):
-                raise Mem0RuntimeError("LoCoMo turn must be an object.")
-            ingest_text = locomo_utils.serialize_locomo_turn_for_mem0(turn)
-            if not ingest_text:
-                continue
-            work_rows.append((current_ts, session_key, time_str, turn, ingest_text))
-
-    progress(
-        ProgressUpdate(
-            stage="memory_ingestion",
-            label="Ingesting source memory",
-            completed=0,
-            total=len(work_rows),
-            item_label="conversation turns",
-        )
-    )
-    ingested_batches = 0
-    persisted_memory_count = 0
-    for current_ts, session_key, time_str, turn, ingest_text in work_rows:
-        dia_id = _required_string(turn, "dia_id")
-        role = "user" if str(turn.get("speaker", "")) == speaker_a else "assistant"
-        persisted_memory_count += add_memory(
-            [{"role": role, "content": ingest_text}],
-            user_id=user_id,
-            timestamp=int(current_ts),
-            metadata={
-                "benchmark": "locomo",
-                "conversation_idx": conversation_idx,
-                "source_unit_type": "dia",
-                "source_unit_id": dia_id,
-                "framework": "mem0",
-            },
-        )
-        ingested_batches += 1
-        record_index[dia_id] = {
-            "benchmark": "locomo",
-            "conversation_idx": conversation_idx,
-            "source_unit_type": "dia",
-            "source_unit_id": dia_id,
-            "source_unit_ids": [dia_id],
-            "session_key": session_key,
-            "session_datetime_raw": time_str,
-            "speaker": str(turn.get("speaker", "")),
-            "text": locomo_utils.render_locomo_turn_for_context(turn),
-            "ingest_text": ingest_text,
-            "raw_text": str(turn.get("text", "") or ""),
-            "query": str(turn.get("query", "") or ""),
-            "blip_caption": str(turn.get("blip_caption", "") or ""),
-        }
-        progress(
-            ProgressUpdate(
-                stage="memory_ingestion",
-                label="Ingesting source memory",
-                completed=ingested_batches,
-                total=len(work_rows),
-                item_label="conversation turns",
-            )
-        )
-    return record_index, ingested_batches, persisted_memory_count
+    batches: list[tuple[list[dict[str, str]], tuple[MemoryEvent, ...]]] = []
+    index = 0
+    while index < len(events):
+        first = events[index]
+        pair = (first,)
+        if (
+            first.role == "user"
+            and index + 1 < len(events)
+            and events[index + 1].session_id == first.session_id
+            and events[index + 1].role == "assistant"
+        ):
+            pair = (first, events[index + 1])
+        messages = [
+            {"role": "user" if event.role == "observation" else event.role,
+             "content": event.content}
+            for event in pair
+        ]
+        batches.append((messages, pair))
+        index += len(pair)
+    return batches
 
 
-def _ingest_longmemeval(
-    question: dict[str, Any],
-    add_memory: Callable[..., int],
-    *,
-    user_id: str,
-    progress: ProgressReporter,
-) -> tuple[dict[str, dict[str, Any]], int, int]:
-    question_id = _required_string(question, "question_id")
-    record_index: dict[str, dict[str, Any]] = {}
-    work_rows: list[
-        tuple[str, int | None, str, dict[str, Any], list[dict[str, Any]]]
-    ] = []
-    for session in normalize_longmemeval_haystack(question):
-        session_id = session["session_id"]
-        session_ts = session["session_timestamp"]
-        session_date_raw = session["session_date_raw"]
-        for pair in session["pairs"]:
-            messages = serialize_longmemeval_pair_for_mem0(pair)
-            if not messages:
-                continue
-            work_rows.append(
-                (session_id, session_ts, session_date_raw, pair, messages)
-            )
-
-    progress(
-        ProgressUpdate(
-            stage="memory_ingestion",
-            label="Ingesting source memory",
-            completed=0,
-            total=len(work_rows),
-            item_label="message batches",
-        )
-    )
-    ingested_batches = 0
-    persisted_memory_count = 0
-    for session_id, session_ts, session_date_raw, pair, messages in work_rows:
-        metadata_payload = {
-            "benchmark": "longmemeval",
-            "question_id": question_id,
-            "source_unit_type": "session",
-            "source_unit_id": session_id,
-        }
-        persisted_memory_count += add_memory(
-            messages,
-            user_id=user_id,
-            timestamp=session_ts,
-            metadata=metadata_payload,
-        )
-        ingested_batches += 1
-        record_id = f"{session_id}:pair:{pair['pair_index']}"
-        record_index[record_id] = {
-            "benchmark": "longmemeval",
-            "question_id": question_id,
-            "source_unit_type": "session",
-            "source_unit_id": session_id,
-            "source_unit_ids": [session_id],
-            "session_id": session_id,
-            "session_date_raw": session_date_raw,
-            "session_timestamp": session_ts,
-            "pair_index": pair["pair_index"],
-            "text": render_longmemeval_pair_for_context(pair),
-        }
-        progress(
-            ProgressUpdate(
-                stage="memory_ingestion",
-                label="Ingesting source memory",
-                completed=ingested_batches,
-                total=len(work_rows),
-                item_label="message batches",
-            )
-        )
-    return record_index, ingested_batches, persisted_memory_count
+def _v3_timestamp(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise Mem0RuntimeError("Mem0 v3 timestamp must not be a boolean.")
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    if isinstance(value, str):
+        return value
+    raise Mem0RuntimeError("Mem0 v3 timestamp has an unsupported type.")
 
 
 def _validate_mem0_qdrant_config(config: Mem0Config) -> int:

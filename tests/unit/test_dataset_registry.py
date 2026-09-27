@@ -50,6 +50,24 @@ def write_config(tmp_path: Path, *, dataset_path: Path, sha256: str | None = Non
         selected_dataset_path = tmp_path / dataset_path.name
         shutil.copy2(dataset_path, selected_dataset_path)
     config = json.loads((FIXTURE_DIR / "experiment-valid.json").read_text(encoding="utf-8"))
+    config["schema_version"] = 3
+    config["scientific_profile"] = "retrieval-controlled-v1"
+    config["storage"] = {
+        "kind": "qdrant-server", "profile": "qdrant-v1", **config.pop("qdrant"),
+    }
+    config["retrieval"] = {"max_results": 20}
+    config["context_budget"] = {
+        "max_tokens": 128,
+        "tokenizer": "tiktoken-cl100k_base-v1",
+        "renderer": "retrieved-memory-v1",
+        "packing": "ranked-whole-items-v1",
+    }
+    config["models"]["judges"] = [{"id": "primary", **config["models"].pop("judge")}]
+    config["evaluation"] = {
+        "primary_judge_id": "primary",
+        "required": ["primary_judge_score", "rigorous_report", "analysis_rows"],
+        "optional": ["retrieval_report", "ablation_report", "judge_agreement"],
+    }
     config["runtime"] = {
         "root": str(tmp_path),
         "runs_dir": str(tmp_path / "runs"),
@@ -297,6 +315,7 @@ def test_resolve_config_materializes_source_based_dataset(tmp_path: Path) -> Non
         config_path,
         materialize_datasets=True,
         dataset_registry_path=registry_path,
+        allow_dataset_downloads=True,
     )
 
     dataset = resolved.data["dataset"]
@@ -306,18 +325,45 @@ def test_resolve_config_materializes_source_based_dataset(tmp_path: Path) -> Non
     assert manifest["sampling"]["sample_count"] == 2
 
 
+def test_run_resolution_refuses_unprepared_dataset_without_fetching(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = write_registry(tmp_path)
+    config_path = write_config(tmp_path, dataset_path=FIXTURE_DIR / "locomo-mini.json")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["dataset"] = {
+        "name": "locomo",
+        "source": "fixture",
+        "revision": "fixture-revision",
+        "registry_id": "fixture-locomo",
+        "expected_schema": "locomo-mini-json-array-v1",
+    }
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    def unexpected_fetch(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Run attempted to fetch a dataset")
+
+    monkeypatch.setattr("dmf_bench.datasets._copy_url_to_file", unexpected_fetch)
+    with pytest.raises(ValueError, match="not prepared"):
+        resolve_config(
+            config_path,
+            materialize_datasets=True,
+            dataset_registry_path=registry_path,
+        )
+
+
 def test_preset_fingerprint_and_resolution_are_stable(tmp_path: Path) -> None:
-    preset = BUILTIN_PRESETS["paper/locomo-dmf-v2"]
+    preset = BUILTIN_PRESETS["paper/locomo-dmf-v3"]
     framework_config_path = tmp_path / "framework.toml"
     framework_config_path.write_text("[ltm]\nstorage_type = \"qdrant\"\n", encoding="utf-8")
     first = resolve_preset(
-        "paper/locomo-dmf-v2",
+        "paper/locomo-dmf-v3",
         dataset_path=tmp_path / "locomo10.json",
         framework_config_path=framework_config_path,
         runtime_root=tmp_path,
     )
     second = resolve_preset(
-        "paper/locomo-dmf-v2",
+        "paper/locomo-dmf-v3",
         dataset_path=tmp_path / "locomo10.json",
         framework_config_path=framework_config_path,
         runtime_root=tmp_path,

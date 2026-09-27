@@ -32,20 +32,20 @@ def mounts_by_target(service: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
-def test_compose_uses_stable_v2_project_and_explicit_v2_volumes() -> None:
+def test_compose_uses_stable_v3_project_and_explicit_v3_volumes() -> None:
     compose = load_compose()
     canary_workflow = (
         ROOT / ".github" / "workflows" / "scientific-canary.yml"
     ).read_text(encoding="utf-8")
 
-    assert compose["name"] == "dmf-benchmarks-v2"
+    assert compose["name"] == "dmf-benchmarks-v3"
     assert "COMPOSE_PROJECT_NAME" not in canary_workflow
     assert compose["volumes"] == {
-        "qdrant-storage-v2": {"name": "dmf-benchmarks-v2-qdrant"},
-        "benchmark-runs-v2": {"name": "dmf-benchmarks-v2-runs"},
-        "benchmark-cache-v2": {"name": "dmf-benchmarks-v2-cache"},
-        "prometheus-data-v2": {"name": "dmf-benchmarks-v2-prometheus"},
-        "grafana-data-v2": {"name": "dmf-benchmarks-v2-grafana"},
+        "qdrant-storage-v3": {"name": "dmf-benchmarks-v3-qdrant"},
+        "benchmark-runs-v3": {"name": "dmf-benchmarks-v3-runs"},
+        "benchmark-cache-v3": {"name": "dmf-benchmarks-v3-cache"},
+        "prometheus-data-v3": {"name": "dmf-benchmarks-v3-prometheus"},
+        "grafana-data-v3": {"name": "dmf-benchmarks-v3-grafana"},
     }
 
     services = compose["services"]
@@ -53,17 +53,17 @@ def test_compose_uses_stable_v2_project_and_explicit_v2_volumes() -> None:
         "QDRANT__TELEMETRY_DISABLED": "true"
     }
     assert mounts_by_target(services["qdrant"])["/qdrant/storage"]["source"] == (
-        "qdrant-storage-v2"
+        "qdrant-storage-v3"
     )
     assert mounts_by_target(services["prometheus"])["/prometheus"]["source"] == (
-        "prometheus-data-v2"
+        "prometheus-data-v3"
     )
     assert mounts_by_target(services["grafana"])["/var/lib/grafana"]["source"] == (
-        "grafana-data-v2"
+        "grafana-data-v3"
     )
 
 
-def test_api_and_job_share_only_read_only_v2_runs_volume() -> None:
+def test_api_and_job_share_only_read_only_v3_runs_volume() -> None:
     services = load_compose()["services"]
     api = services["artifact-api"]
     benchmark = services["benchmark"]
@@ -75,12 +75,12 @@ def test_api_and_job_share_only_read_only_v2_runs_volume() -> None:
     assert set(api_mounts) == {"/bench/runs"}
     assert api_mounts["/bench/runs"] == {
         "type": "volume",
-        "source": "benchmark-runs-v2",
+        "source": "benchmark-runs-v3",
         "target": "/bench/runs",
         "read_only": True,
     }
-    assert benchmark_mounts["/bench/runs"]["source"] == "benchmark-runs-v2"
-    assert benchmark_mounts["/bench/cache"]["source"] == "benchmark-cache-v2"
+    assert benchmark_mounts["/bench/runs"]["source"] == "benchmark-runs-v3"
+    assert benchmark_mounts["/bench/cache"]["source"] == "benchmark-cache-v3"
     assert "OPENAI_API_KEY" not in benchmark["environment"]
     assert "OPENROUTER_API_KEY" not in benchmark["environment"]
 
@@ -94,7 +94,7 @@ def test_api_and_job_share_only_read_only_v2_runs_volume() -> None:
         for mount in benchmark_mounts.values()
         if mount.get("type") == "volume"
     }
-    assert api_named_sources & job_named_sources == {"benchmark-runs-v2"}
+    assert api_named_sources & job_named_sources == {"benchmark-runs-v3"}
 
 
 def test_qdrant_health_gates_dependent_services_and_job_resources_are_bounded() -> None:
@@ -135,7 +135,7 @@ def test_grafana_dashboards_are_dark_editable_and_persisted() -> None:
     assert environment["GF_AUTH_ANONYMOUS_ORG_ROLE"] == "Editor"
     assert mounts_by_target(grafana)["/var/lib/grafana"] == {
         "type": "volume",
-        "source": "grafana-data-v2",
+        "source": "grafana-data-v3",
         "target": "/var/lib/grafana",
     }
     assert provider["providers"][0]["allowUiUpdates"] is True

@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from dmf_bench.contracts import PREDICTION_SCHEMA_VERSION, sha256_file
+from dmf_bench.contracts import PREDICTION_SCHEMA_VERSION, V3_PREDICTION_SCHEMA_VERSION, sha256_file
 
 if TYPE_CHECKING:
-    from dmf_bench.adapters.base import BenchmarkUnit
+    from dmf_bench.adapters.base import BenchmarkCase, BenchmarkUnit
 
 from . import prompts
+from .dataset import normalize_locomo_turn, parse_locomo_date
 from .prompts import official_ground_truth_answer
 from .questions import category_name, normalize_generated_answer_for_category
 
@@ -43,6 +45,146 @@ class LoCoMoAnswererInput:
 class LoCoMoAdapter:
     name = "locomo"
     atomic_unit = "locomo-conversation"
+
+    def build_answerer_request_v3(self, query: MemoryQuery, packed_context: Any, config: dict[str, Any]) -> Any:
+        """Build the shared LoCoMo answer prompt from canonical packed memory."""
+        from dmf_bench.adapters.base import AnswererRequest
+
+        del config
+        return AnswererRequest(
+            system_prompt=prompts.build_answerer_system_prompt(),
+            user_prompt=(
+                "Use the provided conversational memory to answer the LoCoMo question. "
+                "Give a concise answer supported by the memory.\n\n"
+                f"Memory:\n{packed_context.text}\n\n"
+                f"Question: {query.text}\nShort answer:"
+            ),
+            metadata={"question_id": query.query_id},
+        )
+
+    def build_prediction_v3(
+        self, case: BenchmarkCase, query: MemoryQuery, retrieval: Any,
+        packed_context: Any, answer: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Add the official reference only after answer generation."""
+        reference = case.references[query.query_id]
+        question_idx = case.unit.item_ids.index(query.query_id)
+        category = int(reference.strata.get("category", 0))
+        raw_answer = str(answer.get("generated_answer", answer.get("answer", "")))
+        generated_answer = normalize_generated_answer_for_category(
+            category=category,
+            generated_answer=raw_answer,
+            ground_truth_answer=str(reference.expected_answer),
+        )
+        return {
+            "schema_version": V3_PREDICTION_SCHEMA_VERSION,
+            "benchmark": self.name,
+            "question_id": query.query_id,
+            "conversation_id": case.unit.unit_id,
+            "conversation_idx": case.unit.metadata["conversation_idx"],
+            "question_idx": question_idx,
+            "question": query.text,
+            "ground_truth_answer": reference.expected_answer,
+            "category": category,
+            "category_name": category_name(category),
+            "evidence": list(reference.evidence_refs),
+            "generated_answer": generated_answer,
+            "answerer_usage": answer.get("answerer_usage", answer.get("usage", {})),
+            "answerer_provider": answer.get("answerer_provider", answer.get("provider", "")),
+            "answerer_requested_model": answer.get("answerer_requested_model", ""),
+            "answerer_model": answer.get("answerer_model", answer.get("model", "")),
+            "answerer_finish_reason": answer.get("answerer_finish_reason"),
+            "retrieval": retrieval.to_dict(),
+            "packed_context": packed_context.to_dict(),
+        }
+
+    def load_case(self, unit: BenchmarkUnit, config: dict[str, Any]) -> BenchmarkCase:
+        """Materialize one conversation without exposing its QA keys to memory."""
+        from dmf_bench.adapters.base import (
+            BenchmarkCase,
+            BenchmarkUnit,
+            EvaluationReference,
+            MemoryEvent,
+            MemoryQuery,
+        )
+
+        selected = self.selected_conversations_by_id(config)
+        if unit.unit_id not in selected:
+            raise ValueError(f"Unknown selected LoCoMo unit: {unit.unit_id}")
+        conversation_idx, item, questions = selected[unit.unit_id]
+        query_ids = tuple(question.question_id for question in questions)
+        if unit.item_ids != query_ids:
+            raise ValueError("LoCoMo unit question IDs differ from the selected case.")
+
+        conversation = _mapping(item, "conversation")
+        speaker_a = str(conversation.get("speaker_a", "") or "").strip()
+        speaker_b = str(conversation.get("speaker_b", "") or "").strip()
+        sessions: list[tuple[float, str, str, list[dict[str, Any]]]] = []
+        for session_id, turns in conversation.items():
+            if not session_id.startswith("session_") or session_id.endswith("_date_time"):
+                continue
+            if not isinstance(turns, list):
+                raise ValueError(f"LoCoMo {session_id} must be a list.")
+            raw_date = _string(conversation, f"{session_id}_date_time")
+            sessions.append((parse_locomo_date(raw_date), session_id, raw_date, turns))
+        sessions.sort(key=lambda row: (row[0], row[1]))
+
+        events: list[MemoryEvent] = []
+        for timestamp, session_id, _raw_date, turns in sessions:
+            occurred_at = datetime.fromtimestamp(timestamp, UTC).isoformat().replace("+00:00", "Z")
+            for sequence, raw_turn in enumerate(turns):
+                if not isinstance(raw_turn, dict):
+                    raise ValueError("LoCoMo turn must be an object.")
+                turn = normalize_locomo_turn(raw_turn)
+                content_parts = [turn["utterance_text"]]
+                if turn["image_query"] and turn["image_caption"]:
+                    content_parts.append(
+                        f"Shared image: query {turn['image_query']}. The image shows {turn['image_caption']}."
+                    )
+                elif turn["image_query"]:
+                    content_parts.append(f"Shared image: query {turn['image_query']}.")
+                elif turn["image_caption"]:
+                    content_parts.append(f"Shared image: {turn['image_caption']}.")
+                content = " ".join(part for part in content_parts if part).strip()
+                if not content:
+                    continue
+                speaker = turn["speaker_name"]
+                role = "user" if speaker == speaker_a else "assistant" if speaker == speaker_b else "observation"
+                event_id = _string(raw_turn, "dia_id")
+                events.append(MemoryEvent(
+                    event_id=event_id,
+                    session_id=session_id,
+                    sequence=sequence,
+                    role=role,
+                    content=content,
+                    occurred_at=occurred_at,
+                    source_refs=(event_id,),
+                    metadata={"speaker_name": speaker},
+                ))
+
+        queries = tuple(MemoryQuery(
+            query_id=question.question_id,
+            text=_string(question.qa_item, "question"),
+            as_of=None,
+        ) for question in questions)
+        references = {
+            question.question_id: EvaluationReference(
+                query_id=question.question_id,
+                expected_answer=official_ground_truth_answer(
+                    int(question.qa_item.get("category", 0) or 0),
+                    str(question.qa_item.get("answer", "")),
+                ),
+                evidence_refs=tuple(str(ref) for ref in question.qa_item.get("evidence", [])),
+                strata={"category": int(question.qa_item.get("category", 0) or 0)},
+            ) for question in questions
+        }
+        safe_unit = BenchmarkUnit(unit.unit_id, unit.item_ids, {
+            "benchmark": self.name,
+            "unit_type": self.atomic_unit,
+            "conversation_id": unit.unit_id,
+            "conversation_idx": conversation_idx,
+        })
+        return BenchmarkCase(safe_unit, tuple(events), queries, references)
 
     def materialize_reference(self, config: dict[str, Any]) -> LoCoMoReference:
         """Load a local pinned LoCoMo dataset; never downloads implicitly."""

@@ -10,8 +10,9 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from .atomic_io import write_json_atomic
+from .context import PACKING_ID, RENDERER_ID, TOKENIZER_ID
 from .contracts import EXPERIMENT_CONFIG_SCHEMA_VERSION, sha256_file
-from .registry import validate_combination
+from .registry import FRAMEWORKS, validate_combination
 
 
 SECRET_FIELD_NAMES = {
@@ -35,24 +36,6 @@ ENV_ENDPOINT_NAMES = (
     "OLLAMA_BASE_URL",
     "QDRANT_URL",
 )
-
-EXPERIMENT_CONFIG_FIELDS = frozenset(
-    {
-        "schema_version",
-        "experiment_id",
-        "benchmark",
-        "framework",
-        "runtime",
-        "framework_config",
-        "qdrant",
-        "dataset",
-        "selection",
-        "models",
-        "evaluation",
-        "artifact_store",
-    }
-)
-
 
 @dataclass(frozen=True)
 class ResolvedConfig:
@@ -111,6 +94,7 @@ def resolve_config(
     framework: str | None = None,
     materialize_datasets: bool = False,
     dataset_registry_path: str | Path | None = None,
+    allow_dataset_downloads: bool = False,
 ) -> ResolvedConfig:
     source_path = Path(path).resolve()
     data = load_experiment_config(source_path)
@@ -125,6 +109,7 @@ def resolve_config(
         data = materialize_dataset_for_config(
             data,
             registry_path=dataset_registry_path,
+            allow_downloads=allow_dataset_downloads,
         )
     _resolve_relative_resource_paths(data, source_path=source_path)
     validate_config(data, source_path=source_path)
@@ -158,130 +143,7 @@ def validate_config(data: dict[str, Any], *, source_path: Path) -> None:
             f"schema_version={EXPERIMENT_CONFIG_SCHEMA_VERSION}; "
             f"v{data.get('schema_version')} configs are not supported."
         )
-    unsupported_fields = sorted(set(data) - EXPERIMENT_CONFIG_FIELDS)
-    if unsupported_fields:
-        raise ValueError(
-            f"Experiment config contains unsupported fields: {unsupported_fields}."
-        )
-    reject_inline_secrets(data)
-
-    benchmark = required_string(data, "benchmark")
-    framework = required_string(data, "framework")
-    validate_combination(benchmark, framework)
-
-    runtime = required_mapping(data, "runtime")
-    for key in ("root", "runs_dir", "cache_dir"):
-        validate_absolute_path(runtime, key, source_path=source_path)
-    runtime_root = Path(str(runtime["root"])).resolve()
-    for key in ("runs_dir", "cache_dir"):
-        validate_path_within_root(
-            Path(str(runtime[key])),
-            root=runtime_root,
-            field_name=f"runtime.{key}",
-        )
-    validate_port(runtime, "metrics_port")
-    log_level = required_string(runtime, "log_level").upper()
-    if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
-        raise ValueError("runtime.log_level must be DEBUG, INFO, WARNING, or ERROR.")
-
-    framework_config = required_mapping(data, "framework_config")
-    validate_absolute_path(framework_config, "path", source_path=source_path)
-    validate_path_within_root(
-        Path(str(framework_config["path"])),
-        root=runtime_root,
-        field_name="framework_config.path",
-    )
-    require_sha256(framework_config, "sha256")
-    framework_format = required_string(framework_config, "format").lower()
-    expected_format = "toml" if framework == "dmf" else "yaml"
-    if framework_format != expected_format:
-        raise ValueError(
-            f"framework_config.format must be {expected_format!r} for framework {framework!r}."
-        )
-    verify_pinned_file(
-        framework_config,
-        field_name="framework_config",
-    )
-
-    qdrant = required_mapping(data, "qdrant")
-    if required_string(qdrant, "endpoint_env") != "QDRANT_URL":
-        raise ValueError("qdrant.endpoint_env must be 'QDRANT_URL'.")
-    if required_string(qdrant, "retention") not in {"keep", "delete-on-success"}:
-        raise ValueError("qdrant.retention must be keep or delete-on-success.")
-    validate_positive_number(qdrant, "request_timeout_seconds")
-
-    dataset = required_mapping(data, "dataset")
-    if dataset.get("name") != benchmark:
-        raise ValueError("dataset.name must match benchmark.")
-    validate_absolute_path(dataset, "path", source_path=source_path)
-    validate_path_within_root(
-        Path(str(dataset["path"])),
-        root=runtime_root,
-        field_name="dataset.path",
-    )
-    require_sha256(dataset, "sha256")
-    verify_dataset_file(dataset)
-
-    selection = required_mapping(data, "selection")
-    ordered_item_ids = selection.get("ordered_item_ids")
-    if not isinstance(ordered_item_ids, list) or not ordered_item_ids:
-        raise ValueError("selection.ordered_item_ids must be a non-empty list.")
-    if not all(isinstance(item, str) and item for item in ordered_item_ids):
-        raise ValueError("selection.ordered_item_ids must contain non-empty strings.")
-
-    models = required_mapping(data, "models")
-    for role in ("answerer", "judge"):
-        model = required_mapping(models, role)
-        required_string(model, "provider")
-        required_string(model, "requested_model")
-        parameters = required_mapping(model, "parameters")
-        unsupported_parameters = sorted(
-            set(parameters) - {"temperature", "max_tokens", "reasoning_effort"}
-        )
-        if unsupported_parameters:
-            raise ValueError(
-                f"models.{role}.parameters contains unsupported fields: "
-                f"{unsupported_parameters}."
-            )
-        validate_non_negative_number(parameters, "temperature")
-        validate_positive_integer(parameters, "max_tokens")
-        reasoning_effort = parameters.get("reasoning_effort")
-        if reasoning_effort is not None and (
-            not isinstance(reasoning_effort, str) or not reasoning_effort.strip()
-        ):
-            raise ValueError(
-                f"models.{role}.parameters.reasoning_effort must be a non-empty string or null."
-            )
-        model_runtime = required_mapping(model, "runtime")
-        validate_positive_number(model_runtime, "timeout_seconds")
-        validate_positive_integer(model_runtime, "rpm")
-        validate_non_negative_integer(model_runtime, "max_retries")
-        if "response_max_retries" in model_runtime:
-            validate_non_negative_integer(model_runtime, "response_max_retries")
-
-    evaluation = required_mapping(data, "evaluation")
-    for key in ("required", "optional"):
-        value = evaluation.get(key)
-        if not isinstance(value, list):
-            raise ValueError(f"evaluation.{key} must be a list.")
-        if not all(isinstance(item, str) and item for item in value):
-            raise ValueError(f"evaluation.{key} must contain non-empty strings.")
-
-    artifact_store = required_mapping(data, "artifact_store")
-    store_type = artifact_store.get("type")
-    if store_type not in {"local", "s3-compatible"}:
-        raise ValueError("artifact_store.type must be local or s3-compatible.")
-    if store_type == "local":
-        store_uri = Path(required_string(artifact_store, "uri"))
-        if not store_uri.is_absolute():
-            raise ValueError("artifact_store.uri must be absolute for a local store.")
-        validate_path_within_root(
-            store_uri,
-            root=runtime_root,
-            field_name="artifact_store.uri",
-        )
-        if store_uri.resolve() != Path(str(runtime["runs_dir"])).resolve():
-            raise ValueError("artifact_store.uri must match runtime.runs_dir.")
+    validate_v3_config(data, source_path=source_path)
 
 
 def required_mapping(data: dict[str, Any], key: str) -> dict[str, Any]:
@@ -440,3 +302,245 @@ def is_secret_field_name(key: str) -> bool:
         or "api_key" in normalized
         or normalized.endswith(("_password", "_secret", "_token"))
     )
+
+
+V3_CONFIG_FIELDS = frozenset(
+    {
+        "schema_version", "experiment_id", "scientific_profile", "benchmark",
+        "framework", "runtime", "framework_config", "storage", "dataset",
+        "selection", "retrieval", "context_budget", "models", "evaluation",
+        "artifact_store", "preset",
+    }
+)
+V3_EVALUATORS = frozenset(
+    {
+        "primary_judge_score", "rigorous_report", "analysis_rows",
+        "retrieval_report", "judge_agreement", "ablation_report",
+    }
+)
+V3_TOKENIZERS = frozenset({TOKENIZER_ID})
+V3_RENDERERS = frozenset({RENDERER_ID})
+V3_PACKING_POLICIES = frozenset({PACKING_ID})
+
+
+def _reject_unknown_fields(data: dict[str, Any], allowed: frozenset[str], name: str) -> None:
+    unsupported = sorted(set(data) - allowed)
+    if unsupported:
+        raise ValueError(f"{name} contains unsupported fields: {unsupported}.")
+
+
+def validate_v3_config(data: dict[str, Any], *, source_path: Path) -> None:
+    """Validate the isolated v3 format before activating the v3 runtime."""
+    if data.get("schema_version") != 3:
+        raise ValueError("Experiment config must declare schema_version=3.")
+    unsupported = sorted(set(data) - V3_CONFIG_FIELDS)
+    if unsupported:
+        raise ValueError(f"V3 config contains unsupported fields: {unsupported}.")
+    reject_inline_secrets(data)
+    required_string(data, "experiment_id")
+    required_string(data, "scientific_profile")
+    benchmark = required_string(data, "benchmark")
+    framework = required_string(data, "framework")
+    validate_combination(benchmark, framework)
+    descriptor = FRAMEWORKS[framework]
+
+    runtime = required_mapping(data, "runtime")
+    _reject_unknown_fields(
+        runtime, frozenset({"root", "runs_dir", "cache_dir", "metrics_port", "log_level"}),
+        "runtime",
+    )
+    for key in ("root", "runs_dir", "cache_dir"):
+        validate_absolute_path(runtime, key, source_path=source_path)
+    runtime_root = Path(str(runtime["root"])).resolve()
+    for key in ("runs_dir", "cache_dir"):
+        validate_path_within_root(
+            Path(str(runtime[key])), root=runtime_root, field_name=f"runtime.{key}"
+        )
+    validate_port(runtime, "metrics_port")
+    if required_string(runtime, "log_level").upper() not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
+        raise ValueError("runtime.log_level must be DEBUG, INFO, WARNING, or ERROR.")
+
+    framework_config = required_mapping(data, "framework_config")
+    _reject_unknown_fields(
+        framework_config, frozenset({"path", "sha256", "format", "profile"}),
+        "framework_config",
+    )
+    validate_absolute_path(framework_config, "path", source_path=source_path)
+    validate_path_within_root(
+        Path(str(framework_config["path"])), root=runtime_root,
+        field_name="framework_config.path",
+    )
+    require_sha256(framework_config, "sha256")
+    if required_string(framework_config, "format") not in descriptor.config_formats:
+        raise ValueError(
+            f"framework_config.format must be one of {sorted(descriptor.config_formats)!r}."
+        )
+    required_string(framework_config, "profile")
+    verify_pinned_file(framework_config, field_name="framework_config")
+
+    storage = required_mapping(data, "storage")
+    _reject_unknown_fields(
+        storage,
+        frozenset({"kind", "profile", "retention", "endpoint_env", "request_timeout_seconds", "root"}),
+        "storage",
+    )
+    storage_kind = required_string(storage, "kind")
+    if storage_kind not in descriptor.storage_kinds:
+        raise ValueError(
+            f"storage.kind {storage_kind!r} is unsupported by framework {framework!r}."
+        )
+    required_string(storage, "profile")
+    if required_string(storage, "retention") not in {"keep", "delete-on-success"}:
+        raise ValueError("storage.retention must be keep or delete-on-success.")
+    if storage_kind == "qdrant-server":
+        if required_string(storage, "endpoint_env") != "QDRANT_URL":
+            raise ValueError("storage.endpoint_env must be QDRANT_URL.")
+        validate_positive_number(storage, "request_timeout_seconds")
+
+    dataset = required_mapping(data, "dataset")
+    if required_string(dataset, "name") != benchmark:
+        raise ValueError("dataset.name must match benchmark.")
+    validate_absolute_path(dataset, "path", source_path=source_path)
+    validate_path_within_root(
+        Path(str(dataset["path"])), root=runtime_root, field_name="dataset.path"
+    )
+    require_sha256(dataset, "sha256")
+    verify_dataset_file(dataset)
+
+    selection = required_mapping(data, "selection")
+    _reject_unknown_fields(
+        selection, frozenset({"ordered_item_ids", "filters", "seed"}), "selection",
+    )
+    item_ids = selection.get("ordered_item_ids")
+    if not isinstance(item_ids, list) or not item_ids:
+        raise ValueError("selection.ordered_item_ids must be a non-empty list.")
+    if any(not isinstance(item, str) or not item.strip() for item in item_ids):
+        raise ValueError("selection.ordered_item_ids must contain non-empty strings.")
+    if len(item_ids) != len(set(item_ids)):
+        raise ValueError("selection.ordered_item_ids contains duplicate IDs.")
+    if not isinstance(selection.get("filters"), dict):
+        raise ValueError("selection.filters must be an object.")
+
+    retrieval = required_mapping(data, "retrieval")
+    _reject_unknown_fields(retrieval, frozenset({"max_results"}), "retrieval")
+    validate_positive_integer(retrieval, "max_results")
+    budget = required_mapping(data, "context_budget")
+    _reject_unknown_fields(
+        budget, frozenset({"max_tokens", "tokenizer", "renderer", "packing"}),
+        "context_budget",
+    )
+    validate_positive_integer(budget, "max_tokens")
+    for key, registry in (
+        ("tokenizer", V3_TOKENIZERS), ("renderer", V3_RENDERERS),
+        ("packing", V3_PACKING_POLICIES),
+    ):
+        value = required_string(budget, key)
+        if value not in registry:
+            raise ValueError(f"context_budget.{key} is not registered: {value!r}.")
+
+    models = required_mapping(data, "models")
+    if set(models) != {"answerer", "judges"}:
+        raise ValueError("models must contain exactly answerer and judges.")
+    _validate_v3_model(required_mapping(models, "answerer"), "models.answerer")
+    judges = models["judges"]
+    if not isinstance(judges, list) or not judges:
+        raise ValueError("models.judges must be a non-empty list.")
+    judge_ids: set[str] = set()
+    for index, judge in enumerate(judges):
+        if not isinstance(judge, dict):
+            raise ValueError(f"models.judges[{index}] must be an object.")
+        judge_id = required_string(judge, "id")
+        if judge_id in judge_ids:
+            raise ValueError(f"Duplicate judge ID: {judge_id!r}.")
+        judge_ids.add(judge_id)
+        _validate_v3_model(judge, f"models.judges[{index}]")
+
+    evaluation = required_mapping(data, "evaluation")
+    _reject_unknown_fields(
+        evaluation, frozenset({"primary_judge_id", "required", "optional"}),
+        "evaluation",
+    )
+    primary_judge_id = required_string(evaluation, "primary_judge_id")
+    if primary_judge_id not in judge_ids:
+        raise ValueError("evaluation.primary_judge_id must resolve to a configured judge.")
+    for key in ("required", "optional"):
+        names = evaluation.get(key)
+        if not isinstance(names, list) or any(not isinstance(name, str) for name in names):
+            raise ValueError(f"evaluation.{key} must be a list of names.")
+        if len(names) != len(set(names)):
+            raise ValueError(f"evaluation.{key} must contain unique names.")
+        if any(name not in V3_EVALUATORS for name in names):
+            raise ValueError(f"evaluation.{key} contains an unregistered evaluator.")
+    if set(evaluation["required"]) & set(evaluation["optional"]):
+        raise ValueError("An evaluator cannot be both required and optional.")
+    mandatory_evaluators = {"primary_judge_score", "rigorous_report", "analysis_rows"}
+    if not mandatory_evaluators.issubset(evaluation["required"]):
+        raise ValueError(
+            "evaluation.required must include primary_judge_score, rigorous_report, and analysis_rows."
+        )
+    from .evaluation.registry import evaluation_plan_v3
+
+    plan = {
+        requirement.name: requirement
+        for requirement in evaluation_plan_v3(
+            benchmark, framework, tuple(judge["id"] for judge in judges)
+        )
+    }
+    for name in evaluation["required"]:
+        requirement = plan[name]
+        if requirement.not_applicable_reason is not None:
+            raise ValueError(
+                f"Required evaluator {name!r} is NOT_APPLICABLE: "
+                f"{requirement.not_applicable_reason}"
+            )
+
+    artifact_store = required_mapping(data, "artifact_store")
+    _reject_unknown_fields(
+        artifact_store, frozenset({"type", "uri"}), "artifact_store",
+    )
+    if artifact_store.get("type") != "local":
+        raise ValueError("V3 currently supports only local artifact storage.")
+    uri = Path(required_string(artifact_store, "uri"))
+    if not uri.is_absolute():
+        raise ValueError("artifact_store.uri must be absolute.")
+    validate_path_within_root(uri, root=runtime_root, field_name="artifact_store.uri")
+    if uri.resolve() != Path(str(runtime["runs_dir"])).resolve():
+        raise ValueError("artifact_store.uri must match runtime.runs_dir.")
+
+    if "preset" in data:
+        preset = required_mapping(data, "preset")
+        _reject_unknown_fields(
+            preset, frozenset({"preset_id", "profile", "fingerprint"}), "preset",
+        )
+        required_string(preset, "preset_id")
+        required_string(preset, "profile")
+        require_sha256(preset, "fingerprint")
+
+
+def _validate_v3_model(model: dict[str, Any], name: str) -> None:
+    _reject_unknown_fields(
+        model,
+        frozenset({"id", "provider", "endpoint_identity", "requested_model", "parameters", "runtime"}),
+        name,
+    )
+    required_string(model, "provider")
+    required_string(model, "requested_model")
+    parameters = required_mapping(model, "parameters")
+    if set(parameters) - {"temperature", "max_tokens", "reasoning_effort"}:
+        raise ValueError(f"{name}.parameters contains unsupported fields.")
+    validate_non_negative_number(parameters, "temperature")
+    validate_positive_integer(parameters, "max_tokens")
+    effort = parameters.get("reasoning_effort")
+    if effort is not None and (not isinstance(effort, str) or not effort.strip()):
+        raise ValueError(f"{name}.parameters.reasoning_effort must be a non-empty string.")
+    runtime = required_mapping(model, "runtime")
+    _reject_unknown_fields(
+        runtime,
+        frozenset({"timeout_seconds", "rpm", "max_retries", "response_max_retries"}),
+        f"{name}.runtime",
+    )
+    validate_positive_number(runtime, "timeout_seconds")
+    validate_positive_integer(runtime, "rpm")
+    validate_non_negative_integer(runtime, "max_retries")
+    if "response_max_retries" in runtime:
+        validate_non_negative_integer(runtime, "response_max_retries")

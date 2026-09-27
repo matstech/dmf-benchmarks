@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 
-PREPARATION_SCHEMA_VERSION = 2
-SUPPORTED_PREPARATION_SCHEMA_VERSIONS = (1, PREPARATION_SCHEMA_VERSION)
+PREPARATION_SCHEMA_VERSION = 3
+SUPPORTED_PREPARATION_SCHEMA_VERSIONS = (PREPARATION_SCHEMA_VERSION,)
 DEFAULT_PREPARATION_PATH = Path(".dmf-bench/prepared.json")
 SMOKE_CONFIG_PATHS = (
     "smoke/config/experiment-locomo-dmf.json",
@@ -350,7 +350,7 @@ def load_preparation_state(path: Path) -> dict[str, Any]:
 
 
 def verify_preparation_inputs(state: Mapping[str, Any]) -> None:
-    """Refuse config drift for v2 preparation contexts before any run starts."""
+    """Refuse config drift for v3 preparation contexts before any run starts."""
 
     if state.get("schema_version") != PREPARATION_SCHEMA_VERSION:
         return

@@ -5,9 +5,12 @@
 DMF Benchmarks compares [DMF](https://github.com/matstech/dmf) and
 [Mem0](https://github.com/mem0ai/mem0) on LoCoMo and LongMemEval.
 
-Version 0.2 uses a Docker-native architecture. The host-side controller and
-the benchmark runtime are distributed together, while benchmark executions
-remain isolated in versioned container images published through GHCR.
+Version 0.3 adds the retrieval-QA v3 contract, a shared runner, deterministic
+context packing, and separate checkpoints for multiple judges. The host-side
+controller and benchmark runtime remain distributed together. The four
+benchmark/framework pairs have local functional fixture coverage; these runs
+are not scientific results. See the [Phase 1 handoff](docs/phases/phase-1.md)
+for reproducible commands and review points.
 
 ## Contents
 
@@ -76,3 +79,7 @@ Published benchmark images are multi-platform GHCR references with native
 The previous architecture remains available at Git tag `v0.1.0`. Version 0.2
 does not support legacy protocols, fallback pipelines, state migration, or
 artifact migration.
+
+Version 0.2 experiment configs and prepared contexts do not load in v0.3.
+Use the `v0.2.0` image and matching controller for historical runs; see the
+[Phase 1 handoff](docs/phases/phase-1.md).

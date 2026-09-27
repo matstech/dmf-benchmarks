@@ -5,26 +5,26 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from dmf_bench.frameworks.dmf_context import build_dmf_native_context_surface
 from dmf_bench.frameworks.mem0_runtime import empty_memory_internal_usage
 from dmf_bench.metrics import BenchmarkMetrics
-from dmf_bench.benchmarks.locomo import dataset as locomo_utils
-from dmf_bench.benchmarks.locomo.adapter import LoCoMoQuestion
-from dmf_bench.benchmarks.longmemeval.dataset import (
-    pair_turns,
-    parse_longmemeval_date,
-    sort_sessions_chronologically,
-)
 
 from .base import (
     BenchmarkUnit,
+    CanonicalRetrievalResult,
     FrameworkCapability,
     FrameworkRunContext,
+    MemoryEvent,
+    MemoryQuery,
+    OwnedResource,
+    PreparedMemoryUnit,
     ProgressReporter,
     ProgressUpdate,
+    RetrievedMemory,
     ResumeCapability,
     RetrievalResult,
 )
@@ -34,6 +34,8 @@ from .qdrant_lifecycle import (
     QdrantClientProtocol,
     QdrantLifecycleError,
     QdrantLifecycleManager,
+    QDRANT_COLLECTION_NAMESPACE,
+    QDRANT_COLLECTION_NAMESPACE_V3,
     build_cleanup_manifest,
     stable_hash,
 )
@@ -193,7 +195,13 @@ class DmfQdrantFrameworkAdapter:
         dmf_config = load_dmf_config(path=config_path)
         _validate_qdrant_server_config(dmf_config)
 
-        qdrant = _mapping(config.get("qdrant"), "qdrant")
+        storage = config.get("storage")
+        if storage is not None:
+            qdrant = _mapping(storage, "storage")
+            if qdrant.get("kind") != "qdrant-server":
+                raise DmfRuntimeError("DMF v3 requires storage.kind='qdrant-server'.")
+        else:
+            qdrant = _mapping(config.get("qdrant"), "qdrant")
         endpoint_env = _required_string(qdrant, "endpoint_env")
         endpoint = os.getenv(endpoint_env)
         if not endpoint or not endpoint.strip():
@@ -228,6 +236,158 @@ class DmfQdrantFrameworkAdapter:
             roles=(CollectionRole.PRIMARY, CollectionRole.CARDS),
             vector_size=self.vector_size,
         )
+
+    def resources_for_unit_v3(
+        self,
+        unit: BenchmarkUnit,
+        config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> tuple[OwnedResource, ...]:
+        manifest = self._manifest_for_context(unit, config, run_context)
+        return _owned_resources(manifest)
+
+    def cleanup_unit_v3(
+        self,
+        unit: BenchmarkUnit,
+        resources: tuple[OwnedResource, ...],
+        config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> dict[str, Any]:
+        expected = self.resources_for_unit_v3(unit, config, run_context)
+        if resources != expected:
+            raise DmfRuntimeError("Refusing cleanup of resources outside this run/unit manifest.")
+        manifest = self._manifest_for_context(unit, config, run_context)
+        self._observe_qdrant("delete_collection", lambda: self._lifecycle().delete_and_wait(manifest))
+        self._delete_local_paths(manifest, config)
+        if any(self._client().collection_exists(item.name) for item in manifest.collections):
+            raise DmfRuntimeError("DMF collection remains after cleanup.")
+        if any(Path(path).exists() for path in manifest.local_paths):
+            raise DmfRuntimeError("DMF local resource remains after cleanup.")
+        return {"verified": True, "resources": [resource.to_dict() for resource in resources]}
+
+    def prepare_unit_v3(
+        self,
+        unit: BenchmarkUnit,
+        events: tuple[MemoryEvent, ...],
+        config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> PreparedMemoryUnit:
+        if not isinstance(events, tuple) or any(not isinstance(event, MemoryEvent) for event in events):
+            raise DmfRuntimeError("DMF v3 requires normalized MemoryEvent values.")
+        manifest = self._manifest_for_context(unit, config, run_context)
+        resources = self.resources_for_unit_v3(unit, config, run_context)
+        lifecycle = self._lifecycle()
+        lifecycle.assert_absent(manifest)
+        cards_path = Path(manifest.local_paths[0])
+        started = time.perf_counter()
+        try:
+            self._observe_qdrant("create_collection", lambda: lifecycle.create_collections(manifest))
+            engine = self._engine_builder().build(
+                dmf_config=self._config(), cleanup_manifest=manifest,
+                qdrant_client=self._client(), cards_path=cards_path,
+            )
+            record_index, ingested_count = _ingest_events_v3(
+                events, engine, progress=run_context.report_progress,
+            )
+            counts = self._observe_qdrant("count", lambda: lifecycle.collection_counts(manifest))
+            active_count = int(engine.memory_engine.size)
+            primary_count = counts.get(CollectionRole.PRIMARY, 0)
+            if active_count + primary_count != ingested_count:
+                raise DmfRuntimeError("DMF v3 ingestion barrier count mismatch.")
+        except Exception:
+            lifecycle.delete_and_wait(manifest)
+            self._delete_local_paths(manifest, config)
+            raise
+        handle = DmfPreparedUnit(
+            unit_id=unit.unit_id,
+            resource_namespace=self._resource_namespace(run_context),
+            cleanup_manifest=manifest,
+            engine=engine,
+            record_index=record_index,
+            ingested_count=ingested_count,
+            collection_counts=counts,
+        )
+        return PreparedMemoryUnit(
+            handle=handle,
+            resources=resources,
+            ingestion_usage={},
+            ingestion_timing={"ingestion_ms": (time.perf_counter() - started) * 1000},
+            diagnostics={"ingested_count": ingested_count, "active_count": active_count,
+                         "collection_counts": {role.value: count for role, count in counts.items()}},
+        )
+
+    def verify_prepared_v3(
+        self,
+        unit: BenchmarkUnit,
+        prepared: PreparedMemoryUnit,
+        config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> dict[str, Any]:
+        handle = self._assert_prepared_v3(unit, prepared, config, run_context)
+        counts = self._observe_qdrant(
+            "count", lambda: self._lifecycle().collection_counts(handle.cleanup_manifest),
+        )
+        active_count = int(handle.engine.memory_engine.size)
+        if active_count + counts.get(CollectionRole.PRIMARY, 0) != handle.ingested_count:
+            raise DmfRuntimeError("DMF v3 commit barrier count mismatch.")
+        return {"verified": True, "ingested_count": handle.ingested_count,
+                "active_count": active_count,
+                "collection_counts": {role.value: count for role, count in counts.items()}}
+
+    def retrieve_v3(
+        self,
+        unit: BenchmarkUnit,
+        query: MemoryQuery,
+        prepared: PreparedMemoryUnit,
+        config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> CanonicalRetrievalResult:
+        del config
+        handle = self._assert_prepared_v3(unit, prepared, None, run_context)
+        if query.query_id not in unit.item_ids:
+            raise DmfRuntimeError("DMF query does not belong to prepared unit.")
+        started = time.perf_counter()
+        surface = self.native_surface_builder(
+            memory=handle.engine.memory_api,
+            query_text=query.text,
+            record_index=handle.record_index,
+        )
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        self._record_retrieval_metric("retrieve", elapsed_ms / 1000)
+        raw_outputs = dict(surface.raw_retrieval_outputs)
+        native_rows = raw_outputs.get("search_results", [])
+        if not isinstance(native_rows, list):
+            raise DmfRuntimeError("DMF search_results must be a list.")
+        items = tuple(
+            _canonical_dmf_memory(row, rank, handle.record_index)
+            for rank, row in enumerate(native_rows, start=1)
+        )
+        return CanonicalRetrievalResult(
+            items=items,
+            raw_payload=raw_outputs,
+            diagnostics={"dmf": {"surface_marker": surface.surface_marker,
+                                  "result_count": surface.result_count}},
+            usage={},
+            timing={"retrieval_pipeline_ms": elapsed_ms},
+        )
+
+    def _assert_prepared_v3(
+        self,
+        unit: BenchmarkUnit,
+        prepared: PreparedMemoryUnit,
+        config: dict[str, Any] | None,
+        run_context: FrameworkRunContext,
+    ) -> DmfPreparedUnit:
+        if not isinstance(prepared, PreparedMemoryUnit) or not isinstance(prepared.handle, DmfPreparedUnit):
+            raise DmfRuntimeError("Missing DMF v3 prepared state.")
+        handle = prepared.handle
+        if handle.unit_id != unit.unit_id or handle.resource_namespace != self._resource_namespace(run_context):
+            raise DmfRuntimeError("DMF prepared state belongs to another run/unit.")
+        if config is not None and prepared.resources != self.resources_for_unit_v3(unit, config, run_context):
+            raise DmfRuntimeError("DMF prepared resource manifest mismatch.")
+        if _owned_resources(handle.cleanup_manifest) != prepared.resources:
+            raise DmfRuntimeError("DMF prepared resource manifest mismatch.")
+        return handle
 
     def validate_runtime(self) -> None:
         try:
@@ -373,7 +533,7 @@ class DmfQdrantFrameworkAdapter:
         self,
         unit: BenchmarkUnit,
         _conversation: dict[str, Any],
-        question: LoCoMoQuestion,
+        question: Any,
         config: dict[str, Any],
         prepared: dict[str, Any],
         *,
@@ -465,6 +625,8 @@ class DmfQdrantFrameworkAdapter:
         engine: DmfEngineBundle,
         progress: ProgressReporter,
     ) -> tuple[dict[str, dict[str, Any]], int]:
+        from .legacy_v2_dmf import _ingest_locomo, _ingest_longmemeval
+
         if benchmark == "locomo":
             return _ingest_locomo(
                 item,
@@ -497,6 +659,11 @@ class DmfQdrantFrameworkAdapter:
             roles=(CollectionRole.PRIMARY, CollectionRole.CARDS),
             vector_size=self.vector_size,
             local_paths=(str(cards_path),),
+            namespace=(
+                QDRANT_COLLECTION_NAMESPACE_V3
+                if config.get("schema_version") == 3
+                else QDRANT_COLLECTION_NAMESPACE
+            ),
         )
 
     @staticmethod
@@ -610,176 +777,112 @@ def dmf_framework_factories(
     return {"dmf": build}
 
 
-def _ingest_locomo(
-    conversation: dict[str, Any],
-    engine: DmfEngineBundle,
-    *,
-    conversation_idx: int,
-    progress: ProgressReporter,
-) -> tuple[dict[str, dict[str, Any]], int]:
-    from dmf.runtime.pipeline import InteractionProvenance
-
-    conversation_data = _mapping(conversation.get("conversation"), "conversation")
-    record_index: dict[str, dict[str, Any]] = {}
-    session_rows: list[tuple[float, str, str]] = []
-    for session_key, session_value in conversation_data.items():
-        if not session_key.startswith("session_") or session_key.endswith("_date_time"):
-            continue
-        if not isinstance(session_value, list):
-            raise DmfRuntimeError(f"LoCoMo {session_key} must be a list.")
-        time_str = _required_string(conversation_data, f"{session_key}_date_time")
-        session_rows.append(
-            (locomo_utils.parse_locomo_date(date_str=time_str), session_key, time_str)
-        )
-    session_rows.sort(key=lambda row: row[0])
-
-    work_rows: list[tuple[float, str, str, dict[str, Any], str, str]] = []
-    for current_ts, session_key, time_str in session_rows:
-        for turn in conversation_data[session_key]:
-            if not isinstance(turn, dict):
-                raise DmfRuntimeError("LoCoMo turn must be an object.")
-            text = locomo_utils.serialize_locomo_turn_for_dmf(turn)
-            if not text:
-                continue
-            context_text = locomo_utils.render_locomo_turn_for_context(turn)
-            work_rows.append(
-                (current_ts, session_key, time_str, turn, text, context_text)
-            )
-
-    progress(
-        ProgressUpdate(
-            stage="memory_ingestion",
-            label="Ingesting source memory",
-            completed=0,
-            total=len(work_rows),
-            item_label="conversation turns",
-        )
+def _owned_resources(manifest: CleanupManifest) -> tuple[OwnedResource, ...]:
+    return tuple(
+        OwnedResource(
+            resource_id=collection.name,
+            kind="qdrant-collection",
+            role=collection.role.value,
+            locator=collection.name,
+        ) for collection in manifest.collections
+    ) + tuple(
+        OwnedResource(
+            resource_id=stable_hash(path, length=32),
+            kind="local-file",
+            role="cards",
+            locator=path,
+        ) for path in manifest.local_paths
     )
-    ingested_count = 0
-    for current_ts, session_key, time_str, turn, text, context_text in work_rows:
-        report, vector = engine.pipeline.analyze_interaction_with_vector(
-            text=text,
-            is_system=False,
-            provenance=InteractionProvenance(
-                role=str(turn.get("speaker", "")).lower()
-            ),
-        )
-        dia_id = _required_string(turn, "dia_id")
-        report.raw_metadata.update(
-            {
-                "benchmark": "locomo",
-                "conversation_idx": conversation_idx,
-                "source_unit_type": "dia",
-                "source_unit_id": dia_id,
-                "session_key": session_key,
-                "session_datetime_raw": time_str,
-                "framework": "dmf",
-            }
-        )
-        engine.scoring.calculate_score(report, text=text)
-        entry = engine.memory_engine.add_interaction(text, report, vector)
-        entry.timestamp = current_ts
-        record_index[entry.record_id] = {
-            "benchmark": "locomo",
-            "conversation_idx": conversation_idx,
-            "source_unit_type": "dia",
-            "source_unit_id": dia_id,
-            "source_unit_ids": [dia_id],
-            "session_key": session_key,
-            "session_datetime_raw": time_str,
-            "speaker": str(turn.get("speaker", "")),
-            "text": context_text,
-            "analysis_text": text,
-            "raw_text": str(turn.get("text", "") or ""),
-            "query": str(turn.get("query", "") or ""),
-            "blip_caption": str(turn.get("blip_caption", "") or ""),
-        }
-        ingested_count += 1
-        progress(
-            ProgressUpdate(
-                stage="memory_ingestion",
-                label="Ingesting source memory",
-                completed=ingested_count,
-                total=len(work_rows),
-                item_label="conversation turns",
-            )
-        )
-    return record_index, ingested_count
 
 
-def _ingest_longmemeval(
-    question: dict[str, Any],
+def _ingest_events_v3(
+    events: tuple[MemoryEvent, ...],
     engine: DmfEngineBundle,
     *,
     progress: ProgressReporter,
 ) -> tuple[dict[str, dict[str, Any]], int]:
     from dmf.runtime.pipeline import InteractionProvenance
 
-    question_id = _required_string(question, "question_id")
     record_index: dict[str, dict[str, Any]] = {}
-    work_rows: list[tuple[str, str, float | None, str, str]] = []
-    for session_id, date_str, session in sort_sessions_chronologically(question):
-        session_ts = parse_longmemeval_date(date_str)
-        for pair in pair_turns(session):
-            for message in pair:
-                text = str(message.get("content", ""))
-                role = str(message.get("role", ""))
-                if not text.strip():
-                    continue
-                work_rows.append((session_id, date_str, session_ts, text, role))
-
-    progress(
-        ProgressUpdate(
-            stage="memory_ingestion",
-            label="Ingesting source memory",
-            completed=0,
-            total=len(work_rows),
-            item_label="messages",
-        )
-    )
-    ingested_count = 0
-    for session_id, date_str, session_ts, text, role in work_rows:
+    progress(ProgressUpdate(
+        stage="memory_ingestion", label="Ingesting source memory",
+        completed=0, total=len(events), item_label="events",
+    ))
+    for offset, event in enumerate(events):
         report, vector = engine.pipeline.analyze_interaction_with_vector(
-            text=text,
-            is_system=False,
-            provenance=InteractionProvenance(role=role),
+            text=event.content,
+            is_system=event.role == "system",
+            provenance=InteractionProvenance(role=event.role),
         )
-        report.raw_metadata.update(
-            {
-                "benchmark": "longmemeval",
-                "question_id": question_id,
-                "source_unit_type": "session",
-                "source_unit_id": session_id,
-                "session_date_raw": date_str,
-            }
-        )
-        engine.scoring.calculate_score(report, text=text)
-        entry = engine.memory_engine.add_interaction(text, report, vector)
-        if session_ts is not None:
-            entry.timestamp = session_ts
+        report.raw_metadata.update({
+            "source_event_ids": [event.event_id],
+            "source_refs": list(event.source_refs),
+            "session_id": event.session_id,
+            "event_sequence": event.sequence,
+        })
+        engine.scoring.calculate_score(report, text=event.content)
+        entry = engine.memory_engine.add_interaction(event.content, report, vector)
+        if event.occurred_at is not None:
+            entry.timestamp = datetime.fromisoformat(
+                event.occurred_at.replace("Z", "+00:00")
+            ).timestamp()
         record_index[entry.record_id] = {
-            "benchmark": "longmemeval",
-            "question_id": question_id,
-            "source_unit_type": "session",
-            "source_unit_id": session_id,
-            "source_unit_ids": [session_id],
-            "session_id": session_id,
-            "session_date_raw": date_str,
-            "session_timestamp": session_ts,
-            "role": role,
-            "text": text,
+            "content": event.content,
+            "source_event_ids": [event.event_id],
+            "source_refs": list(event.source_refs),
+            "session_id": event.session_id,
+            "occurred_at": event.occurred_at,
         }
-        ingested_count += 1
-        progress(
-            ProgressUpdate(
-                stage="memory_ingestion",
-                label="Ingesting source memory",
-                completed=ingested_count,
-                total=len(work_rows),
-                item_label="messages",
-            )
-        )
-    return record_index, ingested_count
+        progress(ProgressUpdate(
+            stage="memory_ingestion", label="Ingesting source memory",
+            completed=offset + 1, total=len(events), item_label="events",
+        ))
+    return record_index, len(events)
+
+
+def _canonical_dmf_memory(
+    row: Any,
+    rank: int,
+    record_index: dict[str, dict[str, Any]],
+) -> RetrievedMemory:
+    if not isinstance(row, dict):
+        raise DmfRuntimeError("DMF retrieval result must be an object.")
+    memory_id = str(row.get("id") or row.get("memory_id") or "")
+    indexed = record_index.get(memory_id, {})
+    metadata = row.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        raise DmfRuntimeError("DMF retrieval metadata must be an object.")
+    content = str(row.get("memory") or row.get("text") or indexed.get("content") or "")
+    raw_score = row.get("score")
+    score = float(raw_score) if raw_score is not None else None
+    record_ids = metadata.get("source_record_ids") or []
+    if not isinstance(record_ids, (tuple, list)):
+        raise DmfRuntimeError("DMF source_record_ids must be a sequence.")
+    source_ids: list[str] = []
+    for record_id in (memory_id, *record_ids):
+        for event_id in record_index.get(str(record_id), {}).get("source_event_ids", []):
+            if event_id not in source_ids:
+                source_ids.append(event_id)
+    if not source_ids:
+        fallback = metadata.get("source_event_ids") or []
+        if not isinstance(fallback, (tuple, list)):
+            raise DmfRuntimeError("DMF source_event_ids must be a sequence.")
+        source_ids = [str(value) for value in fallback]
+    source_refs: list[str] = []
+    for record_id in (memory_id, *record_ids):
+        for source_ref in record_index.get(str(record_id), {}).get("source_refs", []):
+            if source_ref not in source_refs:
+                source_refs.append(str(source_ref))
+    return RetrievedMemory(
+        memory_id=memory_id,
+        content=content,
+        rank=rank,
+        native_score=score,
+        native_score_kind="dmf-native" if score is not None else None,
+        occurred_at=indexed.get("occurred_at"),
+        source_event_ids=tuple(str(value) for value in source_ids),
+        metadata={"source_refs": source_refs},
+    )
 
 
 def _validate_qdrant_server_config(dmf_config: Any) -> None:

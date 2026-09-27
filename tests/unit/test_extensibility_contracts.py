@@ -3,13 +3,23 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from dmf_bench.adapters.base import BenchmarkUnit, FrameworkRunContext, JudgeRequest, RetrievalResult
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import write_json_atomic
 from dmf_bench.contracts import ArtifactRef, RunManifest, UnitCheckpoint, hash_canonical_json, sha256_file
 from dmf_bench.evaluation.finalizer import OfflineLifecycleFinalizer
 from dmf_bench.evaluation.registry import EvaluationRequirement
-from dmf_bench.registry import BenchmarkInfo, FRAMEWORKS, FrameworkInfo, supported_combinations, validate_combination
+from dmf_bench.registry import (
+    BENCHMARKS,
+    FRAMEWORKS,
+    BenchmarkDescriptor,
+    CompatibilityRecord,
+    FrameworkDescriptor,
+    supported_combinations,
+    validate_combination,
+)
 from dmf_bench.state import UnitState
 
 
@@ -167,19 +177,44 @@ def _read_prediction(path: Path) -> dict[str, Any]:
 
 
 def test_explicit_registry_accepts_external_framework_without_default_registry_mutation() -> None:
-    benchmarks = {"tinybench": BenchmarkInfo("tinybench", "tiny-unit")}
-    frameworks = {**FRAMEWORKS, ExternalFixtureFramework.name: FrameworkInfo(ExternalFixtureFramework.name, "fixture")}
+    benchmarks = {
+        **BENCHMARKS,
+        "tinybench": BenchmarkDescriptor(
+            "tinybench", "fixture-v1", "retrieval-qa-v1", "tiny-unit",
+            lambda _config: None, "tiny-v1",
+        ),
+    }
+    frameworks = {
+        **FRAMEWORKS,
+        ExternalFixtureFramework.name: FrameworkDescriptor(
+            ExternalFixtureFramework.name, "fixture-v1", lambda _config: ExternalFixtureFramework(),
+            frozenset({"json"}), frozenset({"fixture"}), frozenset(), "fixture",
+        ),
+    }
+    compatibility = {
+        ("tinybench", ExternalFixtureFramework.name): CompatibilityRecord(
+            "tinybench", ExternalFixtureFramework.name, "experimental", "tiny-v1",
+        ),
+    }
+
+    with pytest.raises(ValueError, match="Unsupported benchmark/framework pair"):
+        validate_combination(
+            "tinybench", ExternalFixtureFramework.name,
+            benchmarks=benchmarks, frameworks=frameworks,
+        )
 
     validate_combination(
         "tinybench",
         ExternalFixtureFramework.name,
         benchmarks=benchmarks,
         frameworks=frameworks,
+        compatibility=compatibility,
     )
 
     assert ("tinybench", ExternalFixtureFramework.name) in supported_combinations(
         benchmarks=benchmarks,
         frameworks=frameworks,
+        compatibility=compatibility,
     )
     assert ExternalFixtureFramework.name not in FRAMEWORKS
 

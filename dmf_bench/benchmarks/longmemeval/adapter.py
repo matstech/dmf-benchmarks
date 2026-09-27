@@ -3,18 +3,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from dmf_bench.adapters.base import BenchmarkUnit
+from dmf_bench.adapters.base import (
+    BenchmarkCase,
+    BenchmarkUnit,
+    EvaluationReference,
+    MemoryEvent,
+    MemoryQuery,
+)
 from . import prompts
 from .dataset import (
     filter_questions_by_ids,
     load_dataset,
+    parse_longmemeval_date,
     sample_questions_stratified,
+    sort_sessions_chronologically,
 )
 
-from dmf_bench.contracts import PREDICTION_SCHEMA_VERSION, sha256_file
+from dmf_bench.contracts import PREDICTION_SCHEMA_VERSION, V3_PREDICTION_SCHEMA_VERSION, sha256_file
 
 
 
@@ -35,6 +44,111 @@ class LongMemEvalAnswererInput:
 class LongMemEvalAdapter:
     name = "longmemeval"
     atomic_unit = "longmemeval-question"
+
+    def build_answerer_request_v3(self, query: MemoryQuery, packed_context: Any, config: dict[str, Any]) -> Any:
+        """Build the shared LongMemEval answer prompt from canonical packed memory."""
+        from dmf_bench.adapters.base import AnswererRequest
+
+        del config
+        return AnswererRequest(
+            system_prompt=prompts.build_answerer_system_prompt(),
+            user_prompt=(
+                "Use the provided memory to answer the LongMemEval question. "
+                "If the answer is unsupported, say you do not know.\n\n"
+                f"Memory:\n{packed_context.text}\n\n"
+                f"Question date: {query.as_of or '(not specified)'}\n"
+                f"Question: {query.text}\nAnswer:"
+            ),
+            metadata={"question_id": query.query_id},
+        )
+
+    def build_prediction_v3(
+        self, case: BenchmarkCase, query: MemoryQuery, retrieval: Any,
+        packed_context: Any, answer: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Add the official reference only after answer generation."""
+        reference = case.references[query.query_id]
+        return {
+            "schema_version": V3_PREDICTION_SCHEMA_VERSION,
+            "benchmark": self.name,
+            "question_id": query.query_id,
+            "question_type": reference.strata["question_type"],
+            "question": query.text,
+            "ground_truth_answer": reference.expected_answer,
+            "question_date": query.as_of,
+            "is_abstention": reference.strata["is_abstention"],
+            "answer_session_ids": list(reference.evidence_refs),
+            "generated_answer": str(answer.get("generated_answer", answer.get("answer", ""))),
+            "answerer_usage": answer.get("answerer_usage", answer.get("usage", {})),
+            "answerer_provider": answer.get("answerer_provider", answer.get("provider", "")),
+            "answerer_requested_model": answer.get("answerer_requested_model", ""),
+            "answerer_model": answer.get("answerer_model", answer.get("model", "")),
+            "answerer_finish_reason": answer.get("answerer_finish_reason"),
+            "retrieval": retrieval.to_dict(),
+            "packed_context": packed_context.to_dict(),
+        }
+
+    def load_case(self, unit: BenchmarkUnit, config: dict[str, Any]) -> BenchmarkCase:
+        """Materialize one question with its answer held only in the reference."""
+        selected = self.selected_questions_by_id(config)
+        if unit.unit_id not in selected:
+            raise ValueError(f"Unknown selected LongMemEval unit: {unit.unit_id}")
+        question = selected[unit.unit_id]
+        if unit.item_ids != (unit.unit_id,):
+            raise ValueError("LongMemEval unit must contain its single question ID.")
+        session_ids = question["haystack_session_ids"]
+        dates = question["haystack_dates"]
+        sessions = question["haystack_sessions"]
+        if not isinstance(session_ids, list) or not isinstance(dates, list) or not isinstance(sessions, list):
+            raise ValueError("LongMemEval haystack fields must be lists.")
+        if len(session_ids) != len(dates) or len(dates) != len(sessions):
+            raise ValueError("LongMemEval haystack fields must have equal lengths.")
+
+        events: list[MemoryEvent] = []
+        for session_id, raw_date, turns in sort_sessions_chronologically(question):
+            if not isinstance(turns, list):
+                raise ValueError("LongMemEval haystack session must be a list.")
+            epoch = parse_longmemeval_date(raw_date)
+            occurred_at = datetime.fromtimestamp(epoch, UTC).isoformat().replace("+00:00", "Z") if epoch is not None else None
+            for sequence, turn in enumerate(turns):
+                if not isinstance(turn, dict):
+                    raise ValueError("LongMemEval turn must be an object.")
+                role = str(turn.get("role", "") or "").strip().lower()
+                content = str(turn.get("content", "") or "").strip()
+                if not content:
+                    continue
+                events.append(MemoryEvent(
+                    event_id=f"{unit.unit_id}:{session_id}:{sequence}",
+                    session_id=str(session_id),
+                    sequence=sequence,
+                    role=role,
+                    content=content,
+                    occurred_at=occurred_at,
+                    source_refs=(str(session_id),),
+                ))
+
+        question_epoch = parse_longmemeval_date(str(question.get("question_date", "")))
+        as_of = datetime.fromtimestamp(question_epoch, UTC).isoformat().replace("+00:00", "Z") if question_epoch is not None else None
+        query = MemoryQuery(
+            query_id=unit.unit_id,
+            text=_string(question, "question"),
+            as_of=as_of,
+        )
+        reference = EvaluationReference(
+            query_id=unit.unit_id,
+            expected_answer=question["answer"],
+            evidence_refs=tuple(str(value) for value in question.get("answer_session_ids", [])),
+            strata={
+                "question_type": str(question["question_type"]),
+                "is_abstention": unit.unit_id.endswith("_abs"),
+            },
+        )
+        safe_unit = BenchmarkUnit(unit.unit_id, unit.item_ids, {
+            "benchmark": self.name,
+            "unit_type": self.atomic_unit,
+            "question_id": unit.unit_id,
+        })
+        return BenchmarkCase(safe_unit, tuple(events), (query,), {unit.unit_id: reference})
 
     def materialize_reference(self, config: dict[str, Any]) -> LongMemEvalReference:
         """Load a local pinned dataset; never downloads implicitly."""

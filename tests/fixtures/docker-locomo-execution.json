@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "experiment_id": "docker-stop-resume-fixture",
   "benchmark": "locomo",
   "framework": "dmf",
@@ -8,19 +8,13 @@
     "runs_dir": "/bench/runs",
     "cache_dir": "/bench/cache",
     "metrics_port": 9464,
-    "log_level": "INFO",
-    "execution_profile": "docker-qdrant-fixture-v1"
+    "log_level": "INFO"
   },
   "framework_config": {
     "path": "/bench/config/locomo_dmf_qdrant_settings.toml",
     "sha256": "54c99182ca2e5506b12a0480559a026f5cb445587832a4eb1a0653c3fbc5a890",
     "format": "toml",
     "profile": "docker-qdrant-fixture-v1"
-  },
-  "qdrant": {
-    "endpoint_env": "QDRANT_URL",
-    "retention": "keep",
-    "request_timeout_seconds": 10
   },
   "dataset": {
     "name": "locomo",
@@ -55,28 +49,55 @@
         "max_retries": 0
       }
     },
-    "judge": {
-      "provider": "fixture",
-      "requested_model": "deterministic-judge-v1",
-      "parameters": {
-        "temperature": 0,
-        "max_tokens": 256
-      },
-      "runtime": {
-        "timeout_seconds": 30,
-        "rpm": 1000,
-        "max_retries": 0
+    "judges": [
+      {
+        "id": "primary",
+        "provider": "fixture",
+        "requested_model": "deterministic-judge-v1",
+        "parameters": {
+          "temperature": 0,
+          "max_tokens": 256
+        },
+        "runtime": {
+          "timeout_seconds": 30,
+          "rpm": 1000,
+          "max_retries": 0
+        }
       }
-    }
+    ]
   },
   "evaluation": {
+    "primary_judge_id": "primary",
     "required": [
-      "primary_judge_score"
+      "primary_judge_score",
+      "rigorous_report",
+      "analysis_rows"
     ],
-    "optional": []
+    "optional": [
+      "retrieval_report",
+      "judge_agreement",
+      "ablation_report"
+    ]
   },
   "artifact_store": {
     "type": "local",
     "uri": "/bench/runs"
+  },
+  "scientific_profile": "docker-qdrant-fixture-v1",
+  "storage": {
+    "kind": "qdrant-server",
+    "profile": "qdrant-v1",
+    "endpoint_env": "QDRANT_URL",
+    "retention": "keep",
+    "request_timeout_seconds": 10
+  },
+  "retrieval": {
+    "max_results": 20
+  },
+  "context_budget": {
+    "max_tokens": 512,
+    "tokenizer": "tiktoken-cl100k_base-v1",
+    "renderer": "retrieved-memory-v1",
+    "packing": "ranked-whole-items-v1"
   }
 }

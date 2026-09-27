@@ -460,7 +460,10 @@ def test_cli_run_predict_only_plan_supports_locomo(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config = make_locomo_config(tmp_path)
+    from test_retrieval_qa_runner import config_v3
+
+    config = config_v3(tmp_path, "locomo", "dmf")
+    config["selection"]["ordered_item_ids"] = ["conversation-0001"]
     config_path = tmp_path / "experiment.json"
     config_path.write_text(json.dumps(config), encoding="utf-8")
 

@@ -6,12 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dmf_bench.contracts import (
-    EXPERIMENT_CONFIG_SCHEMA_VERSION,
-    hash_canonical_json,
-    sha256_file,
-)
+from dmf_bench.contracts import hash_canonical_json, sha256_file
 from dmf_bench.datasets import dataset_config_for_id
+from dmf_bench.context import PACKING_ID, RENDERER_ID, TOKENIZER_ID
 
 
 @dataclass(frozen=True)
@@ -67,8 +64,8 @@ def _model(
 
 
 BUILTIN_PRESETS: dict[str, PresetRecord] = {
-    "paper/locomo-dmf-v2": PresetRecord(
-        preset_id="paper/locomo-dmf-v2",
+    "paper/locomo-dmf-v3": PresetRecord(
+        preset_id="paper/locomo-dmf-v3",
         profile="paper",
         benchmark="locomo",
         framework="dmf",
@@ -76,9 +73,9 @@ BUILTIN_PRESETS: dict[str, PresetRecord] = {
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
             "answerer": _model("openai", "gpt-4.1-mini"),
-            "judge": _model("openai", "gpt-5-mini", reasoning_effort="low"),
+            "judges": [{"id": "primary", **_model("openai", "gpt-5-mini", reasoning_effort="low")}],
         },
-        evaluation={"required": ["primary_judge_score", "rigorous_report"], "optional": ["ablation_report"]},
+        evaluation={"primary_judge_id": "primary", "required": ["primary_judge_score", "rigorous_report", "analysis_rows"], "optional": ["retrieval_report", "ablation_report"]},
     ),
     "default/locomo-dmf": PresetRecord(
         preset_id="default/locomo-dmf",
@@ -89,12 +86,12 @@ BUILTIN_PRESETS: dict[str, PresetRecord] = {
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
             "answerer": _model("openai", "gpt-4.1-mini"),
-            "judge": _model("openai", "gpt-5-mini", reasoning_effort="low"),
+            "judges": [{"id": "primary", **_model("openai", "gpt-5-mini", reasoning_effort="low")}],
         },
-        evaluation={"required": ["primary_judge_score", "rigorous_report"], "optional": ["ablation_report"]},
+        evaluation={"primary_judge_id": "primary", "required": ["primary_judge_score", "rigorous_report", "analysis_rows"], "optional": ["retrieval_report", "ablation_report"]},
     ),
-    "paper/longmemeval-dmf-v2": PresetRecord(
-        preset_id="paper/longmemeval-dmf-v2",
+    "paper/longmemeval-dmf-v3": PresetRecord(
+        preset_id="paper/longmemeval-dmf-v3",
         profile="paper",
         benchmark="longmemeval",
         framework="dmf",
@@ -102,9 +99,9 @@ BUILTIN_PRESETS: dict[str, PresetRecord] = {
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
             "answerer": _model("openai", "gpt-4.1-mini"),
-            "judge": _model("openai", "gpt-5-mini", reasoning_effort="low"),
+            "judges": [{"id": "primary", **_model("openai", "gpt-5-mini", reasoning_effort="low")}],
         },
-        evaluation={"required": ["primary_judge_score", "rigorous_report"], "optional": ["ablation_report"]},
+        evaluation={"primary_judge_id": "primary", "required": ["primary_judge_score", "rigorous_report", "analysis_rows"], "optional": ["retrieval_report", "ablation_report"]},
     ),
     "default/longmemeval-dmf": PresetRecord(
         preset_id="default/longmemeval-dmf",
@@ -115,9 +112,9 @@ BUILTIN_PRESETS: dict[str, PresetRecord] = {
         selection={"ordered_item_ids": ["*"], "filters": {}, "seed": 7},
         models={
             "answerer": _model("openai", "gpt-4.1-mini"),
-            "judge": _model("openai", "gpt-5-mini", reasoning_effort="low"),
+            "judges": [{"id": "primary", **_model("openai", "gpt-5-mini", reasoning_effort="low")}],
         },
-        evaluation={"required": ["primary_judge_score", "rigorous_report"], "optional": ["ablation_report"]},
+        evaluation={"primary_judge_id": "primary", "required": ["primary_judge_score", "rigorous_report", "analysis_rows"], "optional": ["retrieval_report", "ablation_report"]},
     ),
 }
 
@@ -140,8 +137,9 @@ def resolve_preset(
     if not framework_path.is_file():
         raise ValueError(f"Framework config file not found: {framework_path}")
     return {
-        "schema_version": EXPERIMENT_CONFIG_SCHEMA_VERSION,
+        "schema_version": 3,
         "experiment_id": preset_id.replace("/", "-"),
+        "scientific_profile": "retrieval-controlled-v1",
         "benchmark": preset.benchmark,
         "framework": preset.framework,
         "runtime": {
@@ -157,7 +155,9 @@ def resolve_preset(
             "format": "toml" if preset.framework == "dmf" else "yaml",
             "profile": "paper" if preset.profile == "paper" else "default",
         },
-        "qdrant": {
+        "storage": {
+            "kind": "qdrant-server",
+            "profile": "qdrant-v1",
             "endpoint_env": "QDRANT_URL",
             "retention": "keep",
             "request_timeout_seconds": 10,
@@ -168,6 +168,13 @@ def resolve_preset(
             registry_path=registry_path,
         ),
         "selection": preset.selection,
+        "retrieval": {"max_results": 20},
+        "context_budget": {
+            "max_tokens": 8192,
+            "tokenizer": TOKENIZER_ID,
+            "renderer": RENDERER_ID,
+            "packing": PACKING_ID,
+        },
         "models": preset.models,
         "evaluation": preset.evaluation,
         "artifact_store": {"type": "local", "uri": str(root / "runs")},

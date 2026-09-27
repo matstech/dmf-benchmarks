@@ -3,6 +3,10 @@
 Complete guide to `dmf-benchctl`, experiment configuration, execution, and
 results.
 
+This checkout targets the local v0.3 retrieval-QA foundation. The v0.2
+release-installation example below is for historical runs; no v0.3 image or
+controller has been published by this phase.
+
 # 1. Start Here
 
 This manual is the complete user reference for `dmf-benchctl`. It explains not
@@ -257,8 +261,9 @@ Preparation performs deterministic checks before paid calls:
 10. writes `.dmf-bench/prepared.json` atomically.
 
 `--allow-downloads` permits controlled dataset and model downloads during
-preparation and records that policy for later runs. Omit it only when all
-required bytes are already cached.
+preparation and records that policy for later runs. Dataset bytes must be
+materialized before `run`; the runtime will not fetch a missing dataset.
+Omit the flag when all required bytes are already cached.
 
 ## Step 3: review the preparation receipt
 
@@ -427,8 +432,8 @@ dmf-benchctl config export locomo-mem0 ./my-locomo-mem0 --force
 
 There are two configuration layers:
 
-1. `experiment.json` configures the benchmark **answerer** and **judge** under
-   `models.answerer` and `models.judge`.
+1. `experiment.json` configures the benchmark answerer and ordered judges under
+   `models.answerer` and `models.judges`.
 2. The framework settings file configures memory-system internals.
 
 For Mem0, `mem0-settings.yaml` contains its internal `llm`, `embedder`, search,
@@ -885,14 +890,14 @@ for advanced runtime capabilities and diagnosis.
 
 # 7. Experiment Configuration
 
-An experiment JSON uses `schema_version: 2`. It is the scientific contract for
+An experiment JSON uses `schema_version: 3`. It is the scientific contract for
 one benchmark and one memory system.
 
 ## Top-level fields
 
 `schema_version`
 
-: Must be `2`.
+: Must be `3`. Version 2 configs must run with the v0.2 image and controller.
 
 `experiment_id`
 
@@ -916,9 +921,15 @@ one benchmark and one memory system.
 
 : Path, format, profile, and SHA-256 of DMF TOML or Mem0 YAML settings.
 
-`qdrant`
+`storage`
 
-: Endpoint environment-variable name, request timeout, and retention policy.
+: Storage kind/profile, endpoint environment-variable name, request timeout,
+  and retention policy. DMF and Mem0 currently use `qdrant-server`.
+
+`scientific_profile`, `retrieval`, `context_budget`
+
+: Fixed retrieval-QA protocol, retrieval limit, tokenizer, renderer, packing
+  policy, and answerer context token budget.
 
 `dataset`
 
@@ -931,7 +942,7 @@ one benchmark and one memory system.
 
 `models`
 
-: Benchmark answerer and judge provider/model declarations, parameters,
+: Benchmark answerer and ordered judge provider/model declarations, parameters,
   throttling, timeout, and retries.
 
 `evaluation`
@@ -983,7 +994,8 @@ Example:
         "max_retries": 5
       }
     },
-    "judge": {
+    "judges": [{
+      "id": "primary",
       "provider": "openai",
       "requested_model": "gpt-5-mini",
       "parameters": {
@@ -997,7 +1009,7 @@ Example:
         "max_retries": 5,
         "response_max_retries": 1
       }
-    }
+    }]
   }
 }
 ```
@@ -1006,6 +1018,14 @@ Example:
 `response_max_retries` handles malformed or truncated judge responses. All
 attempts contribute to token usage. Exhaustion fails closed; the runner does
 not invent a score.
+
+Set `evaluation.primary_judge_id` to one of the `models.judges` IDs. Judges
+have separate checkpoints and remain separate in analysis. Retrieval evidence
+that a framework cannot provide is reported as `NOT_APPLICABLE`.
+
+Runs and plan-only checks use datasets already present in the cache. Use
+`prepare` or `dmf-bench materialize-dataset` to fetch and hash a dataset
+explicitly before running. A cache miss fails before execution.
 
 ## Qdrant retention
 
@@ -1339,6 +1359,9 @@ Read these files for outcomes:
 | `evaluations/primary_judge_score.json` | Aggregate LLM-judge result |
 | `evaluations/rigorous_report.json` | Deterministic benchmark metrics |
 | `evaluations/ablation_report.json` | Retrieval ablation metrics, when requested |
+| `evaluations/retrieval_report.json` | Retrieval ranks where source provenance is available |
+| `evaluations/analysis_rows.jsonl` | Ordered per-question analysis rows |
+| `evaluations/judge_agreement.json` | Agreement between configured judges, when applicable |
 | `reports/usage.json` | Calls and tokens by answerer, judge, and memory internals |
 | `reports/timing.json` | Lifecycle and pipeline timing |
 | `reports/resources.json` | CPU, memory, cgroup observations, and limits |
@@ -1356,11 +1379,15 @@ runs/RUN_ID/
 |-- datasets/
 |   `-- materialization-manifest.json
 |-- items/
+|   `-- UNIT_ID/questions/QUERY_ID.retrieval.json
+|   `-- UNIT_ID/questions/QUERY_ID.context.json
 |-- checkpoints/
 |-- attempts/
 |-- evaluations/
 |   |-- primary_judge_score.json
 |   |-- rigorous_report.json
+|   |-- analysis_rows.jsonl
+|   |-- retrieval_report.json
 |   `-- ablation_report.json
 |-- reports/
 |   |-- usage.json
