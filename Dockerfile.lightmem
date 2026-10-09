@@ -1,0 +1,55 @@
+ARG PYTHON_IMAGE=python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
+FROM ${PYTHON_IMAGE} AS builder
+
+ARG LIGHTMEM_COMMIT=8449d574df6bae1bdf3314a1564da65e2f37e046
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TIKTOKEN_CACHE_DIR=/opt/tiktoken
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+COPY config/lightmem/constraints-py311.txt /tmp/constraints-py311.txt
+RUN git init /tmp/lightmem \
+    && git -C /tmp/lightmem remote add origin https://github.com/zjunlp/LightMem.git \
+    && git -C /tmp/lightmem fetch --depth 1 origin ${LIGHTMEM_COMMIT} \
+    && git -C /tmp/lightmem checkout --detach FETCH_HEAD \
+    && test "$(git -C /tmp/lightmem rev-parse HEAD)" = "${LIGHTMEM_COMMIT}" \
+    && pip install --constraint /tmp/constraints-py311.txt /tmp/lightmem \
+    && pip install --constraint /tmp/constraints-py311.txt 'prometheus-client==0.25.0' 'fastapi==0.136.1' 'uvicorn==0.46.0' \
+    && mkdir -p /opt/tiktoken \
+    && python -c 'import tiktoken; [tiktoken.get_encoding(name) for name in tiktoken.list_encoding_names()]'
+
+WORKDIR /app
+COPY pyproject.toml LICENSE ./
+COPY dmf_bench ./dmf_bench
+COPY dmf_benchctl ./dmf_benchctl
+COPY config ./config
+COPY datasets/locomo/locomo-mini.json ./datasets/locomo/locomo-mini.json
+COPY datasets/longmemeval/longmemeval-mini.json ./datasets/longmemeval/longmemeval-mini.json
+COPY deploy ./deploy
+COPY smoke ./smoke
+RUN pip install --no-deps --ignore-requires-python .
+
+FROM ${PYTHON_IMAGE} AS runtime
+ENV PATH="/opt/venv/bin:${PATH}" \
+    TIKTOKEN_CACHE_DIR=/opt/tiktoken \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    LIGHTMEM_SOURCE_COMMIT=8449d574df6bae1bdf3314a1564da65e2f37e046 \
+    LIGHTMEM_EMBEDDING_MODEL_PATH=/bench/models/all-MiniLM-L6-v2 \
+    LIGHTMEM_SEGMENTER_MODEL_PATH=/bench/models/llmlingua-2 \
+    DMF_BENCH_RUNS_DIR=/bench/runs \
+    DMF_BENCH_CACHE_DIR=/bench/cache
+WORKDIR /app
+RUN groupadd --system --gid 10001 dmfbench \
+    && useradd --system --uid 10001 --gid dmfbench --create-home --home-dir /home/dmfbench dmfbench \
+    && mkdir -p /bench/runs /bench/cache /bench/models \
+    && chown -R dmfbench:dmfbench /bench /home/dmfbench
+COPY --from=builder --chown=dmfbench:dmfbench /opt/venv /opt/venv
+COPY --from=builder --chown=dmfbench:dmfbench /opt/tiktoken /opt/tiktoken
+USER dmfbench
+ENTRYPOINT ["dmf-bench"]

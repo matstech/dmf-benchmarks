@@ -1,0 +1,54 @@
+{
+  "framework": "lightmem",
+  "version": "local-v1",
+  "source_repository": "https://github.com/zjunlp/LightMem",
+  "source_commit": "8449d574df6bae1bdf3314a1564da65e2f37e046",
+  "source_license_file": "MIT",
+  "manager_backend": "openai-compatible-local-ollama",
+  "manager": {
+    "model": "qwen2.5:0.5b",
+    "digest": "a8b0c51577010a279d933d14c2a8ab4b268079d44c5c8830c0a93900f1827c67",
+    "seed": 7,
+    "max_tokens": 2048
+  },
+  "embedding": {
+    "repository": "sentence-transformers/all-MiniLM-L6-v2",
+    "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "weights_file": "pytorch_model.bin",
+    "files": {
+      "modules.json": "84e40c8e006c9b1d6c122e02cba9b02458120b5fb0c87b746c41e0207cf642cf",
+      "config_sentence_transformers.json": "061ca9d39661d6c6d6de5ba27f79a1cd5770ea247f8d46412a68a498dc5ac9f3",
+      "sentence_bert_config.json": "fc1993fde0a95c24ec6c022539d41cf6e2f7c9721e5415d6fb6897472a9cd4b7",
+      "config.json": "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41",
+      "1_Pooling/config.json": "4be450dde3b0273bb9787637cfbd28fe04a7ba6ab9d36ac48e92b11e350ffc23",
+      "tokenizer.json": "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037",
+      "tokenizer_config.json": "acb92769e8195aabd29b7b2137a9e6d6e25c476a4f15aa4355c233426c61576b",
+      "special_tokens_map.json": "303df45a03609e4ead04bc3dc1536d0ab19b5358db685b6f3da123d05ec200e3",
+      "vocab.txt": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+      "pytorch_model.bin": "c3a85f238711653950f6a79ece63eb0ea93d76f6a6284be04019c53733baf256"
+    }
+  },
+  "segmenter": {
+    "repository": "microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank",
+    "revision": "5f0c82792b7ea14c6484e015b6a072009496b7f2",
+    "weights_file": "model.safetensors",
+    "files": {
+      "config.json": "e6c33ec2f099e659e125efaa8b7bb07a6e65b7d9fc36211c6fa3206e1c399085",
+      "tokenizer.json": "bf1b59b7b11c95f194f51708d918eea378e09d05f84c0e1656dc5180e8117088",
+      "tokenizer_config.json": "214f78f6c5d034a8b405632d301ee3710eb6f075b3f5faf8241a273a13908746",
+      "special_tokens_map.json": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+      "vocab.txt": "fe0fda7c425b48c516fc8f160d594c8022a0808447475c1a7c6d6479763f310c",
+      "model.safetensors": "22b9ecde52fec5c97e8c54a293be768727df95a81c6c8dccb03f262a50c58324"
+    }
+  },
+  "embedding_dimensions": 384,
+  "pre_compress": false,
+  "topic_segment": true,
+  "kv_cache": false,
+  "offline_update": {
+    "top_k": 20,
+    "keep_top_n": 10,
+    "score_threshold": 0.8,
+    "max_workers": 1
+  }
+}

@@ -33,6 +33,12 @@ def _mem0_factory(config: dict[str, Any]) -> Any:
     return mem0_framework_factories()["mem0"](config)
 
 
+def _lightmem_factory(config: dict[str, Any]) -> Any:
+    from .adapters.lightmem import LightMemAdapter
+
+    return LightMemAdapter(config)
+
+
 def _baseline_factory(name: str) -> ComponentFactory:
     def build(config: dict[str, Any]) -> Any:
         from .adapters.baselines import FullContextAdapter, ModelOnlyAdapter, VectorRagAdapter
@@ -116,6 +122,12 @@ FRAMEWORKS: dict[str, FrameworkDescriptor] = {
         frozenset({"native-score", "usage", "source-provenance", "cleanup-manifest", "deterministic-resource-naming"}),
         "mem0ai@8db3430d20f8b76cb7f80fb30df048321863392f",
     ),
+    "lightmem": FrameworkDescriptor(
+        "lightmem", "lightmem-v1", _lightmem_factory, frozenset({"json"}),
+        frozenset({"embedded-local"}),
+        frozenset({"native-score", "usage", "timestamps", "cleanup-manifest", "deterministic-resource-naming"}),
+        "lightmem@8449d574df6bae1bdf3314a1564da65e2f37e046",
+    ),
     "model-only": FrameworkDescriptor(
         "model-only", "model-only-v1", _baseline_factory("model-only"),
         frozenset({"json"}), frozenset({"none"}), frozenset(), "built-in-v1",
@@ -157,6 +169,13 @@ COMPATIBILITY: dict[tuple[str, str], CompatibilityRecord] = {
         )
         for benchmark in ("locomo", "longmemeval")
         for framework in ("model-only", "full-context", "vector-rag")
+    },
+    **{
+        (benchmark, "lightmem"): CompatibilityRecord(
+            benchmark, "lightmem", "experimental", f"{benchmark}-v3",
+            "Pinned local LightMem retrieval adapter; technical certification pending.",
+        )
+        for benchmark in ("locomo", "longmemeval")
     },
 }
 

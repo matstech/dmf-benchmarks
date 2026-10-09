@@ -1,0 +1,13 @@
+services:
+  benchmark:
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      LIGHTMEM_EMBEDDING_MODEL_PATH: /bench/models/all-MiniLM-L6-v2
+      LIGHTMEM_SEGMENTER_MODEL_PATH: /bench/models/llmlingua-2
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - type: bind
+        source: ${LIGHTMEM_MODELS_DIR:?Set LIGHTMEM_MODELS_DIR to the provisioned model directory}
+        target: /bench/models
+        read_only: true
