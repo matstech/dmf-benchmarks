@@ -4,8 +4,7 @@ Complete guide to `dmf-benchctl`, experiment configuration, execution, and
 results.
 
 This checkout targets the local v0.3 retrieval-QA runtime with controlled
-baselines. The v0.2 release-installation example below is for historical runs;
-no v0.3 image or controller has been published by these phases.
+baselines. The v0.2 release-installation example below is for historical runs.
 
 # 1. Start Here
 
@@ -417,6 +416,30 @@ same names prefixed by `longmemeval-`. Each benchmark also has an independent
 sample declaration and normal model providers; export them before changing
 local providers or paths.
 
+The experimental LightMem retrieval presets are `locomo-lightmem` and
+`longmemeval-lightmem`. Build their dedicated Python 3.11 image and provision
+the two pinned model directories explicitly:
+
+```text
+python3 scripts/provision_lightmem_models.py --output ./lightmem-models --download
+docker build -f Dockerfile.lightmem -t dmf-benchmarks:lightmem-local .
+ollama pull qwen2.5:0.5b
+export LIGHTMEM_MODELS_DIR="$(pwd)/lightmem-models"
+dmf-benchctl config export locomo-lightmem ./my-locomo-lightmem
+```
+
+The provisioning script verifies SHA-256 for the model weights, tokenizer,
+and configuration files; without `--download` it only checks local files.
+The adapter preflight verifies those files and the Ollama model digest before
+ingestion. Ollama must be reachable from the benchmark container at
+`http://host.docker.internal:11434/v1` (or set `OLLAMA_BASE_URL` to another
+allowed local HTTP endpoint). Pass `--image dmf-benchmarks:lightmem-local`
+and `--compose-override deploy/compose.lightmem.yaml` to controller commands
+for these presets. The override mounts `LIGHTMEM_MODELS_DIR` read-only.
+LightMem uses its own local Qdrant index and offline update; the shared answerer
+and judges still produce and assess final answers. Precompression and KV cache
+are disabled in this auditable local profile.
+
 Export one:
 
 ```text
@@ -470,6 +493,11 @@ For Mem0, `mem0-settings.yaml` contains its internal `llm`, `embedder`, search,
 and vector-store declarations. Mem0 can therefore make internal LLM calls in
 addition to the benchmark answerer and judge calls. These categories are
 reported separately in `reports/usage.json`.
+
+For LightMem, `lightmem-settings.json` pins the upstream commit, local Ollama
+manager, embedding and sensory segmenter files, offline update policy, and
+owned local index. Its internal model usage appears in the prepared-unit
+artifact and retrieval diagnostics.
 
 For DMF, `dmf-settings.toml` contains embedding, scoring, temporal-decay,
 capacity, long-term-memory, and retrieval settings.
@@ -948,8 +976,8 @@ one benchmark and one memory system.
 
 `framework`
 
-: Built-in systems are `dmf`, `mem0`, `model-only`, `full-context`, and
-  `vector-rag`.
+: Built-in systems are `dmf`, `mem0`, `model-only`, `full-context`,
+  `vector-rag`, and experimental `lightmem`.
 
 `runtime`
 
@@ -958,14 +986,14 @@ one benchmark and one memory system.
 
 `framework_config`
 
-: Path, format, profile, and SHA-256 of DMF TOML, Mem0 YAML, or baseline JSON
-  settings.
+: Path, format, profile, and SHA-256 of DMF TOML, Mem0 YAML, or baseline or
+  LightMem JSON settings.
 
 `storage`
 
 : Storage kind/profile, endpoint environment-variable name, request timeout,
   and retention policy. DMF and Mem0 use `qdrant-server`; `model-only` and
-  `full-context` use `none`; `vector-rag` uses `embedded-local`.
+  `full-context` use `none`; `vector-rag` and LightMem use `embedded-local`.
 
 `scientific_profile`, `retrieval`, `context_budget`
 
