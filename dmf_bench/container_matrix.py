@@ -17,7 +17,12 @@ from typing import Any, Callable
 from dmf_bench.cli import main as cli_main
 from dmf_bench.container_fixture import fixture_application_builder
 from dmf_bench.contracts import sha256_file
-from dmf_bench.registry import supported_combinations
+
+
+CERTIFICATION_PAIRS = (
+    ("locomo", "dmf"), ("locomo", "mem0"),
+    ("longmemeval", "dmf"), ("longmemeval", "mem0"),
+)
 
 
 LOCOMO_DATASET = Path("/bench/fixtures/locomo-mini.json")
@@ -33,9 +38,9 @@ def build_matrix_configs(
     locomo_dataset: Path = LOCOMO_DATASET,
     longmemeval_dataset: Path = LONGMEMEVAL_DATASET,
 ) -> list[dict[str, Any]]:
-    """Resolve all supported combinations against deterministic fixtures."""
+    """Resolve the four phase 1 Qdrant pairs against deterministic fixtures."""
     configs: list[dict[str, Any]] = []
-    for benchmark, framework in supported_combinations():
+    for benchmark, framework in CERTIFICATION_PAIRS:
         config = deepcopy(base_config)
         run_id = f"{run_prefix}-{benchmark}-{framework}"
         framework_suffix = "toml" if framework == "dmf" else "yaml"

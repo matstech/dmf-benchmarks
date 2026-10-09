@@ -74,6 +74,7 @@ class DefaultDmfEngineBuilder:
 
     embedding_cache_dir: Path
     embedding_factory: Callable[[Any], Any] | None = None
+    ablation_profile: str | None = None
 
     def build(
         self,
@@ -131,9 +132,14 @@ class DefaultDmfEngineBuilder:
             ltm_hook=ltm_hook,
             nlp_engine=nlp_engine,
         )
+        scoring = ScoringEngine.from_dmf_config(config=dmf_config)
+        if getattr(self, "ablation_profile", None) == "dmf-no-salience-scoring":
+            from dmf_bench.ablations import NeutralScoringEngine
+
+            scoring = NeutralScoringEngine()
         return DmfEngineBundle(
             pipeline=pipeline,
-            scoring=ScoringEngine.from_dmf_config(config=dmf_config),
+            scoring=scoring,
             memory_engine=memory_engine,
             embedding_engine=embedding_engine,
             memory_api=Memory.from_dmf_config(
@@ -168,6 +174,7 @@ class DmfQdrantFrameworkAdapter:
     engine_builder: DmfEngineBuilder | None = None
     native_surface_builder: Callable[..., Any] = build_dmf_native_context_surface
     metrics: BenchmarkMetrics | None = None
+    ablation_profile: str | None = None
     name: str = "dmf"
     resume_capability: ResumeCapability = ResumeCapability.RESTART_UNIT
     capabilities: frozenset[FrameworkCapability] = frozenset(
@@ -193,6 +200,10 @@ class DmfQdrantFrameworkAdapter:
         framework_config = _mapping(config.get("framework_config"), "framework_config")
         config_path = Path(_required_string(framework_config, "path"))
         dmf_config = load_dmf_config(path=config_path)
+        if "ablation" in config:
+            from dmf_bench.ablations import ablation_identity
+
+            ablation_identity(config)
         _validate_qdrant_server_config(dmf_config)
 
         storage = config.get("storage")
@@ -220,9 +231,11 @@ class DmfQdrantFrameworkAdapter:
             dmf_config=dmf_config,
             engine_builder=engine_builder
             or DefaultDmfEngineBuilder(
-                embedding_cache_dir=cache_root / "models" / "embeddings"
+                embedding_cache_dir=cache_root / "models" / "embeddings",
+                ablation_profile=(framework_config["profile"] if "ablation" in config else None),
             ),
             metrics=metrics,
+            ablation_profile=(framework_config["profile"] if "ablation" in config else None),
         )
         adapter.validate_runtime()
         adapter._observe_qdrant("health", adapter._lifecycle().check_ready)

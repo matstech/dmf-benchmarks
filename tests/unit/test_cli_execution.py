@@ -355,7 +355,7 @@ def write_config(
     return path
 
 
-def test_cli_runs_full_offline_lifecycle_for_all_supported_combinations(
+def test_cli_runs_full_offline_lifecycle_for_dmf_and_mem0_combinations(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -364,7 +364,8 @@ def test_cli_runs_full_offline_lifecycle_for_all_supported_combinations(
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-leak-runtime")
 
     executed: list[tuple[str, str]] = []
-    for index, (benchmark, framework) in enumerate(supported_combinations()):
+    certified_pairs = [pair for pair in supported_combinations() if pair[1] in {"dmf", "mem0"}]
+    for index, (benchmark, framework) in enumerate(certified_pairs):
         root = tmp_path / f"case-{index}"
         run_id = f"cli-{benchmark}-{framework}"
         config_path = write_config(
@@ -397,7 +398,7 @@ def test_cli_runs_full_offline_lifecycle_for_all_supported_combinations(
 
         executed.append((benchmark, framework))
 
-    assert executed == supported_combinations()
+    assert executed == certified_pairs
 
     output = capsys.readouterr().out
     assert '"event":"run.preflight.started"' in output

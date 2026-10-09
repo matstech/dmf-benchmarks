@@ -21,6 +21,40 @@ class Preset:
     description: str
 
 
+_BASELINE_PRESETS = tuple(
+    Preset(
+        name=f"{benchmark}-{framework}",
+        benchmark=benchmark,
+        framework=framework,
+        experiment_path=f"smoke/baselines/experiment-{benchmark}-{framework}.json",
+        framework_path=f"config/baselines/baseline_{framework}.json",
+        description=f"{benchmark} local functional profile with {framework}",
+    )
+    for benchmark in ("locomo", "longmemeval")
+    for framework in ("model-only", "full-context", "vector-rag")
+)
+
+_ABLATION_PRESETS = tuple(
+    Preset(
+        name=(f"{benchmark}-dmf-control-vector-rag" if profile == "vector-rag"
+              else f"{benchmark}-{profile}"),
+        benchmark=benchmark,
+        framework="dmf" if profile != "vector-rag" else "vector-rag",
+        experiment_path=f"smoke/ablations/experiment-{benchmark}-{profile}.json",
+        framework_path=(
+            f"config/ablations/{benchmark}/{profile}.toml"
+            if profile != "vector-rag" else "config/baselines/baseline_vector-rag.json"
+        ),
+        description=f"{benchmark} component comparison with {profile}",
+    )
+    for benchmark in ("locomo", "longmemeval")
+    for profile in (
+        "dmf-full", "dmf-no-temporal-decay", "dmf-no-salience-scoring",
+        "dmf-no-structured-cards", "dmf-semantic-only", "vector-rag",
+    )
+)
+
+
 PRESETS = {
     preset.name: preset
     for preset in (
@@ -56,7 +90,7 @@ PRESETS = {
             framework_path="config/longmemeval_mem0_qdrant_settings.yaml",
             description="LongMemEval official 0.5% record sample with Mem0",
         ),
-    )
+    ) + _BASELINE_PRESETS + _ABLATION_PRESETS
 }
 
 
@@ -88,6 +122,9 @@ def export_preset(
     framework_suffix = source_framework.suffix
     framework_target = output_dir / f"{preset.framework}-settings{framework_suffix}"
     conflicts = [path for path in (experiment_target, framework_target) if path.exists()]
+    full_target = output_dir / "dmf-full-settings.toml"
+    if preset in _ABLATION_PRESETS and preset.framework == "dmf" and full_target.exists():
+        conflicts.append(full_target)
     if conflicts and not force:
         raise ValueError(
             "configuration export would overwrite existing files; "
@@ -102,6 +139,12 @@ def export_preset(
         raise ValueError(f"preset has no framework_config object: {source_experiment}")
     framework_config["path"] = framework_target.name
     framework_config["sha256"] = _sha256_file(framework_target)
+    ablation = data.get("ablation")
+    if isinstance(ablation, dict):
+        full_source = runtime_dir / "config" / f"{preset.benchmark}_dmf_qdrant_settings.toml"
+        shutil.copyfile(full_source, full_target)
+        ablation["full_config_path"] = full_target.name
+        ablation["full_config_sha256"] = _sha256_file(full_target)
     _write_json_atomic(experiment_target, data)
     return experiment_target, framework_target
 
@@ -131,6 +174,15 @@ def pin_operator_config(config_path: Path, *, runtime_dir: Path) -> bool:
             if framework_config.get("sha256") != observed:
                 framework_config["sha256"] = observed
                 changed = True
+
+    ablation = data.get("ablation")
+    if isinstance(ablation, dict):
+        full_path = _host_resource_path(
+            ablation.get("full_config_path"), config_path=config_path,
+            runtime_dir=runtime_dir,
+        )
+        if full_path is not None and ablation.get("full_config_sha256") != _sha256_file(full_path):
+            raise ValueError("Frozen DMF full configuration cannot be edited.")
 
     dataset = data.get("dataset")
     if isinstance(dataset, dict):

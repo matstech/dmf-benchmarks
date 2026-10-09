@@ -176,11 +176,16 @@ def default_runtime_factories(
     *,
     metrics: BenchmarkMetrics | None = None,
 ) -> RuntimeFactories:
+    from dmf_bench.adapters.baselines import FullContextAdapter, ModelOnlyAdapter, VectorRagAdapter
+
     return RuntimeFactories(
         benchmarks=benchmark_factories(),
         frameworks={
             **dmf_framework_factories(metrics=metrics),
             **mem0_framework_factories(metrics=metrics),
+            "model-only": ModelOnlyAdapter,
+            "full-context": FullContextAdapter,
+            "vector-rag": VectorRagAdapter,
         },
         answerers=answerer_factories(metrics=metrics),
         judges=judge_factories(metrics=metrics),

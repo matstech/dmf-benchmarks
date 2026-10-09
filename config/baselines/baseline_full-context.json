@@ -1,0 +1,7 @@
+{
+  "baseline": "full-context",
+  "version": "v1",
+  "model_context_window": 4096,
+  "reserved_prompt_tokens": 512,
+  "truncation_policy": "keep-latest-whole-turns-v1"
+}

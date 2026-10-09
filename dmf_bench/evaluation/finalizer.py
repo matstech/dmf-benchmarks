@@ -720,6 +720,8 @@ class OfflineLifecycleFinalizer:
             if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", judge_id) is None:
                 raise StateError(f"V3 judge ID is unsafe for artifact paths: {judge_id!r}")
             identity = {"id": judge_id, "model": item.get("model"), "contract": item.get("contract")}
+            if "transport_response_format" in item:
+                identity["transport_response_format"] = item["transport_response_format"]
             if item.get("fingerprint") != hash_canonical_json(identity):
                 raise StateError(f"V3 manifest judge fingerprint mismatch: {judge_id}")
             adapter = self.judges[judge_id]

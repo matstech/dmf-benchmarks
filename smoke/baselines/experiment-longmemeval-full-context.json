@@ -1,0 +1,100 @@
+{
+  "schema_version": 3,
+  "experiment_id": "local-longmemeval-full-context-v1",
+  "benchmark": "longmemeval",
+  "framework": "full-context",
+  "runtime": {
+    "root": "/bench",
+    "runs_dir": "/bench/runs",
+    "cache_dir": "/bench/cache",
+    "metrics_port": 9464,
+    "log_level": "INFO"
+  },
+  "framework_config": {
+    "path": "/bench/config/baselines/baseline_full-context.json",
+    "sha256": "e8bb5f563bba40a16080835a8f1a650875bc2e70e7dd96a66fe9b698955af24e",
+    "format": "json",
+    "profile": "full-context-v1"
+  },
+  "dataset": {
+    "name": "longmemeval",
+    "registry_id": "longmemeval-s-official-v1",
+    "sampling": {
+      "fraction": 0.005,
+      "unit": "record",
+      "seed": 7,
+      "rounding": "ceil"
+    },
+    "source": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/98d7416c24c778c2fee6e6f3006e7a073259d48f/longmemeval_s_cleaned.json",
+    "revision": "98d7416c24c778c2fee6e6f3006e7a073259d48f"
+  },
+  "selection": {
+    "ordered_item_ids": [
+      "*"
+    ],
+    "seed": 7,
+    "filters": {}
+  },
+  "models": {
+    "answerer": {
+      "provider": "ollama",
+      "requested_model": "qwen2.5:0.5b",
+      "parameters": {
+        "temperature": 0,
+        "max_tokens": 256
+      },
+      "runtime": {
+        "timeout_seconds": 120,
+        "rpm": 120,
+        "max_retries": 0
+      }
+    },
+    "judges": [
+      {
+        "id": "primary",
+        "provider": "ollama",
+        "requested_model": "qwen2.5:0.5b",
+        "parameters": {
+          "temperature": 0,
+          "max_tokens": 256
+        },
+        "runtime": {
+          "timeout_seconds": 120,
+          "rpm": 120,
+          "max_retries": 0,
+          "response_max_retries": 1
+        }
+      }
+    ]
+  },
+  "evaluation": {
+    "primary_judge_id": "primary",
+    "required": [
+      "primary_judge_score",
+      "rigorous_report",
+      "analysis_rows"
+    ],
+    "optional": [
+      "retrieval_report"
+    ]
+  },
+  "artifact_store": {
+    "type": "local",
+    "uri": "/bench/runs"
+  },
+  "scientific_profile": "full-context-v1",
+  "storage": {
+    "kind": "none",
+    "profile": "full-context-v1",
+    "retention": "delete-on-success"
+  },
+  "retrieval": {
+    "max_results": 100000
+  },
+  "context_budget": {
+    "max_tokens": 3072,
+    "tokenizer": "tiktoken-cl100k_base-v1",
+    "renderer": "retrieved-memory-v1",
+    "packing": "ranked-whole-items-v1"
+  }
+}

@@ -51,12 +51,18 @@ class LoCoMoAdapter:
         from dmf_bench.adapters.base import AnswererRequest
 
         del config
+        instruction = (
+            "Use the provided conversational memory to answer the LoCoMo question. "
+            "Give a concise answer supported by the memory.\n\n"
+            if packed_context.text else
+            "Answer the LoCoMo question concisely using available information.\n\n"
+        )
+        memory_section = f"Memory:\n{packed_context.text}\n\n" if packed_context.text else ""
         return AnswererRequest(
             system_prompt=prompts.build_answerer_system_prompt(),
             user_prompt=(
-                "Use the provided conversational memory to answer the LoCoMo question. "
-                "Give a concise answer supported by the memory.\n\n"
-                f"Memory:\n{packed_context.text}\n\n"
+                f"{instruction}"
+                f"{memory_section}"
                 f"Question: {query.text}\nShort answer:"
             ),
             metadata={"question_id": query.query_id},

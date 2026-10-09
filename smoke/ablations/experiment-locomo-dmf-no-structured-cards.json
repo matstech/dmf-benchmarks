@@ -1,0 +1,118 @@
+{
+  "schema_version": 3,
+  "experiment_id": "ablation-locomo-dmf-no-structured-cards",
+  "benchmark": "locomo",
+  "framework": "dmf",
+  "runtime": {
+    "root": "/bench",
+    "runs_dir": "/bench/runs",
+    "cache_dir": "/bench/cache",
+    "metrics_port": 9464,
+    "log_level": "INFO"
+  },
+  "framework_config": {
+    "path": "/bench/config/ablations/locomo/dmf-no-structured-cards.toml",
+    "sha256": "e403c10474ea29026b5ad41f97e24531239d3a0ecd3fed40f602dabb619b2353",
+    "format": "toml",
+    "profile": "dmf-no-structured-cards"
+  },
+  "dataset": {
+    "name": "locomo",
+    "registry_id": "locomo-official-v1",
+    "sampling": {
+      "fraction": 0.005,
+      "unit": "conversation",
+      "seed": 7,
+      "rounding": "ceil"
+    },
+    "source": "https://raw.githubusercontent.com/snap-research/locomo/3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376/data/locomo10.json",
+    "revision": "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376"
+  },
+  "selection": {
+    "ordered_item_ids": [
+      "*"
+    ],
+    "filters": {
+      "categories": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "seed": 7
+  },
+  "models": {
+    "answerer": {
+      "provider": "openai",
+      "requested_model": "gpt-4.1-mini",
+      "parameters": {
+        "temperature": 0,
+        "max_tokens": 4096
+      },
+      "runtime": {
+        "timeout_seconds": 120,
+        "rpm": 200,
+        "max_retries": 5
+      }
+    },
+    "judges": [
+      {
+        "id": "primary",
+        "provider": "openai",
+        "requested_model": "gpt-4.1",
+        "parameters": {
+          "temperature": 0,
+          "max_tokens": 4096,
+          "reasoning_effort": "low"
+        },
+        "runtime": {
+          "timeout_seconds": 120,
+          "rpm": 200,
+          "max_retries": 5,
+          "response_max_retries": 1
+        }
+      }
+    ]
+  },
+  "evaluation": {
+    "primary_judge_id": "primary",
+    "required": [
+      "primary_judge_score",
+      "rigorous_report",
+      "analysis_rows"
+    ],
+    "optional": [
+      "retrieval_report",
+      "judge_agreement",
+      "ablation_report"
+    ]
+  },
+  "artifact_store": {
+    "type": "local",
+    "uri": "/bench/runs"
+  },
+  "scientific_profile": "dmf-components-v1",
+  "storage": {
+    "kind": "qdrant-server",
+    "profile": "qdrant-v1",
+    "endpoint_env": "QDRANT_URL",
+    "retention": "delete-on-success",
+    "request_timeout_seconds": 10
+  },
+  "retrieval": {
+    "max_results": 20
+  },
+  "context_budget": {
+    "max_tokens": 8192,
+    "tokenizer": "tiktoken-cl100k_base-v1",
+    "renderer": "retrieved-memory-v1",
+    "packing": "ranked-whole-items-v1"
+  },
+  "ablation": {
+    "full_config_path": "/bench/config/locomo_dmf_qdrant_settings.toml",
+    "full_config_sha256": "54c99182ca2e5506b12a0480559a026f5cb445587832a4eb1a0653c3fbc5a890",
+    "scientific_controls_sha256": "69da180cf0d99aa91ff5ef3825ac7a6de588f0f8524e87355988a92171c494b4"
+  }
+}

@@ -50,12 +50,19 @@ class LongMemEvalAdapter:
         from dmf_bench.adapters.base import AnswererRequest
 
         del config
+        instruction = (
+            "Use the provided memory to answer the LongMemEval question. "
+            "If the answer is unsupported, say you do not know.\n\n"
+            if packed_context.text else
+            "Answer the LongMemEval question using available information. "
+            "If the answer is unsupported, say you do not know.\n\n"
+        )
+        memory_section = f"Memory:\n{packed_context.text}\n\n" if packed_context.text else ""
         return AnswererRequest(
             system_prompt=prompts.build_answerer_system_prompt(),
             user_prompt=(
-                "Use the provided memory to answer the LongMemEval question. "
-                "If the answer is unsupported, say you do not know.\n\n"
-                f"Memory:\n{packed_context.text}\n\n"
+                f"{instruction}"
+                f"{memory_section}"
                 f"Question date: {query.as_of or '(not specified)'}\n"
                 f"Question: {query.text}\nAnswer:"
             ),

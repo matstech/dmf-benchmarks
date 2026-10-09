@@ -2,15 +2,25 @@
 
 [![arXiv](https://img.shields.io/badge/arXiv-2606.03463-b31b1b.svg)](https://arxiv.org/abs/2606.03463)
 
-DMF Benchmarks compares [DMF](https://github.com/matstech/dmf) and
-[Mem0](https://github.com/mem0ai/mem0) on LoCoMo and LongMemEval.
+DMF Benchmarks compares [DMF](https://github.com/matstech/dmf),
+[Mem0](https://github.com/mem0ai/mem0), and three controlled baselines on
+LoCoMo and LongMemEval.
 
 Version 0.3 adds the retrieval-QA v3 contract, a shared runner, deterministic
 context packing, and separate checkpoints for multiple judges. The host-side
 controller and benchmark runtime remain distributed together. The four
 benchmark/framework pairs have local functional fixture coverage; these runs
-are not scientific results. See the [Phase 1 handoff](docs/phases/phase-1.md)
-for reproducible commands and review points.
+are not scientific results. The [operator manual](manual/user-manual.md)
+describes reproducible configuration and execution.
+
+Phase 2 adds `model-only`, `full-context`, and `vector-rag` as ordinary
+retrieval-QA adapters. Their local mini-fixture results are functional checks,
+not paper scores.
+
+Phase 3 adds five pinned DMF component profiles and a separate `vector-rag`
+control for each benchmark. Every run records its declared config diff and
+runtime policy in the scientific fingerprint. The operator manual describes
+the presets and paired-analysis command.
 
 ## Contents
 
@@ -81,5 +91,4 @@ does not support legacy protocols, fallback pipelines, state migration, or
 artifact migration.
 
 Version 0.2 experiment configs and prepared contexts do not load in v0.3.
-Use the `v0.2.0` image and matching controller for historical runs; see the
-[Phase 1 handoff](docs/phases/phase-1.md).
+Use the `v0.2.0` image and matching controller for historical runs.

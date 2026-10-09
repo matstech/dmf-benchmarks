@@ -23,9 +23,27 @@ def test_config_list_works_outside_source_checkout(
     payload = json.loads(capsys.readouterr().out)
     assert [item["name"] for item in payload["presets"]] == [
         "locomo-dmf",
+        "locomo-dmf-control-vector-rag",
+        "locomo-dmf-full",
+        "locomo-dmf-no-salience-scoring",
+        "locomo-dmf-no-structured-cards",
+        "locomo-dmf-no-temporal-decay",
+        "locomo-dmf-semantic-only",
+        "locomo-full-context",
         "locomo-mem0",
+        "locomo-model-only",
+        "locomo-vector-rag",
         "longmemeval-dmf",
+        "longmemeval-dmf-control-vector-rag",
+        "longmemeval-dmf-full",
+        "longmemeval-dmf-no-salience-scoring",
+        "longmemeval-dmf-no-structured-cards",
+        "longmemeval-dmf-no-temporal-decay",
+        "longmemeval-dmf-semantic-only",
+        "longmemeval-full-context",
         "longmemeval-mem0",
+        "longmemeval-model-only",
+        "longmemeval-vector-rag",
     ]
 
 

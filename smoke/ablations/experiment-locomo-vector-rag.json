@@ -1,0 +1,111 @@
+{
+  "schema_version": 3,
+  "experiment_id": "ablation-locomo-vector-rag",
+  "benchmark": "locomo",
+  "framework": "vector-rag",
+  "runtime": {
+    "root": "/bench",
+    "runs_dir": "/bench/runs",
+    "cache_dir": "/bench/cache",
+    "metrics_port": 9464,
+    "log_level": "INFO"
+  },
+  "framework_config": {
+    "path": "/bench/config/baselines/baseline_vector-rag.json",
+    "sha256": "975141ce7f9d4f68c44a98a348def56e14a1beab2d85abb0126a038e0947aae8",
+    "format": "json",
+    "profile": "vector-rag-v1"
+  },
+  "dataset": {
+    "name": "locomo",
+    "registry_id": "locomo-official-v1",
+    "sampling": {
+      "fraction": 0.005,
+      "unit": "conversation",
+      "seed": 7,
+      "rounding": "ceil"
+    },
+    "source": "https://raw.githubusercontent.com/snap-research/locomo/3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376/data/locomo10.json",
+    "revision": "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376"
+  },
+  "selection": {
+    "ordered_item_ids": [
+      "*"
+    ],
+    "filters": {
+      "categories": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "seed": 7
+  },
+  "models": {
+    "answerer": {
+      "provider": "openai",
+      "requested_model": "gpt-4.1-mini",
+      "parameters": {
+        "temperature": 0,
+        "max_tokens": 4096
+      },
+      "runtime": {
+        "timeout_seconds": 120,
+        "rpm": 200,
+        "max_retries": 5
+      }
+    },
+    "judges": [
+      {
+        "id": "primary",
+        "provider": "openai",
+        "requested_model": "gpt-4.1",
+        "parameters": {
+          "temperature": 0,
+          "max_tokens": 4096,
+          "reasoning_effort": "low"
+        },
+        "runtime": {
+          "timeout_seconds": 120,
+          "rpm": 200,
+          "max_retries": 5,
+          "response_max_retries": 1
+        }
+      }
+    ]
+  },
+  "evaluation": {
+    "primary_judge_id": "primary",
+    "required": [
+      "primary_judge_score",
+      "rigorous_report",
+      "analysis_rows"
+    ],
+    "optional": [
+      "retrieval_report",
+      "judge_agreement",
+      "ablation_report"
+    ]
+  },
+  "artifact_store": {
+    "type": "local",
+    "uri": "/bench/runs"
+  },
+  "scientific_profile": "dmf-components-v1",
+  "storage": {
+    "kind": "embedded-local",
+    "profile": "embedded-local-v1",
+    "retention": "delete-on-success"
+  },
+  "retrieval": {
+    "max_results": 20
+  },
+  "context_budget": {
+    "max_tokens": 8192,
+    "tokenizer": "tiktoken-cl100k_base-v1",
+    "renderer": "retrieved-memory-v1",
+    "packing": "ranked-whole-items-v1"
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "schema_version": 3,
+  "experiment_id": "ablation-longmemeval-dmf-no-salience-scoring",
+  "benchmark": "longmemeval",
+  "framework": "dmf",
+  "runtime": {
+    "root": "/bench",
+    "runs_dir": "/bench/runs",
+    "cache_dir": "/bench/cache",
+    "metrics_port": 9464,
+    "log_level": "INFO"
+  },
+  "framework_config": {
+    "path": "/bench/config/ablations/longmemeval/dmf-no-salience-scoring.toml",
+    "sha256": "5ce36630b0d6d186efc2fdbc9d2e75af8f7c7de1789e23779c5216ef0192c637",
+    "format": "toml",
+    "profile": "dmf-no-salience-scoring"
+  },
+  "dataset": {
+    "name": "longmemeval",
+    "registry_id": "longmemeval-s-official-v1",
+    "sampling": {
+      "fraction": 0.005,
+      "unit": "record",
+      "seed": 7,
+      "rounding": "ceil"
+    },
+    "source": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/98d7416c24c778c2fee6e6f3006e7a073259d48f/longmemeval_s_cleaned.json",
+    "revision": "98d7416c24c778c2fee6e6f3006e7a073259d48f"
+  },
+  "selection": {
+    "ordered_item_ids": [
+      "*"
+    ],
+    "seed": 7,
+    "filters": {}
+  },
+  "models": {
+    "answerer": {
+      "provider": "openai",
+      "requested_model": "gpt-4.1-mini",
+      "parameters": {
+        "temperature": 0,
+        "max_tokens": 4096
+      },
+      "runtime": {
+        "timeout_seconds": 120,
+        "rpm": 200,
+        "max_retries": 5
+      }
+    },
+    "judges": [
+      {
+        "id": "primary",
+        "provider": "openai",
+        "requested_model": "gpt-4.1",
+        "parameters": {
+          "temperature": 0,
+          "max_tokens": 4096,
+          "reasoning_effort": "low"
+        },
+        "runtime": {
+          "timeout_seconds": 120,
+          "rpm": 200,
+          "max_retries": 5,
+          "response_max_retries": 1
+        }
+      }
+    ]
+  },
+  "evaluation": {
+    "primary_judge_id": "primary",
+    "required": [
+      "primary_judge_score",
+      "rigorous_report",
+      "analysis_rows"
+    ],
+    "optional": [
+      "retrieval_report",
+      "judge_agreement",
+      "ablation_report"
+    ]
+  },
+  "artifact_store": {
+    "type": "local",
+    "uri": "/bench/runs"
+  },
+  "scientific_profile": "dmf-components-v1",
+  "storage": {
+    "kind": "qdrant-server",
+    "profile": "qdrant-v1",
+    "endpoint_env": "QDRANT_URL",
+    "retention": "delete-on-success",
+    "request_timeout_seconds": 10
+  },
+  "retrieval": {
+    "max_results": 20
+  },
+  "context_budget": {
+    "max_tokens": 8192,
+    "tokenizer": "tiktoken-cl100k_base-v1",
+    "renderer": "retrieved-memory-v1",
+    "packing": "ranked-whole-items-v1"
+  },
+  "ablation": {
+    "full_config_path": "/bench/config/longmemeval_dmf_qdrant_settings.toml",
+    "full_config_sha256": "5ce36630b0d6d186efc2fdbc9d2e75af8f7c7de1789e23779c5216ef0192c637",
+    "scientific_controls_sha256": "6c40e88275a4e0d151738ac7ec50328122c5729a1d6b48fe0c978ce757a4d442"
+  }
+}
