@@ -177,6 +177,7 @@ class OpenAIClient:
         max_retries: int = 5,
         timeout: float = 120.0,
         rpm: int = 200,
+        json_mode: bool = False,
         sleeper: Callable[[float], None] = time.sleep,
         retry_callback: Callable[[BaseException, int], None] | None = None,
     ):
@@ -186,6 +187,7 @@ class OpenAIClient:
         self.max_retries = max_retries
         self.timeout = timeout
         self.rpm = rpm
+        self.json_mode = json_mode
         self._sleeper = sleeper
         self._retry_callback = retry_callback
         self._min_request_interval_seconds = 60.0 / rpm if rpm > 0 else 0.0
@@ -303,6 +305,7 @@ class OpenAIClient:
                     **self._temperature_kwargs(temperature),
                     **self._token_limit_kwargs(max_tokens),
                     **self._reasoning_effort_kwargs(reasoning_effort),
+                    **({"response_format": {"type": "json_object"}} if self.json_mode else {}),
                 )
 
                 content = response.choices[0].message.content

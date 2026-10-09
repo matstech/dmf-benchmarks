@@ -124,16 +124,17 @@ def _resolve_relative_resource_paths(
 ) -> None:
     """Make exported configuration bundles portable inside their mounted directory."""
 
-    for section_name in ("framework_config", "dataset"):
+    for section_name in ("framework_config", "dataset", "ablation"):
         section = data.get(section_name)
         if not isinstance(section, dict):
             continue
-        raw_path = section.get("path")
+        path_key = "full_config_path" if section_name == "ablation" else "path"
+        raw_path = section.get(path_key)
         if not isinstance(raw_path, str) or not raw_path.strip():
             continue
         path = Path(raw_path)
         if not path.is_absolute():
-            section["path"] = str((source_path.parent / path).resolve())
+            section[path_key] = str((source_path.parent / path).resolve())
 
 
 def validate_config(data: dict[str, Any], *, source_path: Path) -> None:
@@ -309,7 +310,7 @@ V3_CONFIG_FIELDS = frozenset(
         "schema_version", "experiment_id", "scientific_profile", "benchmark",
         "framework", "runtime", "framework_config", "storage", "dataset",
         "selection", "retrieval", "context_budget", "models", "evaluation",
-        "artifact_store", "preset",
+        "artifact_store", "preset", "ablation",
     }
 )
 V3_EVALUATORS = frozenset(
@@ -377,6 +378,23 @@ def validate_v3_config(data: dict[str, Any], *, source_path: Path) -> None:
         )
     required_string(framework_config, "profile")
     verify_pinned_file(framework_config, field_name="framework_config")
+    from .ablations import PROFILE_CHANGES
+
+    if framework_config["profile"] in PROFILE_CHANGES and "ablation" not in data:
+        raise ValueError("DMF ablation profile requires a pinned full configuration.")
+    if "ablation" in data:
+        from .ablations import ablation_identity
+
+        ablation = required_mapping(data, "ablation")
+        validate_absolute_path(
+            {"full_config_path": ablation.get("full_config_path")},
+            "full_config_path", source_path=source_path,
+        )
+        validate_path_within_root(
+            Path(str(ablation["full_config_path"])), root=runtime_root,
+            field_name="ablation.full_config_path",
+        )
+        ablation_identity(data)
 
     storage = required_mapping(data, "storage")
     _reject_unknown_fields(
@@ -396,6 +414,9 @@ def validate_v3_config(data: dict[str, Any], *, source_path: Path) -> None:
         if required_string(storage, "endpoint_env") != "QDRANT_URL":
             raise ValueError("storage.endpoint_env must be QDRANT_URL.")
         validate_positive_number(storage, "request_timeout_seconds")
+    elif storage_kind in {"none", "embedded-local"}:
+        if any(key in storage for key in ("endpoint_env", "request_timeout_seconds", "root")):
+            raise ValueError(f"storage.kind {storage_kind!r} does not use endpoint or root fields.")
 
     dataset = required_mapping(data, "dataset")
     if required_string(dataset, "name") != benchmark:

@@ -1,0 +1,9 @@
+{
+  "baseline": "vector-rag",
+  "version": "v1",
+  "chunk_events": 2,
+  "overlap_events": 0,
+  "embedding_model": "nomic-embed-text:v1.5",
+  "embedding_model_digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+  "top_k": 5
+}

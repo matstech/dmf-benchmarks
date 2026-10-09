@@ -350,6 +350,7 @@ def _default_transport(
         max_retries=settings.max_retries,
         timeout=settings.timeout_seconds,
         rpm=settings.rpm,
+        json_mode=settings.role == "judge" and settings.provider == "ollama",
         retry_callback=record_retry,
     )
 

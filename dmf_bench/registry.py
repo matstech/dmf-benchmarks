@@ -33,6 +33,19 @@ def _mem0_factory(config: dict[str, Any]) -> Any:
     return mem0_framework_factories()["mem0"](config)
 
 
+def _baseline_factory(name: str) -> ComponentFactory:
+    def build(config: dict[str, Any]) -> Any:
+        from .adapters.baselines import FullContextAdapter, ModelOnlyAdapter, VectorRagAdapter
+
+        return {
+            "model-only": ModelOnlyAdapter,
+            "full-context": FullContextAdapter,
+            "vector-rag": VectorRagAdapter,
+        }[name](config)
+
+    return build
+
+
 @dataclass(frozen=True)
 class BenchmarkDescriptor:
     name: str
@@ -103,6 +116,21 @@ FRAMEWORKS: dict[str, FrameworkDescriptor] = {
         frozenset({"native-score", "usage", "source-provenance", "cleanup-manifest", "deterministic-resource-naming"}),
         "mem0ai@8db3430d20f8b76cb7f80fb30df048321863392f",
     ),
+    "model-only": FrameworkDescriptor(
+        "model-only", "model-only-v1", _baseline_factory("model-only"),
+        frozenset({"json"}), frozenset({"none"}), frozenset(), "built-in-v1",
+    ),
+    "full-context": FrameworkDescriptor(
+        "full-context", "full-context-v1", _baseline_factory("full-context"),
+        frozenset({"json"}), frozenset({"none"}),
+        frozenset({"source-provenance"}), "built-in-v1",
+    ),
+    "vector-rag": FrameworkDescriptor(
+        "vector-rag", "vector-rag-v1", _baseline_factory("vector-rag"),
+        frozenset({"json"}), frozenset({"embedded-local"}),
+        frozenset({"native-score", "source-provenance", "cleanup-manifest", "deterministic-resource-naming"}),
+        "built-in-v1",
+    ),
 }
 
 COMPATIBILITY: dict[tuple[str, str], CompatibilityRecord] = {
@@ -122,6 +150,14 @@ COMPATIBILITY: dict[tuple[str, str], CompatibilityRecord] = {
         "longmemeval", "mem0", "certified", "longmemeval-v3",
         "Local adapter, Qdrant, resume, and deterministic container fixtures passed.",
     ),
+    **{
+        (benchmark, framework): CompatibilityRecord(
+            benchmark, framework, "experimental", f"{benchmark}-v3",
+            "Controlled baseline pending phase 2 functional verification.",
+        )
+        for benchmark in ("locomo", "longmemeval")
+        for framework in ("model-only", "full-context", "vector-rag")
+    },
 }
 
 

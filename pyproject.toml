@@ -36,12 +36,16 @@ include = [
     { path = "config/locomo_mem0_qdrant_settings.yaml", format = ["sdist", "wheel"] },
     { path = "config/longmemeval_dmf_qdrant_settings.toml", format = ["sdist", "wheel"] },
     { path = "config/longmemeval_mem0_qdrant_settings.yaml", format = ["sdist", "wheel"] },
+    { path = "config/baselines/baseline_*.json", format = ["sdist", "wheel"] },
+    { path = "config/ablations/**/*.toml", format = ["sdist", "wheel"] },
     { path = "datasets/locomo/locomo-mini.json", format = ["sdist", "wheel"] },
     { path = "datasets/longmemeval/longmemeval-mini.json", format = ["sdist", "wheel"] },
     { path = "smoke/config/experiment-locomo-dmf.json", format = ["sdist", "wheel"] },
     { path = "smoke/config/experiment-locomo-mem0.json", format = ["sdist", "wheel"] },
     { path = "smoke/config/experiment-longmemeval-dmf.json", format = ["sdist", "wheel"] },
     { path = "smoke/config/experiment-longmemeval-mem0.json", format = ["sdist", "wheel"] },
+    { path = "smoke/baselines/experiment-*.json", format = ["sdist", "wheel"] },
+    { path = "smoke/ablations/experiment-*.json", format = ["sdist", "wheel"] },
     { path = "smoke/compose.yaml", format = ["sdist", "wheel"] },
 ]
 packages = [

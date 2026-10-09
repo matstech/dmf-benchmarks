@@ -74,12 +74,14 @@ def build_v3_fingerprint_inputs(
             "model": model_scientific_identity(judge),
             "contract": judge_contract_identity(benchmark_name),
         }
+        if judge.get("provider") == "ollama":
+            identity["transport_response_format"] = "json_object"
         judge_inputs.append({**identity, "fingerprint": hash_canonical_json(identity)})
     evaluation_plan = evaluation_plan_v3(
         benchmark_name, framework_name, tuple(item["id"] for item in judge_inputs),
     )
     storage = _mapping(config.get("storage"))
-    return {
+    fingerprint_inputs = {
         "schema_version": 3,
         "scientific_profile": config.get("scientific_profile"),
         "benchmark": benchmark_name,
@@ -103,7 +105,8 @@ def build_v3_fingerprint_inputs(
                 "observation_role": "observation-as-user-v1",
             }
             if framework_name == "mem0"
-            else {"event_handling": "event-per-interaction-v1"}
+            else {"event_handling": "event-per-interaction-v1"} if framework_name == "dmf"
+            else {"event_handling": f"{framework_name}-v1"}
         ),
         "framework_config": framework_config_identity(config.get("framework_config")),
         "dataset": dataset_identity(config.get("dataset")),
@@ -129,6 +132,11 @@ def build_v3_fingerprint_inputs(
         "harness_commit": os.getenv("DMF_BENCH_HARNESS_COMMIT", "unknown"),
         "image_digest": os.getenv("DMF_BENCH_IMAGE_DIGEST", "unknown"),
     }
+    if "ablation" in config:
+        from dmf_bench.ablations import ablation_identity
+
+        fingerprint_inputs["ablation"] = ablation_identity(config)
+    return fingerprint_inputs
 
 
 def dataset_identity(value: Any) -> dict[str, Any]:

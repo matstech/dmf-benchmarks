@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dmf_bench.container_matrix import build_matrix_configs
+from dmf_bench.container_matrix import CERTIFICATION_PAIRS, build_matrix_configs
 from dmf_bench.contracts import sha256_file
-from dmf_bench.registry import supported_combinations
 
 
 FIXTURE_DIR = Path(__file__).parents[1] / "fixtures"
@@ -28,7 +27,7 @@ def test_container_matrix_resolves_all_combinations_with_pinned_inputs() -> None
     assert [
         (config["benchmark"], config["framework"])
         for config in configs
-    ] == supported_combinations()
+    ] == list(CERTIFICATION_PAIRS)
     assert len({config["experiment_id"] for config in configs}) == 4
     for config in configs:
         framework_path = Path(config["framework_config"]["path"])

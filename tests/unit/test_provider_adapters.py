@@ -320,6 +320,22 @@ def test_transport_retries_only_retryable_failures() -> None:
     assert len(sleeps) == 1
 
 
+def test_ollama_judge_transport_requests_json_mode() -> None:
+    client = OpenAIClient(model="local-judge", api_key="ollama", rpm=0, json_mode=True)
+    observed: dict[str, Any] = {}
+
+    def create(**kwargs: Any) -> Any:
+        observed.update(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"label":"WRONG"}'), finish_reason="stop")],
+            usage=None, model="local-judge", model_dump=lambda: {},
+        )
+
+    client.client.chat.completions.create = create
+    assert client.generate_with_usage("system", "user").response == '{"label":"WRONG"}'
+    assert observed["response_format"] == {"type": "json_object"}
+
+
 def test_transport_does_not_retry_non_retryable_failures() -> None:
     sleeps: list[float] = []
     client = OpenAIClient(
