@@ -37,7 +37,8 @@ class AMemRuntimeError(RuntimeError):
 def _load_profile(config: dict[str, Any]) -> dict[str, Any]:
     profile = json.loads(Path(config["framework_config"]["path"]).read_text(encoding="utf-8"))
     if (not isinstance(profile, dict) or profile.get("framework") != "amem"
-            or profile.get("version") != "local-v1" or profile.get("source_commit") != AMEM_COMMIT):
+            or profile.get("version") not in {"local-v1", "local-v2", "local-v3"}
+            or profile.get("source_commit") != AMEM_COMMIT):
         raise AMemRuntimeError("A-MEM profile does not match the pinned adapter.")
     if profile.get("llm_backend") != "ollama" or profile.get("embedding_dimensions") != 384:
         raise AMemRuntimeError("A-MEM requires the pinned local LLM and embedding profile.")
@@ -188,6 +189,20 @@ def _build_engine(profile: dict[str, Any], root: Path, environment: tuple[Path, 
                         field["maxItems"] = 5
                         if field.get("items", {}).get("type") == "array":
                             field["items"]["maxItems"] = 5
+                if profile["version"] == "local-v3":
+                    schema["properties"]["actions"]["items"]["enum"] = [
+                        "strengthen", "update_neighbor",
+                    ]
+            if profile["version"] in {"local-v2", "local-v3"}:
+                for field in schema["properties"].values():
+                    if field.get("type") == "string":
+                        field["maxLength"] = 240
+                    elif field.get("type") == "array":
+                        item = field.get("items", {})
+                        if item.get("type") == "string":
+                            item["maxLength"] = 120
+                        elif item.get("type") == "array":
+                            item.get("items", {})["maxLength"] = 80
             result = client.chat(
                 model=profile["llm"]["model"],
                 messages=[{"role": "system", "content": "Respond with a JSON object."},
@@ -201,7 +216,15 @@ def _build_engine(profile: dict[str, Any], root: Path, environment: tuple[Path, 
             evolution = "should_evolve" in schema["properties"]
             if (not set(schema["properties"]).issubset(parsed)
                     or not _valid_llm_payload(parsed, evolution=evolution)):
-                raise AMemRuntimeError("A-MEM LLM returned incomplete structured output.")
+                missing = sorted(set(schema["properties"]) - set(parsed))
+                shapes = {key: (type(value).__name__,
+                                sorted({type(item).__name__ for item in value}) if isinstance(value, list) else [])
+                          for key, value in parsed.items()}
+                raise AMemRuntimeError(
+                    "A-MEM LLM returned incomplete structured output: "
+                    f"missing={missing}, shapes={shapes}, actions={parsed.get('actions')}, "
+                    f"completion_tokens={result.get('eval_count')}."
+                )
             if evolution:
                 engine._dmf_last_evolution_decision = parsed["should_evolve"]
             engine._dmf_usage["calls"] += 1
@@ -282,7 +305,7 @@ class _Handle:
 
 class AMemAdapter:
     name = "amem"
-    adapter_version = "amem-v1"
+    adapter_version = "amem-v3"
 
     def __init__(
         self, config: dict[str, Any], *,
@@ -344,7 +367,8 @@ class AMemAdapter:
                     category=event.role,
                 )
                 if engine._dmf_errors or note_id in lineage or engine.read(note_id) is None:
-                    raise AMemRuntimeError("A-MEM note evolution did not complete.")
+                    detail = engine._dmf_errors[0] if engine._dmf_errors else "invalid note state"
+                    raise AMemRuntimeError(f"A-MEM note evolution did not complete: {detail.rstrip('.')}.")
                 decision = getattr(engine, "_dmf_last_evolution_decision", None)
                 if decision is not None and engine.evo_cnt - previous_evolutions != int(decision):
                     raise AMemRuntimeError("A-MEM evolution decision was not applied.")

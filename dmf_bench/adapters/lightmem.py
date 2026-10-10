@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import sys
 import time
@@ -187,7 +188,22 @@ def _entries(engine: Any) -> dict[str, dict[str, Any]]:
 
 
 def _state_digest(entries: dict[str, dict[str, Any]]) -> str:
-    return hash_canonical_json({key: entries[key] for key in sorted(entries)})
+    return hash_canonical_json({
+        key: entries[key]["payload"] for key in sorted(entries)
+    })
+
+
+def _vectors_match(expected: dict[str, list[float]], current: dict[str, dict[str, Any]]) -> bool:
+    if set(expected) != set(current):
+        return False
+    for memory_id, original in expected.items():
+        vector = current[memory_id].get("vector")
+        if not isinstance(vector, list) or len(vector) != len(original):
+            return False
+        if any(not math.isfinite(float(b)) or abs(float(a) - float(b)) > 1e-6
+               for a, b in zip(original, vector)):
+            return False
+    return True
 
 
 def _event_message(event: MemoryEvent) -> list[dict[str, str]]:
@@ -209,11 +225,12 @@ class _Handle:
     digest: str
     entry_count: int
     lineage: dict[str, str]
+    vectors: dict[str, list[float]]
 
 
 class LightMemAdapter:
     name = "lightmem"
-    adapter_version = "lightmem-v1"
+    adapter_version = "lightmem-v3"
 
     def __init__(
         self, config: dict[str, Any], *,
@@ -256,11 +273,22 @@ class LightMemAdapter:
             engine = self.engine_factory(self.profile, root, self.environment)
             lineage: dict[str, str] = {}
             before: set[str] = set()
+            timestamp_repairs = 0
             for event in events:
                 engine.add_memory(_event_message(event), force_segment=True, force_extract=True)
                 current = _entries(engine)
                 new_ids = set(current) - before
                 lineage.update({memory_id: event.event_id for memory_id in new_ids})
+                for memory_id in new_ids:
+                    if current[memory_id]["payload"].get("float_time_stamp") is None:
+                        timestamp_text = event.occurred_at or "2000-01-01T00:00:00Z"
+                        timestamp = datetime.fromisoformat(timestamp_text.replace("Z", "+00:00"))
+                        engine.embedding_retriever.update(vector_id=memory_id, payload={
+                            "time_stamp": timestamp_text,
+                            "float_time_stamp": timestamp.timestamp(),
+                            "weekday": timestamp.strftime("%A"),
+                        })
+                        timestamp_repairs += 1
                 before = set(current)
             indexed = _entries(engine)
             queue_started = time.perf_counter()
@@ -269,8 +297,16 @@ class LightMemAdapter:
                 top_k=update["top_k"], keep_top_n=update["keep_top_n"], max_workers=1,
             )
             queued = _entries(engine)
-            if set(queued) != set(indexed) or any("update_queue" not in row["payload"] for row in queued.values()):
-                raise LightMemRuntimeError("LightMem update queue did not complete for every indexed entry.")
+            missing_queue = [
+                (memory_id, row.get("vector") is None, row["payload"].get("float_time_stamp"))
+                for memory_id, row in queued.items() if "update_queue" not in row["payload"]
+            ]
+            if set(queued) != set(indexed) or missing_queue:
+                raise LightMemRuntimeError(
+                    "LightMem update queue did not complete for every indexed entry: "
+                    f"indexed={len(indexed)}, queued={len(queued)}, missing={len(missing_queue)}, "
+                    f"sample={missing_queue[:5]!r}."
+                )
             candidates = {
                 memory_id for memory_id in queued
                 if any(
@@ -326,7 +362,8 @@ class LightMemAdapter:
             _close_engine(engine)
             self.cleanup_unit_v3(unit, resources, config, run_context)
             raise
-        handle = _Handle(unit.unit_id, engine, digest, len(final), lineage)
+        vectors = {memory_id: list(row["vector"]) for memory_id, row in final.items()}
+        handle = _Handle(unit.unit_id, engine, digest, len(final), lineage, vectors)
         self._engines[resources[0].resource_id] = engine
         return PreparedMemoryUnit(
             handle, resources,
@@ -336,6 +373,7 @@ class LightMemAdapter:
             diagnostics={"event_count": len(events), "indexed_before_update": len(indexed),
                          "indexed_after_update": len(final), "offline_update_candidates": len(candidates),
                          "offline_update_calls": update_calls, "state_bytes": state_bytes,
+                         "timestamp_repairs": timestamp_repairs,
                          "state_sha256": digest, "exact_lineage_count": len(lineage),
                          "source_commit": LIGHTMEM_COMMIT},
         )
@@ -348,7 +386,8 @@ class LightMemAdapter:
         if not isinstance(handle, _Handle) or handle.unit_id != unit.unit_id:
             raise LightMemRuntimeError("LightMem unit handle mismatch.")
         current = _entries(handle.engine)
-        if len(current) != handle.entry_count or _state_digest(current) != handle.digest:
+        if (len(current) != handle.entry_count or _state_digest(current) != handle.digest
+                or not _vectors_match(handle.vectors, current)):
             raise LightMemRuntimeError("LightMem committed index differs from the prepared snapshot.")
         root = run_context.run_dir / prepared.resources[0].locator
         manifest = json.loads((root / "lineage.json").read_text(encoding="utf-8"))
