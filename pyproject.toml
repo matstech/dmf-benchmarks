@@ -31,6 +31,7 @@ include = [
     { path = "dmf_bench/static/index.html", format = ["sdist", "wheel"] },
     { path = "deploy/compose.yaml", format = ["sdist", "wheel"] },
     { path = "deploy/compose.lightmem.yaml", format = ["sdist", "wheel"] },
+    { path = "deploy/compose.amem.yaml", format = ["sdist", "wheel"] },
     { path = "deploy/grafana", format = ["sdist", "wheel"] },
     { path = "deploy/prometheus", format = ["sdist", "wheel"] },
     { path = "config/locomo_dmf_qdrant_settings.toml", format = ["sdist", "wheel"] },
@@ -40,6 +41,7 @@ include = [
     { path = "config/baselines/baseline_*.json", format = ["sdist", "wheel"] },
     { path = "config/ablations/**/*.toml", format = ["sdist", "wheel"] },
     { path = "config/lightmem/*.json", format = ["sdist", "wheel"] },
+    { path = "config/amem/*.json", format = ["sdist", "wheel"] },
     { path = "datasets/locomo/locomo-mini.json", format = ["sdist", "wheel"] },
     { path = "datasets/longmemeval/longmemeval-mini.json", format = ["sdist", "wheel"] },
     { path = "smoke/config/experiment-locomo-dmf.json", format = ["sdist", "wheel"] },
@@ -49,6 +51,7 @@ include = [
     { path = "smoke/baselines/experiment-*.json", format = ["sdist", "wheel"] },
     { path = "smoke/ablations/experiment-*.json", format = ["sdist", "wheel"] },
     { path = "smoke/lightmem/experiment-*.json", format = ["sdist", "wheel"] },
+    { path = "smoke/amem/experiment-*.json", format = ["sdist", "wheel"] },
     { path = "smoke/compose.yaml", format = ["sdist", "wheel"] },
 ]
 packages = [

@@ -68,6 +68,19 @@ _LIGHTMEM_PRESETS = tuple(
 )
 
 
+_AMEM_PRESETS = tuple(
+    Preset(
+        name=f"{benchmark}-amem",
+        benchmark=benchmark,
+        framework="amem",
+        experiment_path=f"smoke/amem/experiment-{benchmark}-amem.json",
+        framework_path="config/amem/amem-local-v1.json",
+        description=f"{benchmark} local A-MEM retrieval profile (Python 3.11 image)",
+    )
+    for benchmark in ("locomo", "longmemeval")
+)
+
+
 PRESETS = {
     preset.name: preset
     for preset in (
@@ -103,7 +116,7 @@ PRESETS = {
             framework_path="config/longmemeval_mem0_qdrant_settings.yaml",
             description="LongMemEval official 0.5% record sample with Mem0",
         ),
-    ) + _BASELINE_PRESETS + _ABLATION_PRESETS + _LIGHTMEM_PRESETS
+    ) + _BASELINE_PRESETS + _ABLATION_PRESETS + _LIGHTMEM_PRESETS + _AMEM_PRESETS
 }
 
 

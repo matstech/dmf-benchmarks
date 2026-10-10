@@ -70,12 +70,14 @@ def write_valid_config(tmp_path: Path, *, dataset_path: Path | None = None) -> P
 
 def test_supported_combinations_are_explicit_and_deterministic() -> None:
     assert supported_combinations() == [
+        ("locomo", "amem"),
         ("locomo", "dmf"),
         ("locomo", "full-context"),
         ("locomo", "lightmem"),
         ("locomo", "mem0"),
         ("locomo", "model-only"),
         ("locomo", "vector-rag"),
+        ("longmemeval", "amem"),
         ("longmemeval", "dmf"),
         ("longmemeval", "full-context"),
         ("longmemeval", "lightmem"),
@@ -254,8 +256,8 @@ def test_cli_list_prints_supported_surface(capsys: pytest.CaptureFixture[str]) -
     assert "benchmarks:" in output
     assert "protocols:" not in output
     assert "longmemeval/mem0" in output
-    assert output.count("  locomo/") == 6
-    assert output.count("  longmemeval/") == 6
+    assert output.count("  locomo/") == 7
+    assert output.count("  longmemeval/") == 7
 
 
 def test_cli_validate_prints_redacted_json(

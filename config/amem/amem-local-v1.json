@@ -1,0 +1,38 @@
+{
+  "framework": "amem",
+  "version": "local-v1",
+  "source_repository": "https://github.com/agiresearch/A-mem",
+  "source_commit": "ceffb860f0712bbae97b184d440df62bc910ca8d",
+  "source_license_file": "LICENSE",
+  "experimental_repository": "https://github.com/WujiangXu/AgenticMemory",
+  "experimental_commit": "0c8039f28fdcc08189a23c07a3437d9d2482f9c2",
+  "llm_backend": "ollama",
+  "llm": {
+    "model": "qwen2.5:0.5b",
+    "digest": "a8b0c51577010a279d933d14c2a8ab4b268079d44c5c8830c0a93900f1827c67",
+    "seed": 7,
+    "max_tokens": 512
+  },
+  "embedding": {
+    "repository": "sentence-transformers/all-MiniLM-L6-v2",
+    "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "weights_file": "pytorch_model.bin",
+    "files": {
+      "modules.json": "84e40c8e006c9b1d6c122e02cba9b02458120b5fb0c87b746c41e0207cf642cf",
+      "config_sentence_transformers.json": "061ca9d39661d6c6d6de5ba27f79a1cd5770ea247f8d46412a68a498dc5ac9f3",
+      "sentence_bert_config.json": "fc1993fde0a95c24ec6c022539d41cf6e2f7c9721e5415d6fb6897472a9cd4b7",
+      "config.json": "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41",
+      "1_Pooling/config.json": "4be450dde3b0273bb9787637cfbd28fe04a7ba6ab9d36ac48e92b11e350ffc23",
+      "tokenizer.json": "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037",
+      "tokenizer_config.json": "acb92769e8195aabd29b7b2137a9e6d6e25c476a4f15aa4355c233426c61576b",
+      "special_tokens_map.json": "303df45a03609e4ead04bc3dc1536d0ab19b5358db685b6f3da123d05ec200e3",
+      "vocab.txt": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+      "pytorch_model.bin": "c3a85f238711653950f6a79ece63eb0ea93d76f6a6284be04019c53733baf256"
+    }
+  },
+  "embedding_dimensions": 384,
+  "evolution_threshold": 100,
+  "evolution_neighbors": 5,
+  "direct_results": 3,
+  "linked_results": 2
+}

@@ -22,6 +22,7 @@ def test_config_list_works_outside_source_checkout(
 
     payload = json.loads(capsys.readouterr().out)
     assert [item["name"] for item in payload["presets"]] == [
+        "locomo-amem",
         "locomo-dmf",
         "locomo-dmf-control-vector-rag",
         "locomo-dmf-full",
@@ -34,6 +35,7 @@ def test_config_list_works_outside_source_checkout(
         "locomo-mem0",
         "locomo-model-only",
         "locomo-vector-rag",
+        "longmemeval-amem",
         "longmemeval-dmf",
         "longmemeval-dmf-control-vector-rag",
         "longmemeval-dmf-full",

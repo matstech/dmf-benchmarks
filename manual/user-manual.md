@@ -440,6 +440,27 @@ LightMem uses its own local Qdrant index and offline update; the shared answerer
 and judges still produce and assess final answers. Precompression and KV cache
 are disabled in this auditable local profile.
 
+The experimental A-MEM retrieval presets are `locomo-amem` and
+`longmemeval-amem`. Build the LightMem base image first, then the dedicated
+A-MEM image. Provision the pinned embedding model explicitly and use a local
+Ollama model with the digest declared in `config/amem/amem-local-v1.json`:
+
+```text
+docker build -f Dockerfile.lightmem -t dmf-benchmarks:lightmem-local .
+docker build -f Dockerfile.amem -t dmf-benchmarks:amem-local .
+python3 scripts/provision_amem_model.py --output ./amem-models --download
+ollama pull qwen2.5:0.5b
+export AMEM_MODELS_DIR="$(pwd)/amem-models"
+dmf-benchctl config export locomo-amem ./my-locomo-amem
+```
+
+Use `--image dmf-benchmarks:amem-local` and
+`--compose-override deploy/compose.amem.yaml` for A-MEM controller commands.
+The override mounts the model directory read-only. A-MEM writes one private
+Chroma index per benchmark unit. Note analysis, evolution, and index
+consolidation finish before retrieval. The shared answerer and judges still
+produce and assess final answers.
+
 Export one:
 
 ```text
@@ -977,7 +998,7 @@ one benchmark and one memory system.
 `framework`
 
 : Built-in systems are `dmf`, `mem0`, `model-only`, `full-context`,
-  `vector-rag`, and experimental `lightmem`.
+  `vector-rag`, and experimental `lightmem` and `amem`.
 
 `runtime`
 
@@ -987,13 +1008,13 @@ one benchmark and one memory system.
 `framework_config`
 
 : Path, format, profile, and SHA-256 of DMF TOML, Mem0 YAML, or baseline or
-  LightMem JSON settings.
+  LightMem or A-MEM JSON settings.
 
 `storage`
 
 : Storage kind/profile, endpoint environment-variable name, request timeout,
   and retention policy. DMF and Mem0 use `qdrant-server`; `model-only` and
-  `full-context` use `none`; `vector-rag` and LightMem use `embedded-local`.
+  `full-context` use `none`; `vector-rag`, LightMem, and A-MEM use `embedded-local`.
 
 `scientific_profile`, `retrieval`, `context_budget`
 
