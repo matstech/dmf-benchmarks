@@ -129,13 +129,13 @@ FRAMEWORKS: dict[str, FrameworkDescriptor] = {
         "mem0ai@8db3430d20f8b76cb7f80fb30df048321863392f",
     ),
     "lightmem": FrameworkDescriptor(
-        "lightmem", "lightmem-v1", _lightmem_factory, frozenset({"json"}),
+        "lightmem", "lightmem-v3", _lightmem_factory, frozenset({"json"}),
         frozenset({"embedded-local"}),
         frozenset({"native-score", "usage", "timestamps", "cleanup-manifest", "deterministic-resource-naming"}),
         "lightmem@8449d574df6bae1bdf3314a1564da65e2f37e046",
     ),
     "amem": FrameworkDescriptor(
-        "amem", "amem-v1", _amem_factory, frozenset({"json"}),
+        "amem", "amem-v3", _amem_factory, frozenset({"json"}),
         frozenset({"embedded-local"}),
         frozenset({"native-score", "usage", "timestamps", "source-provenance",
                    "cleanup-manifest", "deterministic-resource-naming"}),

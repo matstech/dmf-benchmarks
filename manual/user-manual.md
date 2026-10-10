@@ -461,6 +461,35 @@ Chroma index per benchmark unit. Note analysis, evolution, and index
 consolidation finish before retrieval. The shared answerer and judges still
 produce and assess final answers.
 
+### Local functional micro-pilots
+
+Maintainers can generate fixed, reduced LoCoMo and LongMemEval inputs from the
+bundled official smoke datasets. These runs check the complete lifecycle and
+produce local artifacts; their answer scores are not paper results. The
+generated files are kept under `datasets/pilots/` and `config/pilots/`.
+
+```text
+make install
+poetry run python scripts/prepare_functional_pilots.py
+ollama pull qwen2.5:0.5b
+docker compose -f deploy/compose.yaml up -d qdrant
+docker build -t dmf-benchmarks:pilot-base .
+poetry run python scripts/run_functional_pilots.py --benchmark locomo --framework model-only
+poetry run python scripts/audit_functional_pilots.py --benchmark locomo --framework model-only --require-all
+docker run --rm --mount type=bind,source="$(pwd)/.dmf-bench/pilot-runs",target=/bench/runs,readonly \
+  dmf-benchmarks:pilot-base verify --run-id pilot-v5-locomo-model-only
+docker compose -f deploy/compose.yaml down
+```
+
+The runner resumes an incomplete run and skips a completed one. Use repeated
+`--benchmark` and `--framework` options to select more cells; omit both to run
+the full matrix sequentially. DMF, Mem0, and vector RAG also require their
+embedding caches to be provisioned before offline execution. LightMem and
+A-MEM require their dedicated images and pinned model directories as described
+above; set `PILOT_MODELS_DIR` to the parent model directory. The full matrix
+audit requires Qdrant to be running so it can check that owned collections
+were removed.
+
 Export one:
 
 ```text
