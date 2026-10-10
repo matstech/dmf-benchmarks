@@ -1,0 +1,39 @@
+ARG BASE_IMAGE=dmf-benchmarks:lightmem-local
+FROM ${BASE_IMAGE}
+
+USER root
+ARG AMEM_COMMIT=ceffb860f0712bbae97b184d440df62bc910ca8d
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1
+COPY config/amem/constraints-py311.txt /tmp/constraints-py311.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && git init /tmp/amem \
+    && git -C /tmp/amem remote add origin https://github.com/agiresearch/A-mem.git \
+    && git -C /tmp/amem fetch --depth 1 origin ${AMEM_COMMIT} \
+    && git -C /tmp/amem checkout --detach FETCH_HEAD \
+    && test "$(git -C /tmp/amem rev-parse HEAD)" = "${AMEM_COMMIT}" \
+    && pip uninstall -y lightmem \
+    && pip install --constraint /tmp/constraints-py311.txt \
+                   'chromadb==0.5.23' 'ollama==0.5.3' 'litellm==1.79.1' \
+                   'transformers==4.45.2' 'pre-commit==4.3.0' 'posthog==3.7.0' \
+    && pip install --no-deps /tmp/amem \
+    && pip check \
+    && apt-get purge -y git \
+    && apt-get autoremove -y \
+    && rm -rf /tmp/amem
+
+WORKDIR /app
+COPY --chown=dmfbench:dmfbench dmf_bench ./dmf_bench
+COPY --chown=dmfbench:dmfbench dmf_benchctl ./dmf_benchctl
+COPY --chown=dmfbench:dmfbench config ./config
+COPY --chown=dmfbench:dmfbench datasets/locomo/locomo-mini.json ./datasets/locomo/locomo-mini.json
+COPY --chown=dmfbench:dmfbench datasets/longmemeval/longmemeval-mini.json ./datasets/longmemeval/longmemeval-mini.json
+COPY --chown=dmfbench:dmfbench smoke ./smoke
+COPY --chown=dmfbench:dmfbench deploy ./deploy
+ENV AMEM_SOURCE_COMMIT=ceffb860f0712bbae97b184d440df62bc910ca8d \
+    AMEM_EMBEDDING_MODEL_PATH=/bench/models/all-MiniLM-L6-v2 \
+    PYTHONPATH=/app \
+    HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 \
+    ANONYMIZED_TELEMETRY=false
+USER dmfbench

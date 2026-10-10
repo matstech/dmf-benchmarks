@@ -178,6 +178,7 @@ def default_runtime_factories(
 ) -> RuntimeFactories:
     from dmf_bench.adapters.baselines import FullContextAdapter, ModelOnlyAdapter, VectorRagAdapter
     from dmf_bench.adapters.lightmem import LightMemAdapter
+    from dmf_bench.adapters.amem import AMemAdapter
 
     return RuntimeFactories(
         benchmarks=benchmark_factories(),
@@ -188,6 +189,7 @@ def default_runtime_factories(
             "full-context": FullContextAdapter,
             "vector-rag": VectorRagAdapter,
             "lightmem": LightMemAdapter,
+            "amem": AMemAdapter,
         },
         answerers=answerer_factories(metrics=metrics),
         judges=judge_factories(metrics=metrics),

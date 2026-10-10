@@ -3,7 +3,7 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2606.03463-b31b1b.svg)](https://arxiv.org/abs/2606.03463)
 
 DMF Benchmarks compares [DMF](https://github.com/matstech/dmf),
-[Mem0](https://github.com/mem0ai/mem0), experimental LightMem, and three
+[Mem0](https://github.com/mem0ai/mem0), experimental LightMem and A-MEM, and three
 controlled baselines on LoCoMo and LongMemEval.
 
 Version 0.3 adds the retrieval-QA v3 contract, a shared runner, deterministic
@@ -12,8 +12,8 @@ controller and benchmark runtime remain distributed together. `model-only`,
 `full-context`, and `vector-rag` provide the controlled baselines. Five pinned
 DMF component profiles and a separate `vector-rag` control support paired
 analysis; each run records its declared config diff and runtime policy in the
-scientific fingerprint. LightMem has experimental retrieval presets, a
-dedicated Python 3.11 image, and pinned local models. The
+scientific fingerprint. LightMem and A-MEM have experimental retrieval presets,
+dedicated Python 3.11 images, and pinned local models. The
 [operator manual](manual/user-manual.md) describes configuration and execution.
 Local fixture runs are functional checks, not paper scores.
 
