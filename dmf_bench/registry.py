@@ -123,19 +123,19 @@ FRAMEWORKS: dict[str, FrameworkDescriptor] = {
         "dmf-memory==0.3.0",
     ),
     "mem0": FrameworkDescriptor(
-        "mem0", "mem0-v3", _mem0_factory, frozenset({"yaml"}),
+        "mem0", "mem0-v4", _mem0_factory, frozenset({"yaml"}),
         frozenset({"qdrant-server"}),
         frozenset({"native-score", "usage", "source-provenance", "cleanup-manifest", "deterministic-resource-naming"}),
         "mem0ai@8db3430d20f8b76cb7f80fb30df048321863392f",
     ),
     "lightmem": FrameworkDescriptor(
-        "lightmem", "lightmem-v3", _lightmem_factory, frozenset({"json"}),
+        "lightmem", "lightmem-v4", _lightmem_factory, frozenset({"json"}),
         frozenset({"embedded-local"}),
         frozenset({"native-score", "usage", "timestamps", "cleanup-manifest", "deterministic-resource-naming"}),
         "lightmem@8449d574df6bae1bdf3314a1564da65e2f37e046",
     ),
     "amem": FrameworkDescriptor(
-        "amem", "amem-v3", _amem_factory, frozenset({"json"}),
+        "amem", "amem-v4", _amem_factory, frozenset({"json"}),
         frozenset({"embedded-local"}),
         frozenset({"native-score", "usage", "timestamps", "source-provenance",
                    "cleanup-manifest", "deterministic-resource-naming"}),
@@ -177,23 +177,23 @@ COMPATIBILITY: dict[tuple[str, str], CompatibilityRecord] = {
     ),
     **{
         (benchmark, framework): CompatibilityRecord(
-            benchmark, framework, "experimental", f"{benchmark}-v3",
-            "Controlled baseline pending phase 2 functional verification.",
+            benchmark, framework, "certified", f"{benchmark}-v3",
+            "Controlled local pilot, contract, container, and resume checks passed.",
         )
         for benchmark in ("locomo", "longmemeval")
         for framework in ("model-only", "full-context", "vector-rag")
     },
     **{
         (benchmark, "lightmem"): CompatibilityRecord(
-            benchmark, "lightmem", "experimental", f"{benchmark}-v3",
-            "Pinned local LightMem retrieval adapter; technical certification pending.",
+            benchmark, "lightmem", "certified", f"{benchmark}-v3",
+            "Pinned local LightMem adapter passed contract, pilot, cleanup, and restart checks.",
         )
         for benchmark in ("locomo", "longmemeval")
     },
     **{
         (benchmark, "amem"): CompatibilityRecord(
-            benchmark, "amem", "experimental", f"{benchmark}-v3",
-            "Pinned local A-MEM note evolution and Chroma retrieval adapter; technical certification pending.",
+            benchmark, "amem", "certified", f"{benchmark}-v3",
+            "Pinned local A-MEM adapter passed contract, pilot, cleanup, and restart checks.",
         )
         for benchmark in ("locomo", "longmemeval")
     },

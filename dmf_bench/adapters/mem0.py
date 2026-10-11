@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import time
@@ -9,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
+from threading import get_ident
 from typing import Any, Callable, Protocol
 
 from dmf_bench.frameworks.mem0_config import (
@@ -16,6 +18,7 @@ from dmf_bench.frameworks.mem0_config import (
     build_mem0_qdrant_server_runtime_config,
     load_mem0_config,
 )
+from dmf_bench.frameworks.mem0_context import build_mem0_native_context_surface
 from dmf_bench.frameworks.mem0_runtime import (
     add_mem0_with_observation_timestamp,
     add_memory_internal_usage,
@@ -23,7 +26,7 @@ from dmf_bench.frameworks.mem0_runtime import (
     normalize_mem0_search_response,
     subtract_memory_internal_usage,
 )
-from dmf_bench.frameworks.mem0_context import build_mem0_native_context_surface
+from dmf_bench.memory_usage import apportion_memory_internal_usage
 from dmf_bench.metrics import BenchmarkMetrics
 
 from .base import (
@@ -194,13 +197,32 @@ class Mem0RuntimeBackend:
         if created_at is not None:
             effective_metadata.setdefault("created_at", created_at)
         usage_before = _read_mem0_usage(self.memory)
-        response = add_mem0_with_observation_timestamp(
-            self.memory,
-            messages,
-            timestamp=timestamp,
-            user_id=user_id,
-            metadata=effective_metadata,
-        )
+        extraction_errors: list[str] = []
+        calling_thread = get_ident()
+
+        class ExtractionErrorHandler(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                message = record.getMessage()
+                if record.thread == calling_thread and record.levelno >= logging.ERROR and message.startswith(
+                    ("Error parsing extraction response", "LLM extraction failed")
+                ):
+                    extraction_errors.append(message)
+
+        logger = logging.getLogger("mem0.memory.main")
+        handler = ExtractionErrorHandler()
+        logger.addHandler(handler)
+        try:
+            response = add_mem0_with_observation_timestamp(
+                self.memory,
+                messages,
+                timestamp=timestamp,
+                user_id=user_id,
+                metadata=effective_metadata,
+            )
+        finally:
+            logger.removeHandler(handler)
+        if extraction_errors:
+            raise Mem0RuntimeError("Mem0 internal extraction failed or returned invalid JSON.")
         usage_after = _read_mem0_usage(self.memory)
         usage_delta = subtract_memory_internal_usage(usage_after, usage_before)
         if usage_delta["calls"] < 1:
@@ -535,12 +557,17 @@ class Mem0QdrantFrameworkAdapter:
                 },
             ))
         self._record_retrieval_metric("retrieve", time.perf_counter() - started)
+        ingestion_share = apportion_memory_internal_usage(
+            prepared.ingestion_usage, unit.item_ids, query.query_id,
+        )
         return CanonicalRetrievalResult(
             items=tuple(items), raw_payload=raw,
             diagnostics={"mem0": {"result_count": len(items),
                                    "pairing_policy": MEM0_V3_PAIRING_POLICY,
                                    "role_policy": MEM0_V3_ROLE_POLICY}},
-            usage={"memory_internal": retrieval_usage},
+            usage={"memory_internal": add_memory_internal_usage(
+                ingestion_share, retrieval_usage,
+            )},
             timing={"retrieval_seconds": time.perf_counter() - started},
         )
 

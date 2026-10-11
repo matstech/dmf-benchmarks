@@ -8,6 +8,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from urllib.request import urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +32,17 @@ def image_for(framework: str) -> str:
 
 
 def run_id_for(benchmark: str, framework: str) -> str:
-    return f"pilot-v5-{benchmark}-{framework}"
+    return f"pilot-v6-{benchmark}-{framework}"
+
+
+def verify_ollama_model() -> None:
+    manifest = json.loads((ROOT / "datasets" / "pilots" / "manifest.json").read_text(encoding="utf-8"))
+    with urlopen("http://127.0.0.1:11434/api/tags", timeout=10) as response:
+        models = json.load(response)["models"]
+    expected_name = manifest["answerer_and_judge_model"]
+    expected_digest = manifest["model_digest"]
+    if not any(row["name"] == expected_name and row["digest"] == expected_digest for row in models):
+        raise RuntimeError(f"Pinned local Ollama model {expected_name} has a different digest or is missing.")
 
 
 def docker_arguments(image: str, models_dir: Path | None, framework: str) -> list[str]:
@@ -82,6 +93,7 @@ def main() -> int:
     frameworks = args.framework or FRAMEWORKS
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    verify_ollama_model()
     models_dir_raw = os.environ.get("PILOT_MODELS_DIR")
     models_dir = Path(models_dir_raw).expanduser().resolve() if models_dir_raw else None
     outcomes: list[dict] = []

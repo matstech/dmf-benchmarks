@@ -152,9 +152,10 @@ def write_mem0_profile(benchmark: str) -> tuple[Path, str]:
         f'model: "{MODEL}"\n'
         '    openai_base_url: "http://host.docker.internal:11434/v1"'
     )
+    if original.count('model: "gpt-4o-mini"') != 1 or original.count('temperature: 0') != 1:
+        raise ValueError(f"Expected pinned Mem0 model settings were not found in {source}")
     updated = original.replace('model: "gpt-4o-mini"', replacement)
-    if updated == original:
-        raise ValueError(f"Expected Mem0 model setting was not found in {source}")
+    updated = updated.replace('temperature: 0', 'temperature: 0\n    max_tokens: 4096')
     path = CONFIG_DIR / f"mem0-{benchmark}-ollama.yaml"
     path.write_text(updated, encoding="utf-8")
     return path, sha256(path)
@@ -162,7 +163,7 @@ def write_mem0_profile(benchmark: str) -> tuple[Path, str]:
 
 def build_config(benchmark: str, framework: str, dataset_hash: str, ids: list[str], mem0_profile: tuple[Path, str] | None) -> dict:
     config = json.loads(template_path(benchmark, framework).read_text(encoding="utf-8"))
-    revision = "v5"
+    revision = "v6"
     config["experiment_id"] = f"functional-pilot-{benchmark}-{framework}-{revision}"
     config["dataset"] = {
         "name": benchmark,
@@ -183,7 +184,7 @@ def build_config(benchmark: str, framework: str, dataset_hash: str, ids: list[st
             "path": f"/bench/config/pilots/{path.name}",
             "sha256": digest,
             "format": "yaml",
-            "profile": "mem0-ollama-functional-v1",
+            "profile": "mem0-ollama-functional-v2",
         }
     if framework == "amem":
         profile = ROOT / "config/amem/amem-local-v3.json"
