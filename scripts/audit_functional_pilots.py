@@ -73,6 +73,16 @@ def audit_run(benchmark: str, framework: str, collections: set[str]) -> dict:
     if not marker.is_file():
         return {"run_id": run_id, "state": "MISSING_OR_FAILED"}
     completed = read_json(marker)
+    pilot_inputs = read_json(ROOT / "datasets" / "pilots" / "manifest.json")
+    pilot_config = read_json(ROOT / pilot_inputs["configurations"][f"{benchmark}/{framework}"]["path"])
+    run_config = read_json(root / "final" / "resolved-config.json")
+    run_manifest = read_json(root / "final" / "run-manifest.json")
+    fingerprint_inputs = run_manifest["fingerprint_inputs"]
+    assert run_config["experiment_id"] == pilot_config["experiment_id"], run_id
+    assert fingerprint_inputs["dataset"]["sha256"] == pilot_inputs["datasets"][benchmark]["sha256"], run_id
+    assert fingerprint_inputs["framework_config"]["sha256"] == pilot_config["framework_config"]["sha256"], run_id
+    assert len(fingerprint_inputs["harness_commit"]) == 40, run_id
+    assert fingerprint_inputs["image_digest"].startswith("sha256:"), run_id
     manifest_path = root / "final" / "manifest.json"
     manifest = read_json(manifest_path)
     assert completed["run_id"] == manifest["run_id"] == run_id
@@ -88,7 +98,7 @@ def audit_run(benchmark: str, framework: str, collections: set[str]) -> dict:
     evaluations = read_json(root / "evaluations" / "evaluations.json")
     assert len(evaluations) == expected, run_id
     ids = {row["question_id"] for row in evaluations}
-    assert len(ids) == expected, run_id
+    assert ids == set(fingerprint_inputs["expected_question_ids"]), run_id
     sources = expected_sources(benchmark)
     questions = sorted(root.glob("items/*/questions/*.json"))
     predictions = [path for path in questions if not path.name.endswith((".context.json", ".retrieval.json"))]
@@ -120,14 +130,44 @@ def audit_run(benchmark: str, framework: str, collections: set[str]) -> dict:
     resources = read_json(root / "reports" / "resources.json")
     assert usage["item_count"] == expected and timing["attempt"]["execution_seconds"] >= 0
     assert resources["container"]["memory_peak_bytes"] > 0
+    ingestion_totals = None
+    if framework in {"mem0", "lightmem", "amem"}:
+        fields = ("calls", "prompt_tokens", "completion_tokens", "total_tokens")
+        ingestion_totals = {field: 0 for field in fields}
+        for path in root.glob("items/*/prepared.json"):
+            raw = read_json(path)["ingestion_usage"]
+            if framework == "mem0":
+                source = raw
+            elif framework == "lightmem":
+                source = {field: sum(int(part[field]) for part in raw["lightmem"]["llm"].values())
+                          for field in fields}
+            else:
+                source = raw["amem"]
+                source = {**source, "total_tokens": source["prompt_tokens"] + source["completion_tokens"]}
+            for field in fields:
+                ingestion_totals[field] += int(source[field])
+        reported = usage["components"]["memory_internal"]
+        for field in fields:
+            assert reported[field] >= ingestion_totals[field], (run_id, field)
+        assert reported["frameworks"] == [framework], run_id
     events = [json.loads(line) for line in (root / "logs" / "events.jsonl").read_text(encoding="utf-8").splitlines()]
     error_events = [event for event in events if event["level"] == "ERROR"]
     parser_errors = [event for event in error_events if "pars" in str(event).lower()]
+    upstream_log = ROOT / ".dmf-bench" / "pilot-logs" / f"{run_id}.log"
+    upstream_parser_errors = sum(
+        "Error parsing extraction response" in line or "LLM extraction failed" in line
+        for line in upstream_log.read_text(encoding="utf-8").splitlines()
+    )
     return {"run_id": run_id, "state": "VERIFIED", "artifacts": len(manifest["artifacts"]),
             "items": expected, "source_links": provenance_count,
+            "final_artifact_bytes": sum(artifact["bytes"] for artifact in manifest["artifacts"]),
+            "logical_run_bytes": sum(path.stat().st_size for path in root.rglob("*") if path.is_file()),
             "error_events": len(error_events), "parser_error_events": len(parser_errors),
+            "upstream_parser_errors": upstream_parser_errors,
             "answerer_calls": usage["components"]["answerer"]["calls"],
             "judge_calls": usage["components"]["judge"]["calls"],
+            "memory_internal_calls": usage["components"]["memory_internal"]["calls"],
+            "ingestion_llm_calls": ingestion_totals["calls"] if ingestion_totals else 0,
             "memory_peak_bytes": resources["container"]["memory_peak_bytes"],
             "execution_seconds": timing["attempt"]["execution_seconds"]}
 

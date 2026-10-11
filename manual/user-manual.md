@@ -477,12 +477,13 @@ docker build -t dmf-benchmarks:pilot-base .
 poetry run python scripts/run_functional_pilots.py --benchmark locomo --framework model-only
 poetry run python scripts/audit_functional_pilots.py --benchmark locomo --framework model-only --require-all
 docker run --rm --mount type=bind,source="$(pwd)/.dmf-bench/pilot-runs",target=/bench/runs,readonly \
-  dmf-benchmarks:pilot-base verify --run-id pilot-v5-locomo-model-only
+  dmf-benchmarks:pilot-base verify --run-id pilot-v6-locomo-model-only
 docker compose -f deploy/compose.yaml down
 ```
 
-The runner resumes an incomplete run and skips a completed one. Use repeated
-`--benchmark` and `--framework` options to select more cells; omit both to run
+The runner checks the local Ollama model digest, resumes an incomplete run, and
+skips a completed one. Use repeated `--benchmark` and `--framework` options
+to select more cells; omit both to run
 the full matrix sequentially. DMF, Mem0, and vector RAG also require their
 embedding caches to be provisioned before offline execution. LightMem and
 A-MEM require their dedicated images and pinned model directories as described

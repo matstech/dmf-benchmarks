@@ -23,6 +23,7 @@ from dmf_bench.adapters.base import (
 from dmf_bench.adapters.embedded_lifecycle import cleanup_owned_embedded_resource
 from dmf_bench.atomic_io import write_json_atomic
 from dmf_bench.contracts import hash_canonical_json
+from dmf_bench.memory_usage import apportion_memory_internal_usage
 
 
 LIGHTMEM_COMMIT = "8449d574df6bae1bdf3314a1564da65e2f37e046"
@@ -230,7 +231,7 @@ class _Handle:
 
 class LightMemAdapter:
     name = "lightmem"
-    adapter_version = "lightmem-v3"
+    adapter_version = "lightmem-v4"
 
     def __init__(
         self, config: dict[str, Any], *,
@@ -431,10 +432,19 @@ class LightMemAdapter:
                           "lineage_status": "exact" if source else "unverified-after-update"},
             ))
         usage = handle.engine.get_token_statistics()
+        ingestion_llm = prepared.ingestion_usage["lightmem"]["llm"]
+        ingestion_usage = {
+            "framework": "lightmem", "available": True,
+            **{field: sum(int(component[field]) for component in ingestion_llm.values())
+               for field in ("calls", "prompt_tokens", "completion_tokens", "total_tokens")},
+        }
         return CanonicalRetrievalResult(
             tuple(items), raw_payload=rows,
             diagnostics={"lightmem": {"indexed_entries": handle.entry_count,
                                       "source_commit": LIGHTMEM_COMMIT}},
-            usage={"lightmem": usage},
+            usage={"lightmem": usage,
+                   "memory_internal": apportion_memory_internal_usage(
+                       ingestion_usage, unit.item_ids, query.query_id,
+                   )},
             timing={"retrieval_pipeline_ms": (time.perf_counter() - started) * 1000},
         )

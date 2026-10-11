@@ -23,6 +23,7 @@ from dmf_bench.adapters.base import (
 from dmf_bench.adapters.embedded_lifecycle import cleanup_owned_embedded_resource
 from dmf_bench.atomic_io import write_json_atomic
 from dmf_bench.contracts import hash_canonical_json
+from dmf_bench.memory_usage import apportion_memory_internal_usage
 
 
 AMEM_COMMIT = "ceffb860f0712bbae97b184d440df62bc910ca8d"
@@ -305,7 +306,7 @@ class _Handle:
 
 class AMemAdapter:
     name = "amem"
-    adapter_version = "amem-v3"
+    adapter_version = "amem-v4"
 
     def __init__(
         self, config: dict[str, Any], *,
@@ -432,8 +433,22 @@ class AMemAdapter:
         handle: _Handle = prepared.handle
         limit = config["retrieval"]["max_results"]
         direct_count = min(self.profile["direct_results"], limit, len(handle.lineage))
+        ingestion = prepared.ingestion_usage["amem"]
+        ingestion_usage = {
+            "framework": "amem", "available": True,
+            "calls": int(ingestion["calls"]),
+            "prompt_tokens": int(ingestion["prompt_tokens"]),
+            "completion_tokens": int(ingestion["completion_tokens"]),
+            "total_tokens": int(ingestion["prompt_tokens"]) + int(ingestion["completion_tokens"]),
+        }
+        memory_internal = apportion_memory_internal_usage(
+            ingestion_usage, unit.item_ids, query.query_id,
+        )
         if not direct_count:
-            return CanonicalRetrievalResult((), raw_payload={"ids": [[]], "distances": [[]]})
+            return CanonicalRetrievalResult(
+                (), raw_payload={"ids": [[]], "distances": [[]]},
+                usage={"memory_internal": memory_internal},
+            )
         results = handle.engine.retriever.search(query.text, direct_count)
         ranked: list[tuple[str, float | None, bool]] = []
         for note_id, distance in zip(results["ids"][0], results["distances"][0]):
@@ -461,6 +476,7 @@ class AMemAdapter:
         return CanonicalRetrievalResult(
             tuple(items), raw_payload={"ids": results["ids"], "distances": results["distances"]},
             diagnostics={"amem": {"indexed_notes": len(handle.lineage), "source_commit": AMEM_COMMIT}},
-            usage={"amem": dict(handle.engine._dmf_usage)},
+            usage={"amem": dict(handle.engine._dmf_usage),
+                   "memory_internal": memory_internal},
             timing={"retrieval_pipeline_ms": (time.perf_counter() - started) * 1000},
         )
