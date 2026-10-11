@@ -40,6 +40,8 @@ LONGMEMEVAL_QUESTION_IDS = (
 )
 MODEL = "qwen2.5:0.5b"
 MODEL_DIGEST = "a8b0c51577010a279d933d14c2a8ab4b268079d44c5c8830c0a93900f1827c67"
+MEM0_INTERNAL_MODEL = "qwen2.5:1.5b"
+MEM0_INTERNAL_MODEL_DIGEST = "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b"
 
 
 def sha256(path: Path) -> str:
@@ -149,7 +151,7 @@ def write_mem0_profile(benchmark: str) -> tuple[Path, str]:
     source = ROOT / "config" / f"{benchmark}_mem0_qdrant_settings.yaml"
     original = source.read_text(encoding="utf-8")
     replacement = (
-        f'model: "{MODEL}"\n'
+        f'model: "{MEM0_INTERNAL_MODEL}"\n'
         '    openai_base_url: "http://host.docker.internal:11434/v1"'
     )
     if original.count('model: "gpt-4o-mini"') != 1 or original.count('temperature: 0') != 1:
@@ -163,7 +165,7 @@ def write_mem0_profile(benchmark: str) -> tuple[Path, str]:
 
 def build_config(benchmark: str, framework: str, dataset_hash: str, ids: list[str], mem0_profile: tuple[Path, str] | None) -> dict:
     config = json.loads(template_path(benchmark, framework).read_text(encoding="utf-8"))
-    revision = "v6"
+    revision = "v7"
     config["experiment_id"] = f"functional-pilot-{benchmark}-{framework}-{revision}"
     config["dataset"] = {
         "name": benchmark,
@@ -184,7 +186,7 @@ def build_config(benchmark: str, framework: str, dataset_hash: str, ids: list[st
             "path": f"/bench/config/pilots/{path.name}",
             "sha256": digest,
             "format": "yaml",
-            "profile": "mem0-ollama-functional-v2",
+            "profile": "mem0-ollama-functional-v3",
         }
     if framework == "amem":
         profile = ROOT / "config/amem/amem-local-v3.json"
@@ -252,6 +254,8 @@ def main() -> None:
         "seed": 7,
         "answerer_and_judge_model": MODEL,
         "model_digest": MODEL_DIGEST,
+        "mem0_internal_model": MEM0_INTERNAL_MODEL,
+        "mem0_internal_model_digest": MEM0_INTERNAL_MODEL_DIGEST,
         "answerer_prompt_and_parser": "repository commit and benchmark adapters",
         "datasets": datasets,
         "configurations": configs,

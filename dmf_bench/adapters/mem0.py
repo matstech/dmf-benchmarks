@@ -222,7 +222,7 @@ class Mem0RuntimeBackend:
         finally:
             logger.removeHandler(handler)
         if extraction_errors:
-            raise Mem0RuntimeError("Mem0 internal extraction failed or returned invalid JSON.")
+            raise Mem0RuntimeError(f"Mem0 internal extraction failed: {extraction_errors[0]}")
         usage_after = _read_mem0_usage(self.memory)
         usage_delta = subtract_memory_internal_usage(usage_after, usage_before)
         if usage_delta["calls"] < 1:
