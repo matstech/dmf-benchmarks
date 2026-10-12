@@ -48,6 +48,8 @@ class Mem0Config:
 
     top_k: int
     memory_config: dict[str, Any]
+    extraction_max_items: int | None = None
+    extraction_max_text_length: int | None = None
 
     @property
     def schema_version(self) -> str:
@@ -75,6 +77,17 @@ def load_mem0_config(path: str | Path) -> Mem0Config:
     if top_k <= 0:
         raise ValueError(f"search.top_k must be a positive integer, got {top_k}")
 
+    limits: dict[str, int | None] = {}
+    for name in ("extraction_max_items", "extraction_max_text_length"):
+        raw_limit = search.get(name)
+        if raw_limit is not None and (
+            isinstance(raw_limit, bool)
+            or not isinstance(raw_limit, int)
+            or raw_limit <= 0
+        ):
+            raise ValueError(f"search.{name} must be a positive integer")
+        limits[name] = raw_limit
+
     # --- native Mem0 MemoryConfig sections ---
     # Everything except 'search' is passed through to Memory.from_config().
     memory_config = {k: v for k, v in raw.items() if k != "search"}
@@ -82,6 +95,7 @@ def load_mem0_config(path: str | Path) -> Mem0Config:
     return Mem0Config(
         top_k=top_k,
         memory_config=memory_config,
+        **limits,
     )
 
 

@@ -32,7 +32,7 @@ def image_for(framework: str) -> str:
 
 
 def run_id_for(benchmark: str, framework: str) -> str:
-    return f"pilot-v9-{benchmark}-{framework}"
+    return f"pilot-v10-{benchmark}-{framework}"
 
 
 def verify_ollama_model(frameworks: tuple[str, ...] | list[str]) -> None:

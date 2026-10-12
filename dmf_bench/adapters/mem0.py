@@ -6,6 +6,7 @@ import logging
 import os
 import sqlite3
 import time
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib import metadata
@@ -204,7 +205,11 @@ class DefaultMem0EngineBuilder:
         memory.reset_llm_usage()
         return Mem0EngineBundle(
             memory=memory,
-            backend=Mem0RuntimeBackend(memory),
+            backend=Mem0RuntimeBackend(
+                memory,
+                extraction_max_items=mem0_config.extraction_max_items,
+                extraction_max_text_length=mem0_config.extraction_max_text_length,
+            ),
         )
 
 
@@ -213,6 +218,8 @@ class Mem0RuntimeBackend:
     """Narrow Mem0 surface used by ingestion and retrieval."""
 
     memory: Any
+    extraction_max_items: int | None = None
+    extraction_max_text_length: int | None = None
 
     def add(
         self,
@@ -246,7 +253,15 @@ class Mem0RuntimeBackend:
         if original_generate is not None:
             def structured_extraction(*args: Any, **kwargs: Any) -> Any:
                 if kwargs.get("response_format") == {"type": "json_object"}:
-                    kwargs["response_format"] = _MEM0_EXTRACTION_RESPONSE_FORMAT
+                    response_format = deepcopy(_MEM0_EXTRACTION_RESPONSE_FORMAT)
+                    memory_schema = response_format["json_schema"]["schema"]["properties"]["memory"]
+                    if self.extraction_max_items is not None:
+                        memory_schema["maxItems"] = self.extraction_max_items
+                    if self.extraction_max_text_length is not None:
+                        memory_schema["items"]["properties"]["text"]["maxLength"] = (
+                            self.extraction_max_text_length
+                        )
+                    kwargs["response_format"] = response_format
                 return original_generate(*args, **kwargs)
 
             llm.generate_response = structured_extraction

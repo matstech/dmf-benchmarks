@@ -477,7 +477,7 @@ docker build -t dmf-benchmarks:pilot-base .
 poetry run python scripts/run_functional_pilots.py --benchmark locomo --framework model-only
 poetry run python scripts/audit_functional_pilots.py --benchmark locomo --framework model-only --require-all
 docker run --rm --mount type=bind,source="$(pwd)/.dmf-bench/pilot-runs",target=/bench/runs,readonly \
-  dmf-benchmarks:pilot-base verify --run-id pilot-v9-locomo-model-only
+  dmf-benchmarks:pilot-base verify --run-id pilot-v10-locomo-model-only
 docker compose -f deploy/compose.yaml down
 ```
 
@@ -490,8 +490,10 @@ A-MEM require their dedicated images and pinned model directories as described
 above; set `PILOT_MODELS_DIR` to the parent model directory. The full matrix
 audit requires Qdrant to be running so it can check that owned collections
 were removed.
-Mem0 pilots also require the pinned local `qwen2.5:1.5b` model for its internal
-extraction; answerer and judge continue to use `qwen2.5:0.5b`.
+Mem0 pilots also require the pinned local `qwen2.5:3b` model for its internal
+extraction. Its pilot profile bounds the structured extraction response to six
+memories of at most 300 characters each. Answerer and judge continue to use
+`qwen2.5:0.5b`.
 
 Export one:
 
