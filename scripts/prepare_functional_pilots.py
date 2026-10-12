@@ -40,8 +40,8 @@ LONGMEMEVAL_QUESTION_IDS = (
 )
 MODEL = "qwen2.5:0.5b"
 MODEL_DIGEST = "a8b0c51577010a279d933d14c2a8ab4b268079d44c5c8830c0a93900f1827c67"
-MEM0_INTERNAL_MODEL = "qwen2.5:1.5b"
-MEM0_INTERNAL_MODEL_DIGEST = "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b"
+MEM0_INTERNAL_MODEL = "qwen2.5:3b"
+MEM0_INTERNAL_MODEL_DIGEST = "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b"
 
 
 def sha256(path: Path) -> str:
@@ -156,10 +156,16 @@ def write_mem0_profile(benchmark: str) -> tuple[Path, str]:
     )
     if (original.count('model: "gpt-4o-mini"') != 1
             or original.count('temperature: 0') != 1
+            or len(re.findall(r'(?m)^  top_k: \d+$', original)) != 1
             or original.count('version: "v1.1"') != 1):
         raise ValueError(f"Expected pinned Mem0 model settings were not found in {source}")
     updated = original.replace('model: "gpt-4o-mini"', replacement)
-    updated = updated.replace('temperature: 0', 'temperature: 0\n    max_tokens: 8192')
+    updated = updated.replace('temperature: 0', 'temperature: 0\n    max_tokens: 2048')
+    updated = re.sub(
+        r'(?m)^(  top_k: \d+)$',
+        r'\1\n  extraction_max_items: 6\n  extraction_max_text_length: 300',
+        updated,
+    )
     updated = updated.replace(
         'version: "v1.1"',
         'custom_instructions: >-\n'
@@ -176,7 +182,7 @@ def write_mem0_profile(benchmark: str) -> tuple[Path, str]:
 
 def build_config(benchmark: str, framework: str, dataset_hash: str, ids: list[str], mem0_profile: tuple[Path, str] | None) -> dict:
     config = json.loads(template_path(benchmark, framework).read_text(encoding="utf-8"))
-    revision = "v9"
+    revision = "v10"
     config["experiment_id"] = f"functional-pilot-{benchmark}-{framework}-{revision}"
     config["dataset"] = {
         "name": benchmark,
@@ -197,7 +203,7 @@ def build_config(benchmark: str, framework: str, dataset_hash: str, ids: list[st
             "path": f"/bench/config/pilots/{path.name}",
             "sha256": digest,
             "format": "yaml",
-            "profile": "mem0-ollama-functional-v5",
+            "profile": "mem0-ollama-functional-v6",
         }
     if framework == "amem":
         profile = ROOT / "config/amem/amem-local-v3.json"
