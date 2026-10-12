@@ -176,7 +176,7 @@ def write_mem0_profile(benchmark: str) -> tuple[Path, str]:
 
 def build_config(benchmark: str, framework: str, dataset_hash: str, ids: list[str], mem0_profile: tuple[Path, str] | None) -> dict:
     config = json.loads(template_path(benchmark, framework).read_text(encoding="utf-8"))
-    revision = "v8"
+    revision = "v9"
     config["experiment_id"] = f"functional-pilot-{benchmark}-{framework}-{revision}"
     config["dataset"] = {
         "name": benchmark,
@@ -197,7 +197,7 @@ def build_config(benchmark: str, framework: str, dataset_hash: str, ids: list[st
             "path": f"/bench/config/pilots/{path.name}",
             "sha256": digest,
             "format": "yaml",
-            "profile": "mem0-ollama-functional-v4",
+            "profile": "mem0-ollama-functional-v5",
         }
     if framework == "amem":
         profile = ROOT / "config/amem/amem-local-v3.json"

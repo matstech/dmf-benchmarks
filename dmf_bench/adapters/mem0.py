@@ -68,6 +68,36 @@ _MEM0_USAGE_FIELDS = (
 )
 MEM0_V3_PAIRING_POLICY = "adjacent-user-assistant-v1"
 MEM0_V3_ROLE_POLICY = "observation-as-user-v1"
+_MEM0_EXTRACTION_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "mem0_additive_extraction",
+        "strict": False,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "memory": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "text": {"type": "string"},
+                            "linked_memory_ids": {
+                                "type": "array", "items": {"type": "string"},
+                            },
+                            "attributed_to": {"type": "string"},
+                        },
+                        "required": ["id", "text"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["memory"],
+            "additionalProperties": False,
+        },
+    },
+}
 _FORBIDDEN_VECTOR_RUNTIME_FIELDS = frozenset(
     {
         "api_key",
@@ -211,6 +241,15 @@ class Mem0RuntimeBackend:
         logger = logging.getLogger("mem0.memory.main")
         handler = ExtractionErrorHandler()
         logger.addHandler(handler)
+        llm = getattr(self.memory, "llm", None)
+        original_generate = getattr(llm, "generate_response", None)
+        if original_generate is not None:
+            def structured_extraction(*args: Any, **kwargs: Any) -> Any:
+                if kwargs.get("response_format") == {"type": "json_object"}:
+                    kwargs["response_format"] = _MEM0_EXTRACTION_RESPONSE_FORMAT
+                return original_generate(*args, **kwargs)
+
+            llm.generate_response = structured_extraction
         try:
             response = add_mem0_with_observation_timestamp(
                 self.memory,
@@ -220,6 +259,8 @@ class Mem0RuntimeBackend:
                 metadata=effective_metadata,
             )
         finally:
+            if original_generate is not None:
+                llm.generate_response = original_generate
             logger.removeHandler(handler)
         if extraction_errors:
             raise Mem0RuntimeError(f"Mem0 internal extraction failed: {extraction_errors[0]}")
