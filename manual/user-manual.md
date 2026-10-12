@@ -477,7 +477,7 @@ docker build -t dmf-benchmarks:pilot-base .
 poetry run python scripts/run_functional_pilots.py --benchmark locomo --framework model-only
 poetry run python scripts/audit_functional_pilots.py --benchmark locomo --framework model-only --require-all
 docker run --rm --mount type=bind,source="$(pwd)/.dmf-bench/pilot-runs",target=/bench/runs,readonly \
-  dmf-benchmarks:pilot-base verify --run-id pilot-v8-locomo-model-only
+  dmf-benchmarks:pilot-base verify --run-id pilot-v9-locomo-model-only
 docker compose -f deploy/compose.yaml down
 ```
 
