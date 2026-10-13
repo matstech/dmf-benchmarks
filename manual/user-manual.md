@@ -503,6 +503,68 @@ extraction. Its pilot profile bounds the structured extraction response to six
 memories of at most 300 characters each. Answerer and judge continue to use
 `qwen2.5:0.5b`.
 
+### MemoryAgentBench local adaptation
+
+From a source checkout, `scripts/materialize_memoryagentbench.py` converts a
+pinned local copy of the official MemoryAgentBench release into one immutable
+file per context and a SHA-256 manifest. It verifies every source file before
+writing. Install `pyarrow` for this offline conversion. The source directory
+must contain the official `README.md`, `entity2id.json`, and four Parquet split
+files under `data/`, at dataset revision
+`7ea066982b140a19337e17e60d45d4076e042faf`. The script also pins the
+upstream code revision. Download the source files from the
+[dataset release](https://huggingface.co/datasets/ai-hyz/MemoryAgentBench/tree/7ea066982b140a19337e17e60d45d4076e042faf)
+and keep them outside version control.
+
+```text
+python3 scripts/materialize_memoryagentbench.py \
+  --source .dmf-bench/upstream/MemoryAgentBench-dataset \
+  --output datasets/memoryagentbench
+poetry run python scripts/prepare_memoryagentbench_configs.py \
+  --profile memoryagentbench-ar-pilot-v1 --framework model-only --smoke \
+  --runtime-root "$(pwd)" --output config/memoryagentbench/ar-model-only.json
+OLLAMA_BASE_URL=http://127.0.0.1:11434/v1 \
+  poetry run dmf-bench run --config config/memoryagentbench/ar-model-only.json \
+  --run-id mab-ar-local
+poetry run dmf-bench verify --run-id mab-ar-local \
+  --runs-dir .dmf-bench/memoryagentbench-runs
+```
+
+The last two commands use the internal runtime for a maintainer's local
+checkout. For a normal container run, generate the config with the default
+`--runtime-root /bench` and save it under `config/memoryagentbench/` in the
+checkout. The controller mounts `config/` and `datasets/` into the job:
+
+```text
+poetry run python scripts/prepare_memoryagentbench_configs.py \
+  --profile memoryagentbench-ar-pilot-v1 --framework model-only --smoke \
+  --output config/memoryagentbench/ar-model-only-container.json
+OLLAMA_BASE_URL=http://host.docker.internal:11434/v1 \
+  dmf-benchctl --image dmf-benchmarks:local run \
+  --config config/memoryagentbench/ar-model-only-container.json \
+  --run-id mab-ar-container --follow
+dmf-benchctl --image dmf-benchmarks:local verify --run-id mab-ar-container
+dmf-benchctl stack down
+```
+
+Build or select an image that includes this adapter before running the
+container commands. The
+generator also accepts `memoryagentbench-core-v1` and
+`memoryagentbench-full-v1`, plus all seven memory systems. `--smoke` selects
+one query per context. The full profile includes every supported task; the
+InfBench summarization subset is excluded because it needs its separate
+three-call judge. Profiles and system pairs remain experimental.
+
+Each context is ingested once and can answer several ordered queries. The
+report at `final/evaluations/rigorous_report.json` groups scores by competence,
+task, source, answer format, and context size; it also records token usage and
+retrieval time. Scores use each task's official metric. The local LongMemEval
+judge uses the configured model, so its judgments depend on that model.
+Reports carry the label `MemoryAgentBench retrieval-controlled adaptation`:
+they are not comparable to end-to-end memory-agent scores from the original
+suite. Retrieval and DMF ablation reports are `NOT_APPLICABLE` where no
+official evidence or evaluator exists.
+
 Export one:
 
 ```text
@@ -1035,7 +1097,8 @@ one benchmark and one memory system.
 
 `benchmark`
 
-: Built-in values are `locomo` and `longmemeval`.
+: Built-in values are `locomo`, `longmemeval`, and experimental
+  `memoryagentbench`.
 
 `framework`
 
@@ -1590,7 +1653,7 @@ values.
 
 Both dashboards provide selectors for:
 
-- benchmark framework (`locomo` or `longmemeval`);
+- benchmark framework (`locomo`, `longmemeval`, or `memoryagentbench`);
 - memory system (`dmf`, `mem0`, or future adapters).
 
 Select one value for each to avoid mixing series.

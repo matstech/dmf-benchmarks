@@ -60,6 +60,7 @@ from dmf_bench.state import (
 
 from dmf_bench.benchmarks.locomo import evaluation as locomo_evaluation
 from dmf_bench.benchmarks.longmemeval import evaluation as longmemeval_evaluation
+from dmf_bench.benchmarks.memoryagentbench import evaluation as memoryagentbench_evaluation
 
 
 PredictionLoader = Callable[[Path, RunManifest], list[dict[str, Any]]]
@@ -1309,6 +1310,8 @@ class OfflineLifecycleFinalizer:
                 return locomo_evaluation.EVALUATOR_VERSION
             if metadata["benchmark"] == "longmemeval":
                 return longmemeval_evaluation.EVALUATOR_VERSION
+            if metadata["benchmark"] == "memoryagentbench" and requirement.name == "rigorous_report":
+                return memoryagentbench_evaluation.EVALUATOR_VERSION
         evaluator = self.evaluators.get(requirement.name)
         version = getattr(evaluator, "evaluator_version", None)
         if not version:
@@ -1405,6 +1408,8 @@ class OfflineLifecycleFinalizer:
                 return locomo_evaluation.rigorous_report(evaluations, metadata)
             if metadata["benchmark"] == "longmemeval":
                 return longmemeval_evaluation.rigorous_report(evaluations, metadata)
+            if metadata["benchmark"] == "memoryagentbench":
+                return memoryagentbench_evaluation.rigorous_report(evaluations, metadata)
         if requirement.name == "ablation_report":
             if metadata["benchmark"] == "locomo":
                 return locomo_evaluation.ablation_report(evaluations, metadata)
@@ -1548,9 +1553,12 @@ class OfflineLifecycleFinalizer:
                 "query_id": query_id,
                 "strata": (
                     {"category": item.get("category")}
-                    if metadata["benchmark"] == "locomo"
-                    else {"question_type": item.get("question_type"),
-                          "is_abstention": item.get("is_abstention")}
+                    if metadata["benchmark"] == "locomo" else
+                    {"competence": item.get("competence"), "task": item.get("task"),
+                     "source": item.get("source"), "answer_format": item.get("answer_format")}
+                    if metadata["benchmark"] == "memoryagentbench" else
+                    {"question_type": item.get("question_type"),
+                     "is_abstention": item.get("is_abstention")}
                 ),
             }
             for query_id, item in predictions.items()

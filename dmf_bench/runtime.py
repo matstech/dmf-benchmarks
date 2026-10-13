@@ -10,6 +10,7 @@ from dmf_bench.adapters.base import AnswererAdapter, BenchmarkAdapter, JudgeAdap
 from dmf_bench.adapters.dmf import dmf_framework_factories
 from dmf_bench.benchmarks.locomo.adapter import LoCoMoAdapter
 from dmf_bench.benchmarks.longmemeval.adapter import LongMemEvalAdapter
+from dmf_bench.benchmarks.memoryagentbench.adapter import MemoryAgentBenchAdapter
 from dmf_bench.adapters.mem0 import mem0_framework_factories
 from dmf_bench.adapters.providers import answerer_factories, judge_factories
 from dmf_bench.artifacts import LocalArtifactStore
@@ -169,6 +170,7 @@ def benchmark_factories() -> dict[str, ComponentFactory]:
     return {
         "locomo": lambda _config: LoCoMoAdapter(),
         "longmemeval": lambda _config: LongMemEvalAdapter(),
+        "memoryagentbench": lambda _config: MemoryAgentBenchAdapter(),
     }
 
 

@@ -21,6 +21,12 @@ def _longmemeval_factory(config: dict[str, Any]) -> Any:
     return LongMemEvalAdapter()
 
 
+def _memoryagentbench_factory(config: dict[str, Any]) -> Any:
+    from .benchmarks.memoryagentbench.adapter import MemoryAgentBenchAdapter
+
+    return MemoryAgentBenchAdapter()
+
+
 def _dmf_factory(config: dict[str, Any]) -> Any:
     from .adapters.dmf import dmf_framework_factories
 
@@ -113,6 +119,10 @@ BENCHMARKS: dict[str, BenchmarkDescriptor] = {
         "longmemeval", "longmemeval-v3", "retrieval-qa-v1",
         "longmemeval-question", _longmemeval_factory, "longmemeval-v3",
     ),
+    "memoryagentbench": BenchmarkDescriptor(
+        "memoryagentbench", "memoryagentbench-v1", "retrieval-qa-v1",
+        "memoryagentbench-context", _memoryagentbench_factory, "memoryagentbench-v1",
+    ),
 }
 
 FRAMEWORKS: dict[str, FrameworkDescriptor] = {
@@ -159,6 +169,13 @@ FRAMEWORKS: dict[str, FrameworkDescriptor] = {
 }
 
 COMPATIBILITY: dict[tuple[str, str], CompatibilityRecord] = {
+    **{
+        ("memoryagentbench", framework): CompatibilityRecord(
+            "memoryagentbench", framework, "experimental", "memoryagentbench-v1",
+            "Retrieval-controlled adaptation; task-specific local validation is in progress.",
+        )
+        for framework in ("model-only", "full-context", "vector-rag", "mem0", "dmf", "lightmem", "amem")
+    },
     ("locomo", "dmf"): CompatibilityRecord(
         "locomo", "dmf", "certified", "locomo-v3",
         "Local adapter, Qdrant, resume, and deterministic container fixtures passed.",
