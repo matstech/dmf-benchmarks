@@ -490,6 +490,14 @@ A-MEM require their dedicated images and pinned model directories as described
 above; set `PILOT_MODELS_DIR` to the parent model directory. The full matrix
 audit requires Qdrant to be running so it can check that owned collections
 were removed.
+
+The full matrix uses three local image tags. Before rebuilding or reassigning
+any of those tags, save the images to an archive outside version control and
+record the archive SHA-256 and each `docker image inspect --format '{{.Id}}'`
+value. Keep the archive with the run artifacts: a rebuild from the same commit
+can change the image digest. Official runs use the immutable registry digest
+locked by `dmf-benchctl prepare`.
+
 Mem0 pilots also require the pinned local `qwen2.5:3b` model for its internal
 extraction. Its pilot profile bounds the structured extraction response to six
 memories of at most 300 characters each. Answerer and judge continue to use
