@@ -106,6 +106,7 @@ def runtime_factories() -> RuntimeFactories:
         judges={
             ("locomo", "fixture"): lambda _config: FixtureJudge(),
             ("longmemeval", "fixture"): lambda _config: FixtureJudge(),
+            ("memoryagentbench", "fixture"): lambda _config: FixtureJudge(),
         },
     )
 

@@ -260,6 +260,7 @@ def fixture_factories(
         judges={
             ("locomo", "fixture"): lambda _config: judge or FixtureJudge(),
             ("longmemeval", "fixture"): lambda _config: judge or FixtureJudge(),
+            ("memoryagentbench", "fixture"): lambda _config: judge or FixtureJudge(),
         },
     )
 
@@ -278,6 +279,8 @@ def write_config(
     root.mkdir(parents=True)
     dataset_path = root / f"{benchmark}.json"
     shutil.copy2(FIXTURE_DIR / f"{benchmark}-mini.json", dataset_path)
+    if benchmark == "memoryagentbench":
+        shutil.copy2(FIXTURE_DIR / "memoryagentbench-unit.json", root)
     suffix = "toml" if framework == "dmf" else "yaml"
     framework_path = root / f"{framework}.{suffix}"
     framework_path.write_text(
@@ -289,6 +292,8 @@ def write_config(
         if benchmark == "locomo"
         else {"ordered_item_ids": ["lme-001", "lme-002"], "filters": {}, "seed": 7}
     )
+    if benchmark == "memoryagentbench":
+        selection = {"ordered_item_ids": ["mab-001"], "filters": {}, "seed": 7}
     answerer_model = {
         "provider": "fixture",
         "requested_model": "fixture-answerer",
@@ -304,7 +309,10 @@ def write_config(
     config = {
         "schema_version": 3,
         "experiment_id": run_id,
-        "scientific_profile": "retrieval-controlled-v1",
+        "scientific_profile": (
+            "memoryagentbench-ar-pilot-v1"
+            if benchmark == "memoryagentbench" else "retrieval-controlled-v1"
+        ),
         "benchmark": benchmark,
         "framework": framework,
         "runtime": {
@@ -364,8 +372,8 @@ def test_cli_runs_full_offline_lifecycle_for_dmf_and_mem0_combinations(
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-leak-runtime")
 
     executed: list[tuple[str, str]] = []
-    certified_pairs = [pair for pair in supported_combinations() if pair[1] in {"dmf", "mem0"}]
-    for index, (benchmark, framework) in enumerate(certified_pairs):
+    tested_pairs = [pair for pair in supported_combinations() if pair[1] in {"dmf", "mem0"}]
+    for index, (benchmark, framework) in enumerate(tested_pairs):
         root = tmp_path / f"case-{index}"
         run_id = f"cli-{benchmark}-{framework}"
         config_path = write_config(
@@ -382,23 +390,32 @@ def test_cli_runs_full_offline_lifecycle_for_dmf_and_mem0_combinations(
         assert read_json(final_dir / "COMPLETED.json")["state"] == "COMPLETED"
         assert read_json(run_dir / "run-manifest.json")["schema_version"] == 3
         assert all(
-            "protocol" not in path.read_text(encoding="utf-8").lower()
+            '"protocol"' not in path.read_text(encoding="utf-8").lower()
             for path in final_dir.rglob("*.json")
         )
 
         evaluations = read_json(final_dir / "evaluations" / "evaluations.json")
         rigorous = read_json(final_dir / "evaluations" / "rigorous_report.json")
         ablation = read_json(final_dir / "evaluations" / "ablation_report.json")
-        assert rigorous["metrics"]["overall"]["recall_at_k"] == 1.0
+        if benchmark == "memoryagentbench":
+            assert rigorous["status"] == "COMPLETED"
+            assert rigorous["protocol_label"] == "MemoryAgentBench retrieval-controlled adaptation"
+            assert rigorous["count"] == 2
+            assert rigorous["by"]["task"]["ruler_qa"]["mean_score"] == 1.0
+            retrieval = read_json(final_dir / "evaluations" / "retrieval_report.json")
+            assert retrieval["status"] == "NOT_APPLICABLE"
+        else:
+            assert rigorous["metrics"]["overall"]["recall_at_k"] == 1.0
         assert ablation["status"] == (
-            "COMPLETED" if framework == "dmf" else "NOT_APPLICABLE"
+            "COMPLETED" if framework == "dmf" and benchmark != "memoryagentbench"
+            else "NOT_APPLICABLE"
         )
         analysis = read_json(final_dir / "evaluations" / "analysis_rows.json")
         assert analysis["status"] == "COMPLETED"
 
         executed.append((benchmark, framework))
 
-    assert executed == certified_pairs
+    assert executed == tested_pairs
 
     output = capsys.readouterr().out
     assert '"event":"run.preflight.started"' in output

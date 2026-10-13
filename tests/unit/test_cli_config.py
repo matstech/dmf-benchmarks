@@ -84,6 +84,13 @@ def test_supported_combinations_are_explicit_and_deterministic() -> None:
         ("longmemeval", "mem0"),
         ("longmemeval", "model-only"),
         ("longmemeval", "vector-rag"),
+        ("memoryagentbench", "amem"),
+        ("memoryagentbench", "dmf"),
+        ("memoryagentbench", "full-context"),
+        ("memoryagentbench", "lightmem"),
+        ("memoryagentbench", "mem0"),
+        ("memoryagentbench", "model-only"),
+        ("memoryagentbench", "vector-rag"),
     ]
 
 
@@ -258,6 +265,7 @@ def test_cli_list_prints_supported_surface(capsys: pytest.CaptureFixture[str]) -
     assert "longmemeval/mem0" in output
     assert output.count("  locomo/") == 7
     assert output.count("  longmemeval/") == 7
+    assert output.count("  memoryagentbench/") == 7
 
 
 def test_cli_validate_prints_redacted_json(

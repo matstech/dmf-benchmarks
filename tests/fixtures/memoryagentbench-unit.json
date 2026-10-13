@@ -1,0 +1,21 @@
+{
+  "context": "Sam prefers almonds as a snack. Sam keeps a cat named Luna.",
+  "questions": [
+    "What snack does Sam prefer?",
+    "What is the name of Sam's cat?"
+  ],
+  "answers": [
+    [
+      "almonds"
+    ],
+    [
+      "Luna"
+    ]
+  ],
+  "metadata": {
+    "qa_pair_ids": [
+      "mab-fixture-qa-001",
+      "mab-fixture-qa-002"
+    ]
+  }
+}
