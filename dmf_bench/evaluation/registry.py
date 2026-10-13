@@ -99,7 +99,12 @@ def evaluation_plan_v3(
         retrieval_reason = "Framework descriptor has no source-provenance capability."
     else:
         retrieval_reason = None
-    ablation_reason = None if framework == "dmf" else "DMF recall stages are unavailable for this framework."
+    ablation_reason = (
+        "MemoryAgentBench has no registered DMF ablation evaluator."
+        if benchmark == "memoryagentbench" else
+        None if framework == "dmf" else
+        "DMF recall stages are unavailable for this framework."
+    )
     agreement_reason = None if len(judge_ids) > 1 else "Judge agreement requires at least two judges."
     return (
         EvaluationRequirement("primary_judge_score", required=True),

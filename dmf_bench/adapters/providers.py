@@ -25,7 +25,7 @@ from dmf_bench.metrics import BenchmarkMetrics
 from .base import AnswererRequest, JudgeRequest
 
 
-SUPPORTED_BENCHMARKS = ("locomo", "longmemeval")
+SUPPORTED_BENCHMARKS = ("locomo", "longmemeval", "memoryagentbench")
 
 
 class LLMTransport(Protocol):
@@ -314,9 +314,16 @@ def judge_factories(
 
     def for_benchmark(
         benchmark: str,
-    ) -> Callable[[dict[str, Any]], OpenAICompatibleJudgeAdapter]:
-        def build(config: dict[str, Any]) -> OpenAICompatibleJudgeAdapter:
+    ) -> Callable[[dict[str, Any]], Any]:
+        def build(config: dict[str, Any]) -> Any:
             settings = ProviderModelConfig.from_experiment(config, role="judge")
+            if benchmark == "memoryagentbench":
+                from dmf_bench.benchmarks.memoryagentbench.judge import MemoryAgentBenchJudgeAdapter
+
+                return MemoryAgentBenchJudgeAdapter(
+                    settings=settings, transport=builder(settings, metrics),
+                    config=config, metrics=metrics,
+                )
             return OpenAICompatibleJudgeAdapter(
                 benchmark=benchmark,
                 settings=settings,

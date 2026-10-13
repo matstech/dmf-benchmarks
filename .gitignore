@@ -222,7 +222,9 @@ benchmarks/.DS_Store
 # Local dmf-benchctl preparation state
 .dmf-bench/
 /config/pilots/
+/config/memoryagentbench/
 /datasets/pilots/
+/datasets/memoryagentbench/
 docs/adding-a-benchmark.md
 docs/adding-a-framework.md
 docs/adding-an-evaluator.md

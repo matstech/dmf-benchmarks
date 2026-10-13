@@ -19,6 +19,7 @@ JUDGE_ADAPTER_VERSION = 2
 JUDGE_PARSER_VERSIONS = {
     "locomo": "locomo-judge-parser-v1",
     "longmemeval": "longmemeval-judge-parser-v1",
+    "memoryagentbench": "memoryagentbench-task-parser-v1",
 }
 
 
@@ -178,6 +179,16 @@ def judge_contract_identity(benchmark: str) -> dict[str, Any]:
         parser_version = JUDGE_PARSER_VERSIONS[benchmark]
     except KeyError as exc:
         raise ValueError(f"Unsupported judge benchmark: {benchmark!r}.") from exc
+    if benchmark == "memoryagentbench":
+        return {
+            "schema_version": 1,
+            "adapter_version": 1,
+            "benchmark": benchmark,
+            "parser_version": parser_version,
+            "deterministic_metrics": ["exact_match", "substring_exact_match", "Recall@5"],
+            "longmemeval_judge": "question-type-specific-yes-no-v1",
+            "official_code_revision": "538026089d1a8a8eff05121d0db89b388f360eba",
+        }
     return {
         "schema_version": 1,
         "adapter_version": JUDGE_ADAPTER_VERSION,

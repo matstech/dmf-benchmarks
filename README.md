@@ -4,7 +4,8 @@
 
 DMF Benchmarks compares [DMF](https://github.com/matstech/dmf),
 [Mem0](https://github.com/mem0ai/mem0), experimental LightMem and A-MEM, and three
-controlled baselines on LoCoMo and LongMemEval.
+controlled baselines on LoCoMo and LongMemEval. A local, retrieval-controlled
+MemoryAgentBench adapter is also available for experimental runs.
 
 Version 0.3 adds the retrieval-QA v3 contract, a shared runner, deterministic
 context packing, and separate checkpoints for multiple judges. The host-side
