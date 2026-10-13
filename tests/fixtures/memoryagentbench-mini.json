@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "benchmark": "memoryagentbench",
+  "dataset_revision": "7ea066982b140a19337e17e60d45d4076e042faf",
+  "code_revision": "538026089d1a8a8eff05121d0db89b388f360eba",
+  "records": [
+    {
+      "unit_id": "mab-001",
+      "source": "ruler_qa_fixture",
+      "split": "Accurate_Retrieval",
+      "path": "memoryagentbench-unit.json",
+      "sha256": "cc70f589e5cf1c30d88cd658c40634a335ed3567c7612ff395c79ed6e794988d",
+      "context_chars": 59,
+      "query_count": 2
+    }
+  ]
+}
