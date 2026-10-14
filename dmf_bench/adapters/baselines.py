@@ -67,6 +67,13 @@ class ModelOnlyAdapter:
             raise ValueError("Model-only retained memory state.")
         return {"verified": True, "retained_event_count": 0}
 
+    def restore_prepared_v3(self, unit: BenchmarkUnit, events: tuple[MemoryEvent, ...],
+                            persisted: dict[str, Any], config: dict[str, Any],
+                            run_context: FrameworkRunContext) -> PreparedMemoryUnit:
+        _check_events(events)
+        return PreparedMemoryUnit(None, (), persisted["ingestion_usage"],
+                                  persisted["ingestion_timing"], persisted["diagnostics"])
+
     def retrieve_v3(self, unit: BenchmarkUnit, query: MemoryQuery, prepared: PreparedMemoryUnit,
                     config: dict[str, Any], run_context: FrameworkRunContext) -> CanonicalRetrievalResult:
         _check_query(unit, query)
@@ -109,6 +116,13 @@ class FullContextAdapter:
         if prepared.resources:
             raise ValueError("Full-context has unexpected resources.")
         return {"verified": True, "event_count": len(prepared.handle)}
+
+    def restore_prepared_v3(self, unit: BenchmarkUnit, events: tuple[MemoryEvent, ...],
+                            persisted: dict[str, Any], config: dict[str, Any],
+                            run_context: FrameworkRunContext) -> PreparedMemoryUnit:
+        _check_events(events)
+        return PreparedMemoryUnit(events, (), persisted["ingestion_usage"],
+                                  persisted["ingestion_timing"], persisted["diagnostics"])
 
     def retrieve_v3(self, unit: BenchmarkUnit, query: MemoryQuery, prepared: PreparedMemoryUnit,
                     config: dict[str, Any], run_context: FrameworkRunContext) -> CanonicalRetrievalResult:
@@ -301,6 +315,24 @@ class VectorRagAdapter:
             raise ValueError("Vector-RAG index digest mismatch.")
         return {"verified": True, "chunk_count": len(handle["chunks"]),
                 "index_sha256": handle["sha256"]}
+
+    def restore_prepared_v3(self, unit: BenchmarkUnit, events: tuple[MemoryEvent, ...],
+                            persisted: dict[str, Any], config: dict[str, Any],
+                            run_context: FrameworkRunContext) -> PreparedMemoryUnit:
+        _check_events(events)
+        resources = self.resources_for_unit_v3(unit, config, run_context)
+        path = run_context.run_dir / resources[0].locator / "index.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        chunks, vectors = payload["chunks"], payload["vectors"]
+        if payload["model"] != self.profile["embedding_model"]:
+            raise ValueError("Vector-RAG index model mismatch.")
+        _validate_vectors(vectors, len(chunks))
+        return PreparedMemoryUnit(
+            {"unit_id": unit.unit_id, "chunks": chunks, "vectors": vectors,
+             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "path": str(path)},
+            resources, persisted["ingestion_usage"], persisted["ingestion_timing"],
+            persisted["diagnostics"],
+        )
 
     def retrieve_v3(self, unit: BenchmarkUnit, query: MemoryQuery, prepared: PreparedMemoryUnit,
                     config: dict[str, Any], run_context: FrameworkRunContext) -> CanonicalRetrievalResult:

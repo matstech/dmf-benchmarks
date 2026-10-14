@@ -70,6 +70,13 @@ def write_valid_config(tmp_path: Path, *, dataset_path: Path | None = None) -> P
 
 def test_supported_combinations_are_explicit_and_deterministic() -> None:
     assert supported_combinations() == [
+        ("beam", "amem"),
+        ("beam", "dmf"),
+        ("beam", "full-context"),
+        ("beam", "lightmem"),
+        ("beam", "mem0"),
+        ("beam", "model-only"),
+        ("beam", "vector-rag"),
         ("locomo", "amem"),
         ("locomo", "dmf"),
         ("locomo", "full-context"),

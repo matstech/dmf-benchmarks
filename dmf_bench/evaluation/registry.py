@@ -102,6 +102,8 @@ def evaluation_plan_v3(
     ablation_reason = (
         "MemoryAgentBench has no registered DMF ablation evaluator."
         if benchmark == "memoryagentbench" else
+        "BEAM has no registered DMF ablation evaluator."
+        if benchmark == "beam" else
         None if framework == "dmf" else
         "DMF recall stages are unavailable for this framework."
     )

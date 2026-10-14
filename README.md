@@ -4,8 +4,9 @@
 
 DMF Benchmarks compares [DMF](https://github.com/matstech/dmf),
 [Mem0](https://github.com/mem0ai/mem0), experimental LightMem and A-MEM, and three
-controlled baselines on LoCoMo and LongMemEval. A local, retrieval-controlled
-MemoryAgentBench adapter is also available for experimental runs.
+controlled baselines on LoCoMo, LongMemEval, MemoryAgentBench, and BEAM.
+MemoryAgentBench and BEAM are local retrieval-controlled adaptations for
+experimental runs.
 
 Version 0.3 adds the retrieval-QA v3 contract, a shared runner, deterministic
 context packing, and separate checkpoints for multiple judges. The host-side
@@ -17,6 +18,12 @@ scientific fingerprint. LightMem and A-MEM have experimental retrieval presets,
 dedicated Python 3.11 images, and pinned local models. The
 [operator manual](manual/user-manual.md) describes configuration and execution.
 Local fixture runs are functional checks, not paper scores.
+
+BEAM uses pinned official conversations and probing questions at the 100K,
+500K, 1M, and 10M scales. See the [BEAM setup and preflight](manual/user-manual.md#beam-dataset-and-scale-preflight)
+for materialization, bounded baselines, and resumable runs. The local rubric
+judge is a functional adapter; its scores are not yet calibrated against the
+official remote judge.
 
 ## Contents
 

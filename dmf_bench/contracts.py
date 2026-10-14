@@ -349,6 +349,7 @@ class UnitCheckpoint:
             "PENDING",
             "PREPARING",
             "INGESTING",
+            "INGESTED",
             "PREDICTING",
             "PREDICTED",
             "JUDGING",

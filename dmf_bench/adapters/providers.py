@@ -25,7 +25,7 @@ from dmf_bench.metrics import BenchmarkMetrics
 from .base import AnswererRequest, JudgeRequest
 
 
-SUPPORTED_BENCHMARKS = ("locomo", "longmemeval", "memoryagentbench")
+SUPPORTED_BENCHMARKS = ("locomo", "longmemeval", "memoryagentbench", "beam")
 
 
 class LLMTransport(Protocol):
@@ -308,7 +308,7 @@ def judge_factories(
     *,
     metrics: BenchmarkMetrics | None = None,
     transport_builder: TransportBuilder | None = None,
-) -> dict[tuple[str, str], Callable[[dict[str, Any]], OpenAICompatibleJudgeAdapter]]:
+) -> dict[tuple[str, str], Callable[[dict[str, Any]], Any]]:
     """Return benchmark/provider judge factories without dynamic discovery."""
     builder = transport_builder or _default_transport
 
@@ -323,6 +323,12 @@ def judge_factories(
                 return MemoryAgentBenchJudgeAdapter(
                     settings=settings, transport=builder(settings, metrics),
                     config=config, metrics=metrics,
+                )
+            if benchmark == "beam":
+                from dmf_bench.benchmarks.beam.judge import BeamJudgeAdapter
+
+                return BeamJudgeAdapter(
+                    settings=settings, transport=builder(settings, metrics), metrics=metrics,
                 )
             return OpenAICompatibleJudgeAdapter(
                 benchmark=benchmark,

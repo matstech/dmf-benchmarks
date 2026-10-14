@@ -221,6 +221,8 @@ benchmarks/.DS_Store
 
 # Local dmf-benchctl preparation state
 .dmf-bench/
+/config/beam/
+/datasets/beam/
 /config/pilots/
 /config/memoryagentbench/
 /datasets/pilots/
