@@ -30,6 +30,8 @@ from .state import (
     load_manifest,
     new_attempt,
     plan_resume,
+    load_unit_checkpoint,
+    validate_artifact_refs,
     write_attempt,
 )
 
@@ -153,48 +155,82 @@ class RetrievalQAPredictOnlyRunner:
                         not isinstance(resource, OwnedResource) for resource in resources
                     ):
                         raise StateError("Framework resources must be a tuple of OwnedResource.")
-                    cleanup_evidence = self._restart_unit(
-                        run_path, safe_unit, resources, config, run_context
-                    )
+                    restarted.append(safe_unit.unit_id)
+                    unit_dir = run_path / "items" / safe_unit.unit_id
+                    resource_path = unit_dir / "resources.json"
+                    prepared_path = unit_dir / "prepared.json"
+                    barrier_path = unit_dir / "commit-barrier.json"
+                    ingested_path = run_path / "checkpoints" / safe_unit.unit_id / "ingested.json"
+                    prepared = self._restore_ingested(
+                        run_path, manifest, case, resources, config, run_context,
+                    ) if resume and benchmark_name == "beam" else None
                     cleanup_path = (
                         run_path / "attempts" / attempt.attempt_id / "cleanup"
                         / f"{safe_unit.unit_id}.json"
                     )
-                    write_json_atomic(cleanup_path, cleanup_evidence)
-                    restarted.append(safe_unit.unit_id)
-                    self._write_checkpoint(run_path, manifest, safe_unit.unit_id, "PREPARING")
-                    unit_dir = run_path / "items" / safe_unit.unit_id
-                    resource_path = unit_dir / "resources.json"
-                    write_json_atomic(resource_path, {
-                        "schema_version": 3,
-                        "resources": [resource.to_dict() for resource in resources],
-                    })
-                    self._write_checkpoint(run_path, manifest, safe_unit.unit_id, "INGESTING")
-                    prepared = self.framework.prepare_unit_v3(
-                        safe_unit, case.events, config, run_context
-                    )
-                    if not isinstance(prepared, PreparedMemoryUnit):
-                        raise StateError("Framework did not return PreparedMemoryUnit.")
-                    if prepared.resources != resources:
-                        raise StateError("Prepared resources differ from the declared owned resources.")
-                    prepared_path = unit_dir / "prepared.json"
-                    write_json_atomic(prepared_path, prepared.to_dict())
-                    evidence = self.framework.verify_prepared_v3(
-                        safe_unit, prepared, config, run_context
-                    )
-                    if not isinstance(evidence, dict) or evidence.get("verified") is not True:
-                        raise StateError("Framework commit barrier was not verified.")
-                    barrier_path = unit_dir / "commit-barrier.json"
-                    write_json_atomic(barrier_path, evidence)
-                    if interrupt_at == "after-preparation":
-                        raise InjectedInterrupt("Interrupted after preparation.")
+                    if prepared is None:
+                        cleanup_evidence = self._restart_unit(
+                            run_path, safe_unit, resources, config, run_context
+                        )
+                        write_json_atomic(cleanup_path, cleanup_evidence)
+                        self._write_checkpoint(run_path, manifest, safe_unit.unit_id, "PREPARING")
+                        write_json_atomic(resource_path, {
+                            "schema_version": 3,
+                            "resources": [resource.to_dict() for resource in resources],
+                        })
+                        self._write_checkpoint(run_path, manifest, safe_unit.unit_id, "INGESTING")
+                        if interrupt_at == "before-ingestion":
+                            raise InjectedInterrupt("Interrupted before ingestion.")
+                        prepared = self.framework.prepare_unit_v3(
+                            safe_unit, case.events, config, run_context
+                        )
+                        if not isinstance(prepared, PreparedMemoryUnit):
+                            raise StateError("Framework did not return PreparedMemoryUnit.")
+                        if prepared.resources != resources:
+                            raise StateError("Prepared resources differ from the declared owned resources.")
+                        write_json_atomic(prepared_path, prepared.to_dict())
+                        evidence = self.framework.verify_prepared_v3(
+                            safe_unit, prepared, config, run_context
+                        )
+                        if not isinstance(evidence, dict) or evidence.get("verified") is not True:
+                            raise StateError("Framework commit barrier was not verified.")
+                        write_json_atomic(barrier_path, evidence)
+                        if benchmark_name == "beam":
+                            ingest_artifacts = [resource_path, prepared_path, barrier_path]
+                            if framework_name == "vector-rag":
+                                ingest_artifacts.append(Path(prepared.handle["path"]))
+                            self._write_checkpoint_at(
+                                ingested_path, run_path, manifest, safe_unit.unit_id,
+                                "INGESTED", tuple(ingest_artifacts),
+                            )
+                            self._write_checkpoint(run_path, manifest, safe_unit.unit_id, "INGESTED")
+                        if interrupt_at in {"after-preparation", "after-ingested"}:
+                            raise InjectedInterrupt("Interrupted after preparation.")
+                    else:
+                        write_json_atomic(cleanup_path, {"verified": True, "action": "reused-ingested"})
 
                     self._write_checkpoint(run_path, manifest, safe_unit.unit_id, "PREDICTING")
                     artifact_paths = [cleanup_path, resource_path, prepared_path, barrier_path]
+                    if benchmark_name == "beam":
+                        artifact_paths.append(ingested_path)
                     predictions: list[dict[str, Any]] = []
                     for query_index, query in enumerate(case.queries):
                         if cancel_check:
                             cancel_check()
+                        question_dir = unit_dir / "questions"
+                        retrieval_path = question_dir / f"{query.query_id}.retrieval.json"
+                        context_path = question_dir / f"{query.query_id}.context.json"
+                        prediction_path = question_dir / f"{query.query_id}.json"
+                        query_checkpoint_path = question_dir / f"{query.query_id}.checkpoint.json"
+                        cached = self._cached_prediction(
+                            run_path, manifest, query.query_id, query_checkpoint_path,
+                            prediction_path,
+                        ) if resume and benchmark_name == "beam" else None
+                        if cached is not None:
+                            artifact_paths.extend((retrieval_path, context_path, prediction_path,
+                                                   query_checkpoint_path))
+                            predictions.append(cached)
+                            continue
                         retrieval = self.framework.retrieve_v3(
                             safe_unit, query, prepared, config, run_context
                         )
@@ -237,14 +273,16 @@ class RetrievalQAPredictOnlyRunner:
                         )
                         prediction["framework"] = framework_name
                         prediction["scientific_fingerprint"] = fingerprint
-                        question_dir = unit_dir / "questions"
-                        retrieval_path = question_dir / f"{query.query_id}.retrieval.json"
-                        context_path = question_dir / f"{query.query_id}.context.json"
-                        prediction_path = question_dir / f"{query.query_id}.json"
                         write_json_atomic(retrieval_path, retrieval.to_dict())
                         write_json_atomic(context_path, packed.to_dict())
                         write_json_atomic(prediction_path, prediction)
                         artifact_paths.extend((retrieval_path, context_path, prediction_path))
+                        if benchmark_name == "beam":
+                            self._write_checkpoint_at(
+                                query_checkpoint_path, run_path, manifest, query.query_id,
+                                "COMMITTED", (retrieval_path, context_path, prediction_path),
+                            )
+                            artifact_paths.append(query_checkpoint_path)
                         predictions.append(prediction)
                         if interrupt_at == "after-first-prediction" and query_index == 0:
                             raise InjectedInterrupt("Interrupted after first prediction.")
@@ -314,6 +352,80 @@ class RetrievalQAPredictOnlyRunner:
         ))
         return str(run_id or config.get("experiment_id") or f"{config['benchmark']}-{config['framework']}-{fingerprint[:12]}")
 
+    def _restore_ingested(
+        self, run_path: Path, manifest: RunManifest, case: BenchmarkCase,
+        resources: tuple[OwnedResource, ...], config: dict[str, Any],
+        run_context: FrameworkRunContext,
+    ) -> PreparedMemoryUnit | None:
+        restore = getattr(self.framework, "restore_prepared_v3", None)
+        if restore is None:
+            return None
+        unit = case.unit
+        path = run_path / "checkpoints" / unit.unit_id / "ingested.json"
+        if not path.is_file():
+            return None
+        try:
+            checkpoint = load_unit_checkpoint(path)
+            if (checkpoint.run_id != manifest.run_id or checkpoint.unit_id != unit.unit_id
+                    or checkpoint.scientific_fingerprint != manifest.scientific_fingerprint
+                    or checkpoint.status != "INGESTED"):
+                return None
+            unit_dir = run_path / "items" / unit.unit_id
+            expected_paths = {
+                (unit_dir / name).relative_to(run_path).as_posix()
+                for name in ("resources.json", "prepared.json", "commit-barrier.json")
+            }
+            if self.framework.name == "vector-rag":
+                expected_paths.add((run_path / resources[0].locator / "index.json")
+                                   .relative_to(run_path).as_posix())
+            if {artifact.path for artifact in checkpoint.artifacts} != expected_paths:
+                return None
+            validate_artifact_refs(run_path, checkpoint.artifacts)
+            resource_payload = read_json(unit_dir / "resources.json")
+            if resource_payload.get("resources") != [resource.to_dict() for resource in resources]:
+                return None
+            persisted = read_json(unit_dir / "prepared.json")
+            if persisted.get("resources") != [resource.to_dict() for resource in resources]:
+                return None
+            prepared = restore(unit, case.events, persisted, config, run_context)
+            if not isinstance(prepared, PreparedMemoryUnit) or prepared.resources != resources:
+                return None
+            evidence = self.framework.verify_prepared_v3(unit, prepared, config, run_context)
+            if evidence != read_json(unit_dir / "commit-barrier.json"):
+                return None
+            return prepared
+        except (KeyError, TypeError, ValueError, OSError, StateError):
+            return None
+
+    @staticmethod
+    def _cached_prediction(
+        run_path: Path, manifest: RunManifest, query_id: str,
+        checkpoint_path: Path, prediction_path: Path,
+    ) -> dict[str, Any] | None:
+        if not checkpoint_path.is_file():
+            return None
+        try:
+            checkpoint = load_unit_checkpoint(checkpoint_path)
+            if (checkpoint.run_id != manifest.run_id or checkpoint.unit_id != query_id
+                    or checkpoint.scientific_fingerprint != manifest.scientific_fingerprint
+                    or checkpoint.status != "COMMITTED"):
+                return None
+            expected_paths = {
+                path.relative_to(run_path).as_posix()
+                for path in (prediction_path, prediction_path.with_suffix(".retrieval.json"),
+                             prediction_path.with_suffix(".context.json"))
+            }
+            if {artifact.path for artifact in checkpoint.artifacts} != expected_paths:
+                return None
+            validate_artifact_refs(run_path, checkpoint.artifacts)
+            prediction = read_json(prediction_path)
+            if (prediction.get("question_id") != query_id
+                    or prediction.get("scientific_fingerprint") != manifest.scientific_fingerprint):
+                return None
+            return prediction
+        except (KeyError, TypeError, ValueError, OSError, StateError):
+            return None
+
     def _restart_unit(
         self, run_path: Path, unit: Any, resources: tuple[OwnedResource, ...],
         config: dict[str, Any], run_context: FrameworkRunContext,
@@ -342,6 +454,16 @@ class RetrievalQAPredictOnlyRunner:
         run_path: Path, manifest: RunManifest, unit_id: str, status: str,
         artifact_paths: tuple[Path, ...] = (),
     ) -> None:
+        RetrievalQAPredictOnlyRunner._write_checkpoint_at(
+            run_path / "checkpoints" / unit_id / "checkpoint.json",
+            run_path, manifest, unit_id, status, artifact_paths,
+        )
+
+    @staticmethod
+    def _write_checkpoint_at(
+        path: Path, run_path: Path, manifest: RunManifest, unit_id: str,
+        status: str, artifact_paths: tuple[Path, ...] = (),
+    ) -> None:
         artifacts = tuple(
             ArtifactRef(
                 path=path.relative_to(run_path).as_posix(),
@@ -357,10 +479,7 @@ class RetrievalQAPredictOnlyRunner:
             scientific_fingerprint=manifest.scientific_fingerprint,
             artifacts=artifacts,
         )
-        write_json_atomic(
-            run_path / "checkpoints" / unit_id / "checkpoint.json",
-            checkpoint.to_dict(),
-        )
+        write_json_atomic(path, checkpoint.to_dict())
 
     @staticmethod
     def _write_status(

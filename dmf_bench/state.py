@@ -54,6 +54,7 @@ class UnitState(str, Enum):
     PENDING = "PENDING"
     PREPARING = "PREPARING"
     INGESTING = "INGESTING"
+    INGESTED = "INGESTED"
     PREDICTING = "PREDICTING"
     PREDICTED = "PREDICTED"
     JUDGING = "JUDGING"
@@ -118,7 +119,8 @@ RUN_TRANSITIONS: dict[RunState, set[RunState]] = {
 UNIT_TRANSITIONS: dict[UnitState, set[UnitState]] = {
     UnitState.PENDING: {UnitState.PREPARING},
     UnitState.PREPARING: {UnitState.INGESTING, UnitState.FAILED},
-    UnitState.INGESTING: {UnitState.PREDICTING, UnitState.FAILED},
+    UnitState.INGESTING: {UnitState.INGESTED, UnitState.FAILED},
+    UnitState.INGESTED: {UnitState.PREDICTING, UnitState.FAILED},
     UnitState.PREDICTING: {UnitState.PREDICTED, UnitState.FAILED},
     UnitState.PREDICTED: {UnitState.JUDGING, UnitState.COMMITTED, UnitState.FAILED},
     UnitState.JUDGING: {UnitState.JUDGED, UnitState.FAILED},

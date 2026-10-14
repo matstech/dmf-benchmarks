@@ -461,6 +461,60 @@ Chroma index per benchmark unit. Note analysis, evolution, and index
 consolidation finish before retrieval. The shared answerer and judges still
 produce and assess final answers.
 
+### BEAM dataset and scale preflight
+
+BEAM uses the published [BEAM](https://huggingface.co/datasets/Mohammadta/BEAM)
+and [BEAM-10M](https://huggingface.co/datasets/Mohammadta/BEAM-10M) data.
+The pinned release contains 100 conversations and 2,000 probing questions
+across ten abilities. One conversation is the atomic ingestion unit; its
+questions share the prepared memory. Dataset files and generated configs stay
+local and are excluded from version control. The data license is CC BY-SA 4.0;
+the upstream code license is MIT.
+
+From a source checkout, download the pinned shards, install PyArrow for the
+one-time conversion, and verify the materialized manifest:
+
+```text
+poetry run python scripts/fetch_beam_sources.py --output .dmf-bench/upstream
+python3 -m pip install pyarrow==23.0.1
+python3 scripts/materialize_beam.py --source .dmf-bench/upstream --output datasets/beam
+poetry run python scripts/preflight_beam_scale.py --manifest datasets/beam/manifest.json
+```
+
+The converter rejects source hash or count mismatches and writes separate
+event, question, and reference files with SHA-256 checks. It requires an empty
+output directory. `preflight_beam_scale.py` reports events, character-based
+token estimates, input storage, projected internal LLM calls, and duration for
+all four scales. Supply `--internal-calls-per-event`, `--events-per-second`,
+`--seconds-per-answer`, and optionally `--storage-multiplier` with measured
+backend rates. Unknown estimates remain null. The 100K profile is named
+`beam-128k-pilot-v1`; the name identifies the pilot tier, while the manifest
+records the published `100K` split.
+
+Generate a reduced container config for one conversation and one question:
+
+```text
+poetry run python scripts/prepare_beam_configs.py \
+  --profile beam-128k-pilot-v1 --framework model-only --smoke \
+  --runtime-root /bench --output config/beam/model-only-smoke.json
+dmf-benchctl validate --config config/beam/model-only-smoke.json
+dmf-benchctl run --config config/beam/model-only-smoke.json \
+  --run-id beam-128k-pilot-v1-model-only-smoke --follow
+dmf-benchctl resume --run-id beam-128k-pilot-v1-model-only-smoke
+```
+
+Use `--framework full-context` or `vector-rag` for the controlled baselines.
+The other supported adapters are experimental at BEAM scale. For a full
+declared split, omit `--smoke`; inspect the preflight before starting.
+`model-only` sends the probing question alone. `full-context` keeps the latest
+whole turns that fit its declared model window and records any dropped turns.
+The runner reuses verified `INGESTED` state and valid per-question predictions
+for `model-only`, `full-context`, and `vector-rag`. DMF, Mem0, LightMem, and
+A-MEM restart an incomplete conversation because their handles have no safe
+restore contract. The local rubric judge requires valid JSON with scores
+0, 0.5, or 1; malformed responses fail visibly. Scientific judge parity and
+full 1M/10M quality runs require separate validation.
+
 ### Local functional micro-pilots
 
 Maintainers can generate fixed, reduced LoCoMo and LongMemEval inputs from the

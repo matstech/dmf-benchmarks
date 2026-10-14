@@ -17,6 +17,7 @@ from dmf_bench.evaluation.registry import evaluation_plan_v3
 
 JUDGE_ADAPTER_VERSION = 2
 JUDGE_PARSER_VERSIONS = {
+    "beam": "beam-rubric-json-v1",
     "locomo": "locomo-judge-parser-v1",
     "longmemeval": "longmemeval-judge-parser-v1",
     "memoryagentbench": "memoryagentbench-task-parser-v1",
@@ -188,6 +189,17 @@ def judge_contract_identity(benchmark: str) -> dict[str, Any]:
             "deterministic_metrics": ["exact_match", "substring_exact_match", "Recall@5"],
             "longmemeval_judge": "question-type-specific-yes-no-v1",
             "official_code_revision": "538026089d1a8a8eff05121d0db89b388f360eba",
+        }
+    if benchmark == "beam":
+        return {
+            "schema_version": 1,
+            "adapter_version": 1,
+            "benchmark": benchmark,
+            "parser_version": parser_version,
+            "rubric_scale": [0, 0.5, 1],
+            "aggregation": "arithmetic-mean-of-criteria",
+            "official_code_revision": "b2da22eac88bb0874c64665f13457eb99835774a",
+            "local_judge_prompt_version": "beam-rubric-local-v1",
         }
     return {
         "schema_version": 1,

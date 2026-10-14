@@ -27,6 +27,12 @@ def _memoryagentbench_factory(config: dict[str, Any]) -> Any:
     return MemoryAgentBenchAdapter()
 
 
+def _beam_factory(config: dict[str, Any]) -> Any:
+    from .benchmarks.beam.adapter import BeamAdapter
+
+    return BeamAdapter()
+
+
 def _dmf_factory(config: dict[str, Any]) -> Any:
     from .adapters.dmf import dmf_framework_factories
 
@@ -111,6 +117,10 @@ class CompatibilityRecord:
 
 
 BENCHMARKS: dict[str, BenchmarkDescriptor] = {
+    "beam": BenchmarkDescriptor(
+        "beam", "beam-v1", "retrieval-qa-v1", "beam-conversation",
+        _beam_factory, "beam-v1",
+    ),
     "locomo": BenchmarkDescriptor(
         "locomo", "locomo-v3", "retrieval-qa-v1", "locomo-conversation",
         _locomo_factory, "locomo-v3",
@@ -173,6 +183,13 @@ COMPATIBILITY: dict[tuple[str, str], CompatibilityRecord] = {
         ("memoryagentbench", framework): CompatibilityRecord(
             "memoryagentbench", framework, "experimental", "memoryagentbench-v1",
             "Retrieval-controlled adaptation; task-specific local validation is in progress.",
+        )
+        for framework in ("model-only", "full-context", "vector-rag", "mem0", "dmf", "lightmem", "amem")
+    },
+    **{
+        ("beam", framework): CompatibilityRecord(
+            "beam", framework, "experimental", "beam-v1",
+            "Retrieval-controlled adaptation; safe post-ingestion reuse is limited to declared backends.",
         )
         for framework in ("model-only", "full-context", "vector-rag", "mem0", "dmf", "lightmem", "amem")
     },

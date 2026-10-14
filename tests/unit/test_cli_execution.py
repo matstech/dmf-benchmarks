@@ -372,7 +372,8 @@ def test_cli_runs_full_offline_lifecycle_for_dmf_and_mem0_combinations(
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-leak-runtime")
 
     executed: list[tuple[str, str]] = []
-    tested_pairs = [pair for pair in supported_combinations() if pair[1] in {"dmf", "mem0"}]
+    tested_pairs = [pair for pair in supported_combinations()
+                    if pair[0] != "beam" and pair[1] in {"dmf", "mem0"}]
     for index, (benchmark, framework) in enumerate(tested_pairs):
         root = tmp_path / f"case-{index}"
         run_id = f"cli-{benchmark}-{framework}"

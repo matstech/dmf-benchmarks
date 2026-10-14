@@ -113,7 +113,7 @@ def runtime_factories() -> RuntimeFactories:
 
 def test_explicit_factories_assemble_dmf_and_mem0_runtime_combinations() -> None:
     for benchmark, framework in supported_combinations():
-        if framework not in {"dmf", "mem0"}:
+        if benchmark == "beam" or framework not in {"dmf", "mem0"}:
             continue
         components = assemble_runtime(
             experiment_config(benchmark, framework),
