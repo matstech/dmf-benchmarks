@@ -96,7 +96,7 @@ def load_verified_run(store: LocalArtifactStore, run_id: str) -> VerifiedRun:
     if len(judge_by_id) != len(judges) or primary not in judge_by_id:
         raise ValueError(f"{run_id}: invalid judge IDs or primary judge.")
     for judge in judges:
-        identity = {key: judge[key] for key in ("id", "model", "contract")}
+        identity = {key: value for key, value in judge.items() if key != "fingerprint"}
         if judge.get("fingerprint") != hash_canonical_json(identity):
             raise ValueError(f"{run_id}: judge identity digest mismatch.")
 
