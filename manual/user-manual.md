@@ -1679,8 +1679,12 @@ Replace the run IDs with your completed local IDs and save the plan as
 poetry run dmf-bench analyze --runs-dir runs --plan analysis-plan.json --output-dir analysis-output
 ```
 
-The command writes `analysis.json`, `matrix.csv`, `comparisons.csv`, and
-`frontier.csv`. The 4 × 7 matrix fills every undeclared cell as `MISSING` with
+The command writes `analysis.json`, `matrix.csv`, `comparisons.csv`,
+`frontier.csv`, and a self-contained `dashboard.html`. Open the HTML file in a
+browser to inspect the matrix, run scores, paired comparisons, and cost/latency
+frontier. It reads the embedded analysis result, so Prometheus, Grafana, and
+the Artifact API are not needed to view it. The 4 × 7 matrix fills every
+undeclared cell as `MISSING` with
 a reason. You may explicitly mark a cell `FAILED` or `NOT_APPLICABLE`, always
 with a reason. A declared run must match its benchmark and framework.
 

@@ -29,6 +29,7 @@ dmf-benchctl = "dmf_benchctl.cli:main"
 package-mode = true
 include = [
     { path = "dmf_bench/static/index.html", format = ["sdist", "wheel"] },
+    { path = "dmf_bench/static/analysis-dashboard.html", format = ["sdist", "wheel"] },
     { path = "deploy/compose.yaml", format = ["sdist", "wheel"] },
     { path = "deploy/compose.lightmem.yaml", format = ["sdist", "wheel"] },
     { path = "deploy/compose.amem.yaml", format = ["sdist", "wheel"] },

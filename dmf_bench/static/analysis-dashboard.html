@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>DMF Benchmarks · Final analysis</title>
+  <style>
+    :root { color-scheme: dark; --bg: #0a0e14; --panel: #121a25; --line: #2a3646; --text: #edf2f8; --muted: #a5b4c4; --accent: #6dbde1; --ok: #79d3a1; --warn: #f0c777; --bad: #ed8997; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(1240px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0 64px; }
+    header { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 18px; margin-bottom: 22px; }
+    h1 { margin: 0; font-size: clamp(25px, 4vw, 38px); line-height: 1.15; letter-spacing: -.035em; }
+    h2 { margin: 0 0 14px; font-size: 18px; letter-spacing: -.015em; }
+    h3 { margin: 20px 0 8px; font-size: 14px; }
+    p { margin: 6px 0; }
+    .eyebrow { color: var(--accent); font-size: 11px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }
+    .muted, .subtle { color: var(--muted); }
+    .subtle { font-size: 12px; }
+    .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+    select, a.link, button { border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font: inherit; }
+    select, a.link { padding: 8px 10px; }
+    a.link { text-decoration: none; font-size: 12px; }
+    a.link:hover, a.link:focus-visible, button:hover, button:focus-visible { border-color: var(--accent); outline: none; }
+    .notice { border: 1px solid #6d5736; border-radius: 9px; padding: 12px 15px; background: #211b12; color: #f2d9aa; }
+    .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+    .card, section.panel { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    .card { padding: 15px; }
+    .card .value { display: block; font-size: 27px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .card .label { display: block; margin-top: 7px; color: var(--muted); font-size: 12px; }
+    section.panel { margin-top: 14px; padding: 18px; }
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; white-space: nowrap; }
+    th { color: var(--muted); font-weight: 650; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #192433; }
+    code { color: #c2dcf0; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    button { padding: 5px 8px; cursor: pointer; font-size: 11px; }
+    .status { display: inline-block; border-radius: 5px; padding: 2px 7px; font: 10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .VERIFIED, .FRONTIER, .AVAILABLE { color: var(--ok); background: #18352a; }
+    .MISSING, .UNAVAILABLE, .NOT_APPLICABLE, .PARTIAL { color: var(--warn); background: #3b301c; }
+    .FAILED, .DOMINATED { color: var(--bad); background: #3b2229; }
+    .score { display: flex; align-items: center; gap: 9px; min-width: 115px; font-variant-numeric: tabular-nums; }
+    .score-track { width: 70px; height: 7px; border-radius: 5px; background: #283746; overflow: hidden; }
+    .score-fill { height: 100%; background: var(--accent); }
+    .empty { color: var(--muted); padding: 14px 0 4px; }
+    .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .detail-grid div { min-width: 0; }
+    .detail-grid span { display: block; color: var(--muted); font-size: 11px; }
+    .detail-grid strong { display: block; overflow-wrap: anywhere; font-size: 12px; font-weight: 500; }
+    .foot { margin-top: 20px; color: var(--muted); font-size: 12px; }
+    @media (max-width: 700px) { main { width: min(100% - 20px, 1240px); padding-top: 18px; } .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } section.panel { padding: 13px; } .detail-grid { grid-template-columns: 1fr 1fr; } }
+    @media print { :root { color-scheme: light; --bg: white; --panel: white; --line: #ccc; --text: #111; --muted: #444; } .toolbar, button { display: none; } section.panel { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div><div class="eyebrow">DMF Benchmarks</div><h1>Final analysis</h1><p class="muted">Verified run artifacts · offline report</p></div>
+    <div class="toolbar"><label for="benchmark-filter">Benchmark</label><select id="benchmark-filter"><option value="all">All benchmarks</option></select><a class="link" href="analysis.json">Raw JSON</a><a class="link" href="matrix.csv">Matrix CSV</a><a class="link" href="comparisons.csv">Comparisons CSV</a><a class="link" href="frontier.csv">Frontier CSV</a></div>
+  </header>
+  <div class="notice" id="notice"></div>
+  <div class="cards" id="cards"></div>
+  <section class="panel"><div class="section-head"><h2>Benchmark × framework</h2><span class="subtle">Status comes from the explicit analysis plan</span></div><div class="table-wrap" id="matrix"></div></section>
+  <section class="panel"><div class="section-head"><h2>Run results</h2><span class="subtle">Primary judge mean, averaged by atomic unit</span></div><div class="table-wrap" id="runs"></div></section>
+  <section class="panel" id="run-detail" hidden><h2>Run detail</h2><div id="detail-content"></div></section>
+  <section class="panel"><div class="section-head"><h2>Paired comparisons</h2><span class="subtle">Delta = right minus left · 95% paired bootstrap CI</span></div><div class="table-wrap" id="comparisons"></div></section>
+  <section class="panel"><div class="section-head"><h2>Cost and latency frontier</h2><span class="subtle">Comparable controls and context families only</span></div><div class="table-wrap" id="frontier"></div></section>
+  <p class="foot" id="method"></p>
+</main>
+<script>
+  "use strict";
+  const encoded = "__DMF_ANALYSIS_BASE64__";
+  const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0));
+  const report = JSON.parse(new TextDecoder().decode(bytes));
+  const filter = document.getElementById("benchmark-filter");
+  const runs = report.runs || {};
+  const matrix = report.matrix || [];
+  const comparisons = report.comparisons || [];
+  const frontier = report.frontier_points || [];
+  const benchmarks = [...new Set(matrix.map(cell => cell.benchmark))];
+  const frameworks = [...new Set(matrix.map(cell => cell.framework))];
+  const selected = () => filter.value;
+  const visible = benchmark => selected() === "all" || selected() === benchmark;
+  const fmt = (value, digits = 3) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
+  const el = (tag, value, className) => {
+    const node = document.createElement(tag);
+    if (value !== undefined && value !== null) node.textContent = String(value);
+    if (className) node.className = className;
+    return node;
+  };
+  const clear = id => { const node = document.getElementById(id); node.replaceChildren(); return node; };
+  const empty = (target, message) => target.append(el("p", message, "empty"));
+  const badge = status => el("span", status || "—", `status ${["VERIFIED", "MISSING", "FAILED", "NOT_APPLICABLE", "FRONTIER", "UNAVAILABLE", "DOMINATED", "AVAILABLE", "PARTIAL"].includes(status) ? status : ""}`);
+  const table = (target, headers, rows) => {
+    const body = el("table"); const head = el("thead"); const hr = el("tr");
+    headers.forEach(label => hr.append(el("th", label))); head.append(hr); body.append(head);
+    const tbody = el("tbody"); rows.forEach(cells => { const row = el("tr"); cells.forEach(cell => { const td = el("td"); td.append(cell instanceof Node ? cell : document.createTextNode(String(cell ?? "—"))); row.append(td); }); tbody.append(row); });
+    body.append(tbody); target.append(body);
+  };
+  function openRun(runId) {
+    const run = runs[runId]; if (!run) return;
+    const panel = document.getElementById("run-detail"); const target = clear("detail-content"); panel.hidden = false;
+    const title = el("h3", runId); target.append(title);
+    const grid = el("div", null, "detail-grid");
+    for (const [label, value] of [["Benchmark", run.benchmark], ["Framework / profile", `${run.framework} / ${run.profile}`], ["Protocol", run.protocol], ["Scientific profile", run.scientific_profile], ["Primary judge", run.primary_judge_id], ["Atomic unit", run.atomic_unit], ["Queries / units", `${run.query_count} / ${run.unit_count}`], ["Retrieval", `${run.retrieval?.status || "—"} (${run.retrieval?.not_applicable_count ?? 0} N/A)`], ["Publication SHA-256", run.publication_manifest_sha256]]) {
+      const item = el("div"); item.append(el("span", label), el("strong", value ?? "—")); grid.append(item);
+    }
+    target.append(grid);
+    if (run.retrieval?.reasons?.length) target.append(el("p", `Retrieval N/A: ${run.retrieval.reasons.join("; ")}`, "subtle"));
+    const secondary = Object.entries(run.secondary_mean_unit_scores || {});
+    if (secondary.length) { target.append(el("h3", "Secondary judges")); table(target, ["Judge", "Mean unit score"], secondary.map(([judge, score]) => [judge, fmt(score)])); }
+    const strata = Object.entries(run.strata || {});
+    if (strata.length) {
+      target.append(el("h3", "Breakdown"));
+      const rows = strata.flatMap(([dimension, groups]) => Object.entries(groups).map(([value, item]) => [dimension, value, item.query_count, item.unit_count, fmt(item.mean_unit_score)]));
+      table(target, ["Dimension", "Value", "Queries", "Units", "Mean score"], rows);
+    }
+    panel.scrollIntoView({behavior: "smooth", block: "start"});
+  }
+  function render() {
+    const cells = matrix.filter(cell => visible(cell.benchmark));
+    const shownRuns = Object.values(runs).filter(run => visible(run.benchmark));
+    const shownComparisons = comparisons.filter(item => visible(item.benchmark));
+    const shownFrontier = frontier.filter(item => visible(item.benchmark));
+    const stats = [["Verified cells", cells.filter(cell => cell.status === "VERIFIED").length], ["Missing cells", cells.filter(cell => cell.status === "MISSING").length], ["Runs", shownRuns.length], ["Paired comparisons", shownComparisons.length]];
+    const cards = clear("cards"); stats.forEach(([label, value]) => { const card = el("div", null, "card"); card.append(el("span", value, "value"), el("span", label, "label")); cards.append(card); });
+    const matrixTarget = clear("matrix");
+    table(matrixTarget, ["Benchmark", ...frameworks], benchmarks.filter(visible).map(benchmark => [benchmark, ...frameworks.map(framework => {
+      const cell = cells.find(item => item.benchmark === benchmark && item.framework === framework);
+      if (!cell) return "—";
+      const wrap = el("div"); wrap.append(badge(cell.status));
+      if (cell.run_id) { const button = el("button", "View run"); button.type = "button"; button.title = cell.run_id; button.addEventListener("click", () => openRun(cell.run_id)); wrap.append(" ", button); }
+      else if (cell.reason) wrap.title = cell.reason;
+      return wrap;
+    })]));
+    const runTarget = clear("runs");
+    if (!shownRuns.length) empty(runTarget, "No verified runs for this benchmark.");
+    else table(runTarget, ["Run", "Benchmark", "Profile", "Primary score", "Queries / units", "Cost estimate", "QA latency"], shownRuns.map(run => {
+      const button = el("button", run.run_id); button.type = "button"; button.addEventListener("click", () => openRun(run.run_id));
+      const score = el("div", null, "score"); const track = el("div", null, "score-track"); const fill = el("div", null, "score-fill"); fill.style.width = `${Math.max(0, Math.min(100, 100 * (run.primary_mean_unit_score || 0)))}%`; track.append(fill); score.append(track, el("span", fmt(run.primary_mean_unit_score)));
+      return [button, run.benchmark, run.profile, score, `${run.query_count} / ${run.unit_count}`, fmt(run.estimated_cost_total, 4), run.mean_qa_latency_ms === null ? "—" : `${fmt(run.mean_qa_latency_ms, 1)} ms`];
+    }));
+    const comparisonTarget = clear("comparisons");
+    if (!shownComparisons.length) empty(comparisonTarget, "No paired comparison was declared for these runs.");
+    else table(comparisonTarget, ["Left → right", "Benchmark", "Units / queries", "Mean Δ", "95% CI", "Wilcoxon p", "Holm p"], shownComparisons.map(item => {
+      const p = item.primary || {}; const ci = p.bootstrap_95_percentile_ci || [];
+      return [`${item.left} → ${item.right}`, item.benchmark, `${p.unit_count} / ${p.query_count}`, fmt(p.mean_delta_right_minus_left), `[${fmt(ci[0])}, ${fmt(ci[1])}]`, fmt(p.wilcoxon?.p_two_sided, 4), fmt(p.holm_adjusted_p, 4)];
+    }));
+    const frontierTarget = clear("frontier");
+    if (!shownFrontier.length) empty(frontierTarget, "No frontier points for this benchmark.");
+    else table(frontierTarget, ["Run", "Family", "Score", "Estimated cost", "QA latency", "Status"], shownFrontier.map(item => [item.run_id, item.frontier_family, fmt(item.score), fmt(item.estimated_cost_total, 4), item.mean_qa_latency_ms === null ? "—" : `${fmt(item.mean_qa_latency_ms, 1)} ms`, badge(item.frontier_status)]));
+    document.getElementById("run-detail").hidden = true;
+  }
+  benchmarks.forEach(benchmark => { const option = el("option", benchmark); option.value = benchmark; filter.append(option); });
+  filter.addEventListener("change", render);
+  const notice = document.getElementById("notice");
+  notice.textContent = report.scientific_result ? `Status: ${report.status}. Interpret scores within each benchmark and compatible protocol.` : `Status: ${report.status}. This is a demonstration analysis, not a scientific result. Missing cells and unavailable cost data remain explicit.`;
+  document.getElementById("method").textContent = `Statistical unit: ${report.statistical_unit}. Bootstrap: ${report.bootstrap}. Multiple comparisons: ${report.multiple_comparisons}.`;
+  render();
+</script>
+</body>
+</html>
