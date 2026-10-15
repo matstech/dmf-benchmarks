@@ -1696,6 +1696,10 @@ the Artifact API home page opens a read-only, single-run analysis dashboard,
 with links to its main artifacts and back to the artifact browser. Paired
 comparisons remain in the plan-wide `dashboard.html`. Runs without a compatible
 analysis report continue to open in the status and artifact view.
+The run breakdown groups queries by benchmark label, shows both query and
+independent-unit counts, and averages primary scores within units before
+averaging across units. LoCoMo category numbers are shown with their names;
+single-unit groups are descriptive rather than evidence of a stable effect.
 
 Each run must be committed v3 with a valid completion marker, final manifest,
 file hashes, prediction aggregates, judgments for every declared judge, and

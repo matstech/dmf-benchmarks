@@ -86,10 +86,11 @@
   const frontier = report.frontier_points || [];
   const benchmarks = [...new Set(matrix.map(cell => cell.benchmark))];
   const frameworks = [...new Set(matrix.map(cell => cell.framework))];
+  const locomoCategories = {"1": "multi-hop", "2": "temporal", "3": "open-domain", "4": "single-hop", "5": "adversarial"};
   const selected = () => filter.value;
   const visible = benchmark => selected() === "all" || selected() === benchmark;
   const fmt = (value, digits = 3) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
-  const fmtInt = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString("en-US") : "—";
+  const fmtInt = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString("it-IT") : "—";
   const totalTokens = run => run.token_usage?.totals?.overall?.total_tokens;
   const componentTokens = (run, name) => {
     const component = run.token_usage?.components?.[name];
@@ -143,9 +144,13 @@
     if (secondary.length) { target.append(el("h3", "Secondary judges")); table(target, ["Judge", "Mean unit score"], secondary.map(([judge, score]) => [judge, fmt(score)])); }
     const strata = Object.entries(run.strata || {});
     if (strata.length) {
-      target.append(el("h3", "Breakdown"));
-      const rows = strata.flatMap(([dimension, groups]) => Object.entries(groups).map(([value, item]) => [dimension, value, item.query_count, item.unit_count, fmt(item.mean_unit_score)]));
-      table(target, ["Dimension", "Value", "Queries", "Units", "Mean score"], rows);
+      target.append(el("h3", "Breakdown by benchmark label"));
+      target.append(el("p", "Each row groups questions with the same label. Queries = questions in the group; units = independent conversations or records contributing to it. Mean score is the primary judge score, averaged within each unit and then across units (0–1, higher is better). Groups with one unit are descriptive only.", "subtle"));
+      const rows = strata.flatMap(([dimension, groups]) => Object.entries(groups).map(([value, item]) => {
+        const label = run.benchmark === "locomo" && dimension === "category" && locomoCategories[value] ? `${value} · ${locomoCategories[value]}` : value;
+        return [dimension, label, item.query_count, item.unit_count, fmt(item.mean_unit_score)];
+      }));
+      table(target, ["Dimension", "Group", "Queries", "Units", "Mean score (0–1)"], rows);
     }
     panel.scrollIntoView({behavior: "smooth", block: "start"});
   }
