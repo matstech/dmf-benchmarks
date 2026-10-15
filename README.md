@@ -37,7 +37,10 @@ official remote judge.
 The [DMF Benchmarks operator manual](manual/user-manual.md) is the canonical
 reference for installing and using `dmf-benchctl`, configuring experiments,
 sampling datasets, running benchmarks, monitoring progress, interpreting
-results, recovering executions, and publishing run artifacts.
+results, recovering executions, and publishing run artifacts. For offline
+comparisons of completed v3 runs, `dmf-bench analyze` reads an explicit plan
+and verifies committed artifacts before writing tables and plot data. See
+[offline analysis](manual/user-manual.md#offline-analysis-of-committed-v3-runs).
 
 The installed CLI also provides contextual help:
 

@@ -99,6 +99,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Shared volume directory containing run directories.",
     )
 
+    analyze_parser = subparsers.add_parser(
+        "analyze", help="Analyze verified committed v3 runs from an explicit JSON plan.",
+    )
+    analyze_parser.add_argument("--plan", required=True, help="Analysis plan JSON file.")
+    analyze_parser.add_argument("--output-dir", required=True, help="Directory for analysis JSON and CSV tables.")
+    analyze_parser.add_argument(
+        "--runs-dir", default=os.getenv("DMF_BENCH_RUNS_DIR", "/bench/runs"),
+        help="Directory containing committed run directories.",
+    )
+
     oci_parser = subparsers.add_parser(
         "publish-run-oci",
         help="Package a committed run directory and publish it as a GHCR/OCI artifact.",
@@ -261,6 +271,20 @@ def main(
         except (StateError, ValueError) as exc:
             parser.exit(3, f"dmf-bench verify: error: {exc}\n")
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), file=sys.stdout)
+        return 0
+
+    if args.command == "analyze":
+        from .analyzer import analyze, write_analysis
+
+        try:
+            plan = read_json(Path(args.plan))
+            if not isinstance(plan, dict):
+                raise ValueError("Analysis plan must be a JSON object.")
+            result = analyze(LocalArtifactStore(args.runs_dir), plan)
+            write_analysis(result, Path(args.output_dir))
+        except (OSError, StateError, ValueError, KeyError, TypeError) as exc:
+            parser.exit(3, f"dmf-bench analyze: error: {exc}\n")
+        print(json.dumps({"status": result["status"], "output_dir": str(Path(args.output_dir).resolve()), "verified_runs": len(result["runs"]), "comparisons": len(result["comparisons"])}, sort_keys=True), file=sys.stdout)
         return 0
 
     if args.command == "publish-run-oci":

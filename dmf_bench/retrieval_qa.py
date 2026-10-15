@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import time
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable
@@ -231,6 +232,7 @@ class RetrievalQAPredictOnlyRunner:
                                                    query_checkpoint_path))
                             predictions.append(cached)
                             continue
+                        qa_started_at = time.perf_counter()
                         retrieval = self.framework.retrieve_v3(
                             safe_unit, query, prepared, config, run_context
                         )
@@ -249,10 +251,16 @@ class RetrievalQAPredictOnlyRunner:
                         request = self.benchmark.build_answerer_request_v3(
                             query, packed, config
                         )
+                        answer_started_at = time.perf_counter()
                         answer = self.answerer.generate(request)
+                        answer_ms = (time.perf_counter() - answer_started_at) * 1000
                         prediction = self.benchmark.build_prediction_v3(
                             case, query, retrieval, packed, answer
                         )
+                        prediction["answer_timing"] = {
+                            "answer_ms": answer_ms,
+                            "qa_ms": (time.perf_counter() - qa_started_at) * 1000,
+                        }
                         prediction_retrieval = prediction["retrieval"]
                         prediction_retrieval["search_results"] = [
                             {
