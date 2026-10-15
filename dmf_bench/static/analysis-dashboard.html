@@ -23,8 +23,10 @@
     select, a.link { padding: 8px 10px; }
     a.link { text-decoration: none; font-size: 12px; }
     a.link:hover, a.link:focus-visible, button:hover, button:focus-visible { border-color: var(--accent); outline: none; }
+    [hidden] { display: none !important; }
+    .artifact-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
     .notice { border: 1px solid #6d5736; border-radius: 9px; padding: 12px 15px; background: #211b12; color: #f2d9aa; }
-    .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+    .cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
     .card, section.panel { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
     .card { padding: 15px; }
     .card .value { display: block; font-size: 27px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
@@ -52,6 +54,7 @@
     .detail-grid span { display: block; color: var(--muted); font-size: 11px; }
     .detail-grid strong { display: block; overflow-wrap: anywhere; font-size: 12px; font-weight: 500; }
     .foot { margin-top: 20px; color: var(--muted); font-size: 12px; }
+    @media (max-width: 900px) { .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 700px) { main { width: min(100% - 20px, 1240px); padding-top: 18px; } .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } section.panel { padding: 13px; } .detail-grid { grid-template-columns: 1fr 1fr; } }
     @media print { :root { color-scheme: light; --bg: white; --panel: white; --line: #ccc; --text: #111; --muted: #444; } .toolbar, button { display: none; } section.panel { break-inside: avoid; } }
   </style>
@@ -60,12 +63,12 @@
 <main>
   <header>
     <div><div class="eyebrow">DMF Benchmarks</div><h1>Final analysis</h1><p class="muted">Verified run artifacts · offline report</p></div>
-    <div class="toolbar"><label for="benchmark-filter">Benchmark</label><select id="benchmark-filter"><option value="all">All benchmarks</option></select><a class="link" href="analysis.json">Raw JSON</a><a class="link" href="matrix.csv">Matrix CSV</a><a class="link" href="comparisons.csv">Comparisons CSV</a><a class="link" href="frontier.csv">Frontier CSV</a></div>
+    <div class="toolbar"><a class="link" id="back-to-runs" href="/" hidden>All runs</a><label for="benchmark-filter">Benchmark</label><select id="benchmark-filter"><option value="all">All benchmarks</option></select><a class="link" data-local-file href="analysis.json">Raw JSON</a><a class="link" data-local-file href="matrix.csv">Matrix CSV</a><a class="link" data-local-file href="comparisons.csv">Comparisons CSV</a><a class="link" data-local-file href="frontier.csv">Frontier CSV</a></div>
   </header>
   <div class="notice" id="notice"></div>
   <div class="cards" id="cards"></div>
   <section class="panel"><div class="section-head"><h2>Benchmark × framework</h2><span class="subtle">Status comes from the explicit analysis plan</span></div><div class="table-wrap" id="matrix"></div></section>
-  <section class="panel"><div class="section-head"><h2>Run results</h2><span class="subtle">Primary judge mean, averaged by atomic unit</span></div><div class="table-wrap" id="runs"></div></section>
+  <section class="panel"><div class="section-head"><h2>Run results</h2><span class="subtle">Primary judge mean by atomic unit · token counts from committed usage reports</span></div><div class="table-wrap" id="runs"></div></section>
   <section class="panel" id="run-detail" hidden><h2>Run detail</h2><div id="detail-content"></div></section>
   <section class="panel"><div class="section-head"><h2>Paired comparisons</h2><span class="subtle">Delta = right minus left · 95% paired bootstrap CI</span></div><div class="table-wrap" id="comparisons"></div></section>
   <section class="panel"><div class="section-head"><h2>Cost and latency frontier</h2><span class="subtle">Comparable controls and context families only</span></div><div class="table-wrap" id="frontier"></div></section>
@@ -86,6 +89,13 @@
   const selected = () => filter.value;
   const visible = benchmark => selected() === "all" || selected() === benchmark;
   const fmt = (value, digits = 3) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
+  const fmtInt = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString("en-US") : "—";
+  const totalTokens = run => run.token_usage?.totals?.overall?.total_tokens;
+  const componentTokens = (run, name) => {
+    const component = run.token_usage?.components?.[name];
+    return component && !(component.available === false && component.calls > 0) ? fmtInt(component.total_tokens) : "—";
+  };
+  const usagePartial = run => ["answerer", "judge"].some(name => run.token_usage?.components?.[name]?.complete === false);
   const el = (tag, value, className) => {
     const node = document.createElement(tag);
     if (value !== undefined && value !== null) node.textContent = String(value);
@@ -106,11 +116,29 @@
     const panel = document.getElementById("run-detail"); const target = clear("detail-content"); panel.hidden = false;
     const title = el("h3", runId); target.append(title);
     const grid = el("div", null, "detail-grid");
-    for (const [label, value] of [["Benchmark", run.benchmark], ["Framework / profile", `${run.framework} / ${run.profile}`], ["Protocol", run.protocol], ["Scientific profile", run.scientific_profile], ["Primary judge", run.primary_judge_id], ["Atomic unit", run.atomic_unit], ["Queries / units", `${run.query_count} / ${run.unit_count}`], ["Retrieval", `${run.retrieval?.status || "—"} (${run.retrieval?.not_applicable_count ?? 0} N/A)`], ["Publication SHA-256", run.publication_manifest_sha256]]) {
+    for (const [label, value] of [["Benchmark", run.benchmark], ["Framework / profile", `${run.framework} / ${run.profile}`], ["Protocol", run.protocol], ["Scientific profile", run.scientific_profile], ["Primary judge", run.primary_judge_id], ["Atomic unit", run.atomic_unit], ["Queries / units", `${run.query_count} / ${run.unit_count}`], ["Retrieved / included context tokens", `${fmtInt(run.context_tokens?.retrieved)} / ${fmtInt(run.context_tokens?.included)}`], ["Retrieval", `${run.retrieval?.status || "—"} (${run.retrieval?.not_applicable_count ?? 0} N/A)`], ["Publication SHA-256", run.publication_manifest_sha256]]) {
       const item = el("div"); item.append(el("span", label), el("strong", value ?? "—")); grid.append(item);
     }
     target.append(grid);
+    if (location.pathname.match(/^\/runs\/[^/]+\/dashboard$/)) {
+      const links = el("div", null, "artifact-links");
+      for (const [label, path] of [["Run summary", "reports/summary.md"], ["Usage report", "reports/usage.json"], ["Evaluation", "evaluations/evaluation-summary.json"]]) {
+        const link = el("a", label, "link");
+        link.href = `/runs/${encodeURIComponent(runId)}/artifacts/${path}`;
+        link.target = "_blank"; link.rel = "noopener"; links.append(link);
+      }
+      target.append(links);
+    }
     if (run.retrieval?.reasons?.length) target.append(el("p", `Retrieval N/A: ${run.retrieval.reasons.join("; ")}`, "subtle"));
+    target.append(el("h3", "Model token usage"));
+    if (!run.token_usage) empty(target, "No committed usage report is available for this run.");
+    else {
+      const components = run.token_usage.components || {};
+      const tokenRows = [["Answerer", components.answerer], ["Memory internals", components.memory_internal], ["Judges (all)", components.judge], ...Object.entries(components.judges || {}).map(([id, usage]) => [`↳ ${id}`, usage])];
+      tokenRows.push(["Overall", run.token_usage.totals?.overall]);
+      table(target, ["Component", "Calls", "Prompt", "Completion", "Total", "Coverage"], tokenRows.map(([name, usage]) => [name, fmtInt(usage?.calls), fmtInt(usage?.prompt_tokens), fmtInt(usage?.completion_tokens), fmtInt(usage?.total_tokens), usage?.complete === false ? "Partial" : usage?.available === false && usage?.calls > 0 ? "Unavailable" : "Reported"]));
+      target.append(el("p", "Overall = answerer + memory internals + all judges; individual judge rows are already included. Only committed successful items are counted. Provider usage may be partial.", "subtle"));
+    }
     const secondary = Object.entries(run.secondary_mean_unit_scores || {});
     if (secondary.length) { target.append(el("h3", "Secondary judges")); table(target, ["Judge", "Mean unit score"], secondary.map(([judge, score]) => [judge, fmt(score)])); }
     const strata = Object.entries(run.strata || {});
@@ -126,7 +154,9 @@
     const shownRuns = Object.values(runs).filter(run => visible(run.benchmark));
     const shownComparisons = comparisons.filter(item => visible(item.benchmark));
     const shownFrontier = frontier.filter(item => visible(item.benchmark));
-    const stats = [["Verified cells", cells.filter(cell => cell.status === "VERIFIED").length], ["Missing cells", cells.filter(cell => cell.status === "MISSING").length], ["Runs", shownRuns.length], ["Paired comparisons", shownComparisons.length]];
+    const reportedTokenRuns = shownRuns.filter(run => Number.isSafeInteger(totalTokens(run)));
+    const tokenSum = reportedTokenRuns.reduce((sum, run) => sum + totalTokens(run), 0);
+    const stats = [["Verified cells", cells.filter(cell => cell.status === "VERIFIED").length], ["Missing cells", cells.filter(cell => cell.status === "MISSING").length], ["Runs", shownRuns.length], ["Paired comparisons", shownComparisons.length], ["Reported tokens", reportedTokenRuns.length ? `${fmtInt(tokenSum)}${reportedTokenRuns.length < shownRuns.length || shownRuns.some(usagePartial) ? "*" : ""}` : "—"]];
     const cards = clear("cards"); stats.forEach(([label, value]) => { const card = el("div", null, "card"); card.append(el("span", value, "value"), el("span", label, "label")); cards.append(card); });
     const matrixTarget = clear("matrix");
     table(matrixTarget, ["Benchmark", ...frameworks], benchmarks.filter(visible).map(benchmark => [benchmark, ...frameworks.map(framework => {
@@ -139,10 +169,10 @@
     })]));
     const runTarget = clear("runs");
     if (!shownRuns.length) empty(runTarget, "No verified runs for this benchmark.");
-    else table(runTarget, ["Run", "Benchmark", "Profile", "Primary score", "Queries / units", "Cost estimate", "QA latency"], shownRuns.map(run => {
+    else table(runTarget, ["Run", "Benchmark", "Profile", "Primary score", "Queries / units", "Answerer tokens", "Memory tokens", "Judge tokens", "Total tokens", "Cost estimate", "QA latency"], shownRuns.map(run => {
       const button = el("button", run.run_id); button.type = "button"; button.addEventListener("click", () => openRun(run.run_id));
       const score = el("div", null, "score"); const track = el("div", null, "score-track"); const fill = el("div", null, "score-fill"); fill.style.width = `${Math.max(0, Math.min(100, 100 * (run.primary_mean_unit_score || 0)))}%`; track.append(fill); score.append(track, el("span", fmt(run.primary_mean_unit_score)));
-      return [button, run.benchmark, run.profile, score, `${run.query_count} / ${run.unit_count}`, fmt(run.estimated_cost_total, 4), run.mean_qa_latency_ms === null ? "—" : `${fmt(run.mean_qa_latency_ms, 1)} ms`];
+      return [button, run.benchmark, run.profile, score, `${run.query_count} / ${run.unit_count}`, componentTokens(run, "answerer"), componentTokens(run, "memory_internal"), componentTokens(run, "judge"), `${fmtInt(totalTokens(run))}${usagePartial(run) ? "*" : ""}`, fmt(run.estimated_cost_total, 4), run.mean_qa_latency_ms === null ? "—" : `${fmt(run.mean_qa_latency_ms, 1)} ms`];
     }));
     const comparisonTarget = clear("comparisons");
     if (!shownComparisons.length) empty(comparisonTarget, "No paired comparison was declared for these runs.");
@@ -161,6 +191,14 @@
   notice.textContent = report.scientific_result ? `Status: ${report.status}. Interpret scores within each benchmark and compatible protocol.` : `Status: ${report.status}. This is a demonstration analysis, not a scientific result. Missing cells and unavailable cost data remain explicit.`;
   document.getElementById("method").textContent = `Statistical unit: ${report.statistical_unit}. Bootstrap: ${report.bootstrap}. Multiple comparisons: ${report.multiple_comparisons}.`;
   render();
+  const focusedMatch = location.pathname.match(/^\/runs\/([^/]+)\/dashboard$/);
+  if (focusedMatch) {
+    document.getElementById("back-to-runs").hidden = false;
+    document.querySelectorAll("[data-local-file]").forEach(link => { link.hidden = true; });
+    const focusedId = decodeURIComponent(focusedMatch[1]);
+    document.getElementById("back-to-runs").href = `/?run=${encodeURIComponent(focusedId)}`;
+    if (runs[focusedId]) { filter.value = runs[focusedId].benchmark; render(); openRun(focusedId); }
+  }
 </script>
 </body>
 </html>

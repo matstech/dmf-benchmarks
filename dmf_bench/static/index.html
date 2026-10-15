@@ -716,7 +716,10 @@
           state.textContent = run.state;
           stack.append(name, meta);
           button.append(stack, state);
-          button.addEventListener("click", () => selectRun(run.run_id));
+          button.addEventListener("click", () => {
+            if (run.analysis_available) window.location.assign(`/runs/${encodeURIComponent(run.run_id)}/dashboard`);
+            else selectRun(run.run_id);
+          });
           runList.append(button);
         }
       } catch (error) {
@@ -857,7 +860,10 @@
     refreshRunButton.addEventListener("click", () => loadRunStatus(activeRunId, true));
     refreshRunsButton.addEventListener("click", loadRuns);
     refreshAllButton.addEventListener("click", refreshAll);
-    refreshAll();
+    refreshAll().then(() => {
+      const initialRun = new URLSearchParams(window.location.search).get("run");
+      if (initialRun) selectRun(initialRun);
+    });
   </script>
 </body>
 </html>

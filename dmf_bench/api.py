@@ -9,9 +9,11 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from dmf_bench import __version__
+from dmf_bench.analysis_dashboard import render_dashboard
+from dmf_bench.analyzer import analyze
 from dmf_bench.artifacts import LocalArtifactStore
 from dmf_bench.atomic_io import read_json
 from dmf_bench.derived_evaluation import derived_evaluation_dir
@@ -64,6 +66,25 @@ def create_app(runs_dir: str | Path, metrics: BenchmarkMetrics | None = None) ->
             assert status is not None
             return status
         except (StateError, ValueError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/runs/{run_id}/dashboard", include_in_schema=False)
+    def run_dashboard(run_id: str) -> HTMLResponse:
+        """Inspect one committed v3 run through the offline analysis view."""
+        try:
+            manifest = load_manifest(store.run_dir(run_id))
+            inputs = manifest.fingerprint_inputs
+            result = analyze(store, {
+                "schema_version": 1,
+                "run_ids": [run_id],
+                "cells": [{
+                    "benchmark": inputs["benchmark"],
+                    "framework": inputs["framework"],
+                    "run_id": run_id,
+                }],
+            })
+            return HTMLResponse(render_dashboard(result))
+        except (StateError, ValueError, FileNotFoundError, KeyError) as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/runs/{run_id}")
@@ -189,6 +210,8 @@ def list_available_runs(runs_path: Path) -> list[dict[str, Any]]:
                     "state": state,
                     "phase": phase,
                     "completed": completed,
+                    "analysis_available": completed and manifest.schema_version == 3
+                    and (run_path / "final" / "evaluations" / "analysis_rows.json").is_file(),
                     "updated_at": datetime.fromtimestamp(modified, UTC)
                     .isoformat()
                     .replace("+00:00", "Z"),

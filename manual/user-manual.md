@@ -1688,6 +1688,15 @@ undeclared cell as `MISSING` with
 a reason. You may explicitly mark a cell `FAILED` or `NOT_APPLICABLE`, always
 with a reason. A declared run must match its benchmark and framework.
 
+The dashboard also shows reported model tokens for the answerer, memory-system
+internals, and all judges, plus the overall total from the committed
+`reports/usage.json`. Counts cover successful committed items; missing provider
+usage remains marked as partial or unavailable. Clicking a completed v3 run in
+the Artifact API home page opens a read-only, single-run analysis dashboard,
+with links to its main artifacts and back to the artifact browser. Paired
+comparisons remain in the plan-wide `dashboard.html`. Runs without a compatible
+analysis report continue to open in the status and artifact view.
+
 Each run must be committed v3 with a valid completion marker, final manifest,
 file hashes, prediction aggregates, judgments for every declared judge, and
 ordered analysis rows. Comparisons require the same dataset revision, ordered
