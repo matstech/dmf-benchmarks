@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from dmf_bench.artifacts import LocalArtifactStore
+from dmf_bench.analysis_dashboard import render_dashboard
 from dmf_bench.atomic_io import read_json, write_json_atomic
 from dmf_bench.contracts import RunManifest, hash_canonical_json, sha256_file
 from dmf_bench.state import StateError
@@ -577,3 +578,4 @@ def write_analysis(result: dict[str, Any], output_dir: Path) -> None:
         writer.writeheader()
         writer.writerows(rows)
         (output_dir / name).write_text(buffer.getvalue(), encoding="utf-8")
+    (output_dir / "dashboard.html").write_text(render_dashboard(result), encoding="utf-8")
