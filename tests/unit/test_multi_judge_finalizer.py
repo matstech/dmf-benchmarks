@@ -194,6 +194,7 @@ def test_v3_analysis_rows_retrieval_and_agreement_artifacts(tmp_path: Path) -> N
 
 
 def test_full_v3_runner_with_two_deterministic_judges(tmp_path: Path) -> None:
+    from dmf_bench.analyzer import load_verified_run
     from test_retrieval_qa_runner import config_v3, runner_for
 
     config = config_v3(tmp_path, "longmemeval", "dmf")
@@ -225,6 +226,8 @@ def test_full_v3_runner_with_two_deterministic_judges(tmp_path: Path) -> None:
     assert read_json(run_dir / "evaluations" / "analysis_rows.json")["status"] == "COMPLETED"
     assert read_json(run_dir / "evaluations" / "retrieval_report.json")["status"] == "NOT_APPLICABLE"
     assert read_json(run_dir / "evaluations" / "judge_agreement.json")["status"] == "COMPLETED"
+    verified = load_verified_run(LocalArtifactStore(tmp_path / "runs"), result.run_id)
+    assert verified.latency_ms_by_query["lme-001"] >= 0
 
 
 def test_full_v3_runner_marks_single_judge_agreement_not_applicable(tmp_path: Path) -> None:

@@ -1652,6 +1652,64 @@ runs/RUN_ID/
 The final manifest lists committed artifacts and hashes. `verify` checks the
 files against it.
 
+## Offline analysis of committed v3 runs
+
+Use `dmf-bench analyze` after completing and verifying the runs. This local
+command reads `final/` artifacts and makes no model calls. Create a JSON plan:
+
+```json
+{
+  "schema_version": 1,
+  "run_ids": ["locomo-dmf-v3", "locomo-mem0-v3"],
+  "comparisons": [
+    {"left": "locomo-dmf-v3", "right": "locomo-mem0-v3"}
+  ],
+  "cells": [
+    {"benchmark": "locomo", "framework": "dmf", "run_id": "locomo-dmf-v3"},
+    {"benchmark": "locomo", "framework": "mem0", "run_id": "locomo-mem0-v3"},
+    {"benchmark": "beam", "framework": "amem", "status": "NOT_APPLICABLE", "reason": "No compatible run in this analysis"}
+  ]
+}
+```
+
+Replace the run IDs with your completed local IDs and save the plan as
+`analysis-plan.json`. Then run:
+
+```text
+poetry run dmf-bench analyze --runs-dir runs --plan analysis-plan.json --output-dir analysis-output
+```
+
+The command writes `analysis.json`, `matrix.csv`, `comparisons.csv`, and
+`frontier.csv`. The 4 × 7 matrix fills every undeclared cell as `MISSING` with
+a reason. You may explicitly mark a cell `FAILED` or `NOT_APPLICABLE`, always
+with a reason. A declared run must match its benchmark and framework.
+
+Each run must be committed v3 with a valid completion marker, final manifest,
+file hashes, prediction aggregates, judgments for every declared judge, and
+ordered analysis rows. Comparisons require the same dataset revision, ordered
+queries, scientific profile, answerer, judge plan, retrieval and context
+controls, and atomic unit mapping. A mismatch exits without writing a new
+report. DMF ablations additionally require matching full config and scientific
+control pins. Full context is labeled `bounded-full-context` when its retrieval
+diagnostics report any dropped history. MemoryAgentBench remains explicitly
+`retrieval-controlled` in the output.
+
+The primary comparison averages query scores inside each atomic unit before
+forming paired differences. It reports the mean difference, Cohen's dz when
+defined, a paired percentile bootstrap interval (10,000 draws, seed 7), a
+two-sided Wilcoxon signed-rank test, and Holm correction across the primary
+comparisons declared in the plan. For at most 25 nonzero units the Wilcoxon
+test uses exact sign enumeration; larger samples use a tie-corrected normal
+approximation. Strata and secondary judges are separate exploratory
+breakdowns. Retrieval `NOT_APPLICABLE` is preserved with reasons. Cost and
+latency frontiers are marked `UNAVAILABLE` when numeric estimated cost or
+per-query QA timing is missing. Full-context and fixed retrieval budgets have
+separate frontier families. Native framework scores are never compared.
+
+These files are analysis inputs for review and plots, not automatically paper
+results. The operator must predeclare the comparison family and review the
+dataset, judge, budget, and multiple-testing assumptions before scientific use.
+
 ## Artifact browser and API
 
 The browser is the easiest interface:
