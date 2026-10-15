@@ -45,6 +45,7 @@ class VerifiedRun:
     publication_sha256: str
     latency_ms_by_query: dict[str, float]
     bounded_full_context: bool
+    usage_report: dict[str, Any] | None
 
     @property
     def inputs(self) -> dict[str, Any]:
@@ -240,7 +241,14 @@ def load_verified_run(store: LocalArtifactStore, run_id: str) -> VerifiedRun:
         }.get(inputs.get("benchmark"))
         if expected_strata is None or any(row["strata"].get(key) != evaluation.get(key) for key in expected_strata):
             raise ValueError(f"{run_id}: analysis row strata mismatch for {query_id}.")
-    return VerifiedRun(manifest, rows, unit_by_query, verification["final_manifest_sha256"], latency, bounded_full_context)
+    usage_report = None
+    if "reports/usage.json" in paths:
+        usage_report = _object(read_json(_member(store, run_id, paths, "reports/usage.json")), "usage report")
+        if (usage_report.get("scope") != "committed_successful_items"
+                or not isinstance(usage_report.get("components"), dict)
+                or not isinstance(usage_report.get("totals"), dict)):
+            raise ValueError(f"{run_id}: invalid committed usage report.")
+    return VerifiedRun(manifest, rows, unit_by_query, verification["final_manifest_sha256"], latency, bounded_full_context, usage_report)
 
 
 def _mean(values: list[float]) -> float:
@@ -384,6 +392,15 @@ def _summary(run: VerifiedRun) -> dict[str, Any]:
         "atomic_unit": run.manifest.atomic_unit, "query_count": len(run.rows), "unit_count": len(unit_scores),
         "primary_judge_id": primary, "primary_mean_unit_score": _mean(unit_scores),
         "secondary_mean_unit_scores": secondary, "strata": strata,
+        "context_tokens": {
+            "retrieved": sum(row["retrieved_tokens"] for row in run.rows),
+            "included": sum(row["included_tokens"] for row in run.rows),
+        },
+        "token_usage": ({
+            "scope": run.usage_report["scope"],
+            "components": run.usage_report["components"],
+            "totals": run.usage_report["totals"],
+        } if run.usage_report is not None else None),
         "retrieval": {
             "status": "NOT_APPLICABLE" if len(unavailable) == len(retrieval)
             else "PARTIAL" if unavailable else "AVAILABLE",
